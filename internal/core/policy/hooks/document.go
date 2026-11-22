@@ -174,6 +174,9 @@ func Parse(raw []byte) ([]Entry, []string) {
 	var entries []Entry
 	var problems []string
 	for _, name := range sortedKeys(top) {
+		if name == "$schema" {
+			continue
+		}
 		value := top[name]
 		if name == "hooks" && isJSONArray(value) {
 			e, p := parseFlatList(value)

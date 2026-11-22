@@ -263,14 +263,33 @@ func groupLines(tools []Step, expanded bool, width int) []string {
 	if len(tools) == 0 {
 		return nil
 	}
+	last := tools[len(tools)-1]
 	if !expanded {
-		last := tools[len(tools)-1]
 		return []string{styledStepBullet(last, false) + " " + styledCallTitle(last)}
 	}
-	var out []string
+	// AGY 1.5.14: expanding a group keeps the summary header's colors,
+	// including red status markers on failed runs, instead of dimming it to gray,
+	// and indents the expanded tool calls behind a │ gutter.
+	hasErr := false
 	for _, s := range tools {
-		out = append(out, renderStepTitle(s, true)...)
-		out = append(out, stepDetailLines(s, width)...)
+		if s.Err {
+			hasErr = true
+			break
+		}
+	}
+	headerStep := last
+	if hasErr {
+		headerStep.Err = true
+	}
+	header := styledStepBullet(headerStep, false) + " " + styledCallTitle(last)
+	var out []string
+	out = append(out, header)
+	gutter := palette.DimGrayOpen + "│ " + palette.DimGrayClose
+	for _, s := range tools {
+		callLines := append(renderStepTitle(s, true), stepDetailLines(s, width)...)
+		for _, cl := range callLines {
+			out = append(out, gutter+cl)
+		}
 	}
 	return out
 }

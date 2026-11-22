@@ -80,4 +80,4 @@ In Cycle 384, upstream 1.5.11 artifacts (embedded assets, protos, pclntab seeds,
    - `internal/ui/slashcommands`: All tests passed (`0.461s`).
    - `remotetransport`: Attachment limit and RPC tests passed (`0.974s`).
    - `internal/features/models`: All model ambiguity & resolution tests passed (`0.707s`).
-   - `internal/infra/backend/select`: All provider dispatch tests passed (`0.371s`).
+   - `internal/infra/backend/backendselect`: All provider dispatch tests passed (`0.371s`).

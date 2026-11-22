@@ -677,6 +677,9 @@ func (p Policy) Decide(req Request) Verdict {
 // not narrow the other spelling's class: the mode's auto-approval looks at
 // the strictest class any spelling carries.
 func (p Policy) DecideNames(target string, names ...string) Verdict {
+	if IsForbiddenWindowsPath(target) {
+		return Deny
+	}
 	if p.SkipPermissions {
 		return Allow
 	}
@@ -724,16 +727,16 @@ func (p Policy) DecideNames(target string, names ...string) Verdict {
 			return Allow
 		}
 	case ModeAuto:
-		if cls == ClassEdit || cls == ClassCommand {
+		if cls == ClassEdit {
+			if !p.isInsideWorkspace(target) {
+				return Ask
+			}
+			return Allow
+		}
+		if cls == ClassCommand {
 			return Allow
 		}
 		if cls == ClassRead {
-			if !p.isInsideWorkspace(target) {
-				if p.AllowNonWorkspaceAccess {
-					return Allow
-				}
-				return Ask
-			}
 			return Allow
 		}
 	case ModePlan:
@@ -946,14 +949,18 @@ func NextMode(cur string) string {
 	return CycleModes[0]
 }
 
+// RemoteCycleModes lists the modes Shift+Tab cycles through when connected to a remote agent (AGY 1.5.14).
+var RemoteCycleModes = []string{"", ModeAcceptEdits, ModePlan}
+
 // NextRemoteAgentMode returns the mode that follows cur in the Shift+Tab cycle
-// when connected to a remote agent. Remote agents only toggle between default ("")
-// and accept-edits.
+// when connected to a remote agent. AGY 1.5.14 cycles default ("") -> accept-edits -> plan -> default.
 func NextRemoteAgentMode(cur string) string {
-	if cur == ModeAcceptEdits {
-		return ""
+	for i, m := range RemoteCycleModes {
+		if m == cur {
+			return RemoteCycleModes[(i+1)%len(RemoteCycleModes)]
+		}
 	}
-	return ModeAcceptEdits
+	return RemoteCycleModes[1]
 }
 
 // ModeBanner returns the status-line banner for a mode, or "" for the default

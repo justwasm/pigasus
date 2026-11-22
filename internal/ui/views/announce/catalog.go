@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // Kind classifies a card so future renderers can switch icon + colour

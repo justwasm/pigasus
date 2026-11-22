@@ -1,4 +1,4 @@
-.PHONY: build test quick arch align wirealign verify help \
+.PHONY: build test quick arch align wirealign parity-fuzz verify help \
         fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
         sync-official-docs sync-docs official-docs
 
@@ -32,6 +32,9 @@ align:
 
 wirealign:
 	./scripts/wire-align.sh test
+
+parity-fuzz:
+	python3 scripts/re/parity_fuzz.py
 
 verify:
 	./scripts/verify.sh all

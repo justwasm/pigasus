@@ -21,7 +21,7 @@
 //	providers.json   the provider registry (internal/models)
 //	accounts.json    the account registry (internal/features/accounts)
 //	remote-control-instance-id
-//	                 the installation uuid (internal/infra/remote/persistent)
+//	                 the installation uuid (internal/infra/remote/persistentrc)
 //	captures/        the proxy's captured traffic (internal/agyproxy)
 //	wrapper.log      the proxy's log (internal/agyproxy)
 package configdir

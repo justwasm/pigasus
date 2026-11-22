@@ -18,7 +18,7 @@ import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
 

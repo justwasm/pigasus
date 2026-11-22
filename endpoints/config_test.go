@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -234,5 +235,72 @@ func TestCurrentGeminiLiveModel(t *testing.T) {
 	}
 	if got := CurrentGeminiLiveModel(); got != "models/gemini-3.8-live-extended-thinking" {
 		t.Errorf("CurrentGeminiLiveModel() = %q, want models/gemini-3.8-live-extended-thinking", got)
+	}
+}
+
+func TestCurrentVoiceNoteInterval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	t.Setenv(ConfigPathEnvVar, path)
+
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "")
+	t.Setenv("GEMINI_VOICE_NOTE_INTERVAL", "")
+
+	// 1. Defaults to 5s
+	if got := CurrentVoiceNoteInterval(); got != 5*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() default = %v, want 5s", got)
+	}
+
+	// 2. OPENAGY_VOICE_NOTE_INTERVAL duration string
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "3s")
+	if got := CurrentVoiceNoteInterval(); got != 3*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() env duration = %v, want 3s", got)
+	}
+
+	// 3. OPENAGY_VOICE_NOTE_INTERVAL numeric string
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "8")
+	if got := CurrentVoiceNoteInterval(); got != 8*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() env numeric = %v, want 8s", got)
+	}
+
+	// 4. GEMINI_VOICE_NOTE_INTERVAL fallback
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "")
+	t.Setenv("GEMINI_VOICE_NOTE_INTERVAL", "4500ms")
+	if got := CurrentVoiceNoteInterval(); got != 4500*time.Millisecond {
+		t.Errorf("CurrentVoiceNoteInterval() gemini env = %v, want 4500ms", got)
+	}
+
+	t.Setenv("GEMINI_VOICE_NOTE_INTERVAL", "")
+
+	// 5. config.json string format
+	if err := os.WriteFile(path, []byte(`{"voice_note_interval":"6s"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentVoiceNoteInterval(); got != 6*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() config string = %v, want 6s", got)
+	}
+
+	// 6. config.json numeric format
+	if err := os.WriteFile(path, []byte(`{"voice_note_interval":10}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentVoiceNoteInterval(); got != 10*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() config number = %v, want 10s", got)
+	}
+
+	// 7. config.json voice_note_interval_seconds
+	if err := os.WriteFile(path, []byte(`{"voice_note_interval_seconds":7.5}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentVoiceNoteInterval(); got != 7500*time.Millisecond {
+		t.Errorf("CurrentVoiceNoteInterval() config seconds = %v, want 7.5s", got)
+	}
+
+	// 8. Invalid config value falls back to default 5s
+	if err := os.WriteFile(path, []byte(`{"voice_note_interval":"invalid"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentVoiceNoteInterval(); got != 5*time.Second {
+		t.Errorf("CurrentVoiceNoteInterval() invalid config = %v, want 5s", got)
 	}
 }

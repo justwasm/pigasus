@@ -177,7 +177,7 @@ to which provider", and its only writer is `internal/features/models.Editor`).
 | `internal/features/accounts/routing/routing.go` | the runtime: the router, the pin, the quota cache, the credential lookup, the failover wrapper |
 | `internal/features/accounts/core/pool.go` | `CurrentAccountPool()` and `SaveAccountPool()` — the registry's section, and its only reader **and** writer |
 | `endpoints/config.go` | the endpoint overrides and the proxy's opaque `"wrapper"` section — the configuration document keeps a single reader |
-| `internal/infra/backend/select/backendselect.go` | installs the token function and the wrapper — **always**, so the policy can be turned on live |
+| `internal/infra/backend/backendselect/backendselect.go` | installs the token function and the wrapper — **always**, so the policy can be turned on live |
 
 ### The pool is aggregate, and it stays on one account
 

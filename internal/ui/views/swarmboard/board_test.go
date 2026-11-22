@@ -186,3 +186,39 @@ func TestBoard_KeyNavigation(t *testing.T) {
 		t.Fatal("expected board to be closed after Esc")
 	}
 }
+
+func TestBoard_OverviewSectionAt28Rows(t *testing.T) {
+	b := NewBoard(nil)
+	b.Open()
+
+	snap := &SwarmSnapshot{
+		Title: "Parser Optimization",
+		Members: []Member{
+			{Name: "coordinator", State: "working", IsCoordinator: true},
+			{Name: "worker-1", State: "done"},
+			{Name: "worker-2", State: "waiting"},
+		},
+		Posts: []Post{{Seq: 1, Author: "worker-1", Body: "Done"}},
+	}
+	b.ApplySnapshot(snap)
+
+	// Below 28 rows: no overview
+	b.SetSize(80, 24)
+	v24 := b.View()
+	if strings.Contains(v24, "Overview ·") {
+		t.Errorf("expected no Overview below 28 rows, got:\n%s", v24)
+	}
+
+	// At 28 rows or taller: Overview rendered (AGY 1.5.14)
+	b.SetSize(80, 28)
+	v28 := b.View()
+	if !strings.Contains(v28, "Overview · 1 of 2 tasks done") {
+		t.Errorf("expected Overview at 28 rows, got:\n%s", v28)
+	}
+	if !strings.Contains(v28, "1 blocked") {
+		t.Errorf("expected blocked count in Overview, got:\n%s", v28)
+	}
+	if !strings.Contains(v28, "Goal: Parser Optimization") {
+		t.Errorf("expected Goal in Overview, got:\n%s", v28)
+	}
+}

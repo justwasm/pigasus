@@ -437,8 +437,11 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 			step.FinishReason = firstNonEmpty(finishReason, step.Status)
 			step.CompletedAt = a.now()
 			step.Usage = tokenUsagePtr(stepUsage)
+			// AGY 1.5.14: Discard partial tool calls from incomplete/errored responses
+			// so they are not executed or resent on retry, avoiding thinking-signature validation errors.
+			step.ToolCalls = nil
+			step.ToolResults = nil
 			if hasStepContent(step) {
-				step = pairMissingCalls(step)
 				turnRecord.Steps[stepIdx] = step
 				finalOutput.WriteString(step.Delta)
 			} else {

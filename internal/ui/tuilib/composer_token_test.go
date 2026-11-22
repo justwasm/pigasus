@@ -19,6 +19,20 @@ func TestComposerArgumentHint(t *testing.T) {
 		{"/voice volume ", "[0-100]", true},
 		{"/voice speed ", "[0.5-3]", true},
 		{"/voice live ", "", false},
+		{"/swarm", " board", true},
+		{"/swarm ", "board", true},
+		{"/swarm b", "oard", true},
+		{"/swarm bo", "ard", true},
+		{"/swarm boa", "rd", true},
+		{"/swarm boar", "d", true},
+		{"/swarm board", "", false},
+		{"/swarm board ", "", false},
+		{"/swarm my task", "", false},
+		{"/copy", " btw", true},
+		{"/copy ", "btw", true},
+		{"/copy b", "tw", true},
+		{"/copy bt", "w", true},
+		{"/copy btw", "", false},
 	}
 
 	for _, c := range cases {

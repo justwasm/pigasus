@@ -529,7 +529,7 @@ chooser link. The *deep link* it points at is the reference's own
 
 The chooser is a **named endpoint** (`account_chooser` in
 `~/.openagy/config.json`), so a local service can stand in for it.
-The builder lives in `internal/infra/remote/link`; the resolver in
+The builder lives in `internal/infra/remote/rclink`; the resolver in
 `endpoints.Set.AccountChooserURL`.
 
 A chooser that names **no** account chooses nothing, so with nothing
@@ -1224,10 +1224,10 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 
 | | |
 |---|---|
-| `internal/infra/remote/link/rclink.go` | the browser link: the deep link, and the account chooser around it |
+| `internal/infra/remote/rclink/rclink.go` | the browser link: the deep link, and the account chooser around it |
 | `urlchunk/urlchunk.go` | the URL block: the chunking and the OSC 8 frame — shared with the add-account screen |
 | `internal/cliapp/slash_rc_url.go` | the TUI's `/remote-control` link rows |
-| `internal/infra/remote/persistent/instance_id.go` | the installation uuid — memoised, so the daemon and the printed link agree |
+| `internal/infra/remote/persistentrc/instance_id.go` | the installation uuid — memoised, so the daemon and the printed link agree |
 | `internal/cli/subcommand_rc.go` | `remote-control start`: the launchd branch, and the foreground branch |
 | `internal/cli/subcommand_rc_foreground.go` | the one foreground implementation: `serve`, `run` and the non-darwin `start` share it |
 | `internal/cli/subcommand_rc_run.go` | `remote-control run` — the platform-independent foreground command |

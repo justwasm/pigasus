@@ -60,7 +60,7 @@ internal/infra/agyproxy      the proxy: HTTP server (passthrough + fetchAvailabl
                        the launcher (ctl.go, launch.go), the admin commands
                        (admin.go), the persisted config (fileconfig.go) and the
                        log sink (log.go)
-internal/infra/proxy/bin  resolve the real agy (resolved-path + inode self-exec guard)
+internal/infra/proxy/agybin  resolve the real agy (resolved-path + inode self-exec guard)
 geminicode/            Gemini CloudCode wire types
 internal/features/models        provider registry (the provider-centric config)
 internal/cli           the registry's only CLI (provider/model)
@@ -112,7 +112,7 @@ Six things that bite:
   first (`pigasus provider add …`), then the models
   (`pigasus model add … --provider …`). The proxy creates no file and
   no entry on first run.
-- The self-exec guard in `internal/infra/proxy/bin` (resolved path **and** inode) is
+- The self-exec guard in `internal/infra/proxy/agybin` (resolved path **and** inode) is
   what stops the launcher from exec'ing itself through a symlink.
 - `internal/features/models` is shared with the clone; the cycle-274 additions are
   additive (`Tools` nil ⇒ byte-identical wire), but `go build ./cmd/pigasus`

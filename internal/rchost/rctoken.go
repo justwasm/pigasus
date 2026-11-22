@@ -5,7 +5,7 @@
 //
 // `pigasus remote-control serve` and `pigasus web` both bind 0.0.0.0
 // on purpose — the persistent daemon refuses a loopback bind
-// (internal/infra/remote/persistent.ValidateAddr) because the point of both
+// (internal/infra/remote/persistentrc.ValidateAddr) because the point of both
 // commands is to be reached from another machine. Until this cycle
 // nothing on that surface asked for a credential, so any host that
 // could reach the port could drive the agent.

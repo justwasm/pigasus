@@ -21,7 +21,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/compaction"
-	"github.com/justwasm/pigasus/internal/features/models/ctx"
+	"github.com/justwasm/pigasus/internal/features/models/modelctx"
 )
 
 // EventPhase identifies the checkpoint progress an emitter receives.
@@ -154,8 +154,8 @@ type Config struct {
 // Policy is one session's checkpoint policy.
 type Policy struct {
 	cfg     Config
-	profile ctx.Profile
-	limit   ctx.Limit
+	profile modelctx.Profile
+	limit   modelctx.Limit
 
 	mu            sync.Mutex
 	pending       *job
@@ -201,18 +201,18 @@ func New(cfg Config) *Policy {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	profile, ok := ctx.ProfileFor(cfg.Model)
+	profile, ok := modelctx.ProfileFor(cfg.Model)
 	if !ok {
-		limit := ctx.For(cfg.Model)
+		limit := modelctx.For(cfg.Model)
 		defaultThreshold := 50000
 		threshold := defaultThreshold
-		if cp, ok := ctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
+		if cp, ok := modelctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
 			if cp < defaultThreshold {
 				threshold = cp
 			}
 		}
-		profile = ctx.Profile{
-			Strategy:                   ctx.StrategySameModel,
+		profile = modelctx.Profile{
+			Strategy:                   modelctx.StrategySameModel,
 			MaxTokenLimit:              limit.ContextWindow,
 			MaxOutputTokens:            limit.ReserveTokens,
 			TokenThreshold:             threshold,
@@ -228,7 +228,7 @@ func New(cfg Config) *Policy {
 	return &Policy{
 		cfg:        cfg,
 		profile:    profile,
-		limit:      ctx.For(cfg.Model),
+		limit:      modelctx.For(cfg.Model),
 		baseCtx:    baseCtx,
 		baseCancel: cancel,
 		snap: Snapshot{
@@ -295,10 +295,10 @@ func (p *Policy) Close() {
 }
 
 // Profile returns the resolved profile (for tests and diagnostics).
-func (p *Policy) Profile() ctx.Profile { return p.profile }
+func (p *Policy) Profile() modelctx.Profile { return p.profile }
 
 // Limit returns the resolved context budget.
-func (p *Policy) Limit() ctx.Limit { return p.limit }
+func (p *Policy) Limit() modelctx.Limit { return p.limit }
 
 // BeforeStep is the actor's checkpoint callback.
 func (p *Policy) BeforeStep(ctx context.Context, act *actor.Actor, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
@@ -535,11 +535,11 @@ func (p *Policy) refreshRequests(act *actor.Actor) {
 }
 
 func (p *Policy) summaryModel() string {
-	if p.profile.UseLastPlannerModel || p.profile.Strategy == ctx.StrategySameModel {
+	if p.profile.UseLastPlannerModel || p.profile.Strategy == modelctx.StrategySameModel {
 		return p.cfg.Model
 	}
 	if p.profile.CheckpointModel != "" {
-		if id, ok := ctx.ModelForEnum(p.profile.CheckpointModel); ok {
+		if id, ok := modelctx.ModelForEnum(p.profile.CheckpointModel); ok {
 			return id
 		}
 	}

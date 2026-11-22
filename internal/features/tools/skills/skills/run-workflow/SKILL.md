@@ -48,8 +48,9 @@ on `PATH`:
     `from <library> import <name>`); library modules see the same primitives as
     the script.
 -   What the script prints (`print()`, `stderr`, child-process output, and the
-    `repr` of a trailing expression) is returned in the tool result's `Output:`
-    section (and appended to the error when the workflow fails).
+    `repr` of a trailing expression or trailing `return <expr>`) is returned in
+    the tool result's `Output:` section (and appended to the error when the workflow fails).
+    A top-level trailing `return <expr>` statement is evaluated as the workflow's result.
 -   An uncaught exception stops the workflow and reports the script line.
 -   `CONVERSATION_ID` and `STEP_INDEX` identify the `run_workflow` step.
     `WORKSPACES` is a tuple of the workspace directories, primary first (empty

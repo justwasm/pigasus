@@ -38,7 +38,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 )

@@ -368,9 +368,10 @@ func statusCells(s State) string {
 	if s.ContextUsedPercent > 0 {
 		b.WriteString(fmt.Sprintf(" · %.1f%%", s.ContextUsedPercent))
 	}
-	if s.OutOfCredits && !s.IsGeminiAPIKey {
-		b.WriteString(" · \x1b[38;2;220;50;47mAI: Out of credits\x1b[39m")
-	} else if s.CreditsKnown && !s.IsGeminiAPIKey {
+	// AGY 1.5.14: The status line shows AI credits only when you have a positive
+	// balance (> 0) and omits the permanent red "AI: Out of credits" warning
+	// when credit balance is 0 while normal model quota is still available.
+	if s.CreditsKnown && !s.IsGeminiAPIKey && s.Credits > 0 {
 		b.WriteString(fmt.Sprintf(" · AI Credits: %d", s.Credits))
 	}
 	return b.String()

@@ -82,3 +82,47 @@ func TestTheComposerHintDisappearsWithTheNextTurn(t *testing.T) {
 		t.Fatalf("the composer hint survived the next turn: %q", row)
 	}
 }
+
+func TestEscCancelDuringTeardownKeepsInterruptedAndQueues(t *testing.T) {
+	// AGY 1.5.14 Item 5: Esc during teardown preserves Interrupted hint and queues follow-up messages
+	m := &RootModel{
+		conversation: ConversationModel{streaming: true, turnInterrupted: true},
+	}
+	m.prompt.input = tas.New()
+
+	// Pressing Esc while tearing down must keep turnInterrupted == true
+	_, _ = m.handleEscKeyMsg()
+	if !m.conversation.turnInterrupted {
+		t.Fatal("Esc during teardown cleared the turnInterrupted flag")
+	}
+
+	// Submitting a follow-up message while tearing down must queue into StreamQueue
+	handled, _ := m.checkStreamingQueue("follow up after interrupt")
+	if !handled {
+		t.Fatal("checkStreamingQueue did not handle follow up input during teardown")
+	}
+	if len(m.session.store.StreamQueue) == 0 || m.session.store.StreamQueue[0] != "follow up after interrupt" {
+		t.Fatalf("follow up message was not queued into StreamQueue: %v", m.session.store.StreamQueue)
+	}
+}
+
+func TestPreSendCancellationReportsMessageNotSent(t *testing.T) {
+	// AGY 1.5.14 Item 4: Canceling in pre-send window aborts the send and shows
+	// "Message not sent: canceled before it was sent"
+	m := &RootModel{
+		conversation: ConversationModel{streaming: true},
+	}
+	m.recordTurnCompletion(toolsteps.TurnDoneMsg{
+		Err: errors.New("Message not sent: canceled before it was sent"),
+	})
+	found := false
+	for _, line := range m.conversation.response {
+		if strings.Contains(line, "Message not sent: canceled before it was sent") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("pre-send cancellation notice missing in response rows: %v", m.conversation.response)
+	}
+}

@@ -132,7 +132,13 @@ func Lookup(marketplace, name string) (Entry, error) {
 	}
 	doc, ok := core.MarketplaceDocByDir(marketplace)
 	if !ok {
-		return Entry{}, fmt.Errorf("marketplace %q is not available", marketplace)
+		// Attempt to fetch known public marketplace feed if missing (e.g. GEMINI_API_KEY without saved login)
+		if tryFetchMarketplace(marketplace) {
+			doc, ok = core.MarketplaceDocByDir(marketplace)
+		}
+	}
+	if !ok {
+		return Entry{}, fmt.Errorf("unknown marketplace: %s", marketplace)
 	}
 	for _, p := range doc.Plugins {
 		if p.Name != name {
@@ -151,6 +157,37 @@ func Lookup(marketplace, name string) (Entry, error) {
 		return entry, nil
 	}
 	return Entry{}, fmt.Errorf("plugin %q is not in marketplace %q", name, marketplace)
+}
+
+func tryFetchMarketplace(marketplace string) bool {
+	var feedURL string
+	switch marketplace {
+	case "antigravity-plugins-official", "official":
+		feedURL = "https://www.gstatic.com/antigravity/plugins/marketplace.json"
+		marketplace = DefaultMarketplace
+	case "antigravity-plugins-partners", "partners":
+		feedURL = "https://www.gstatic.com/antigravity/plugins-partners/marketplace.json"
+	default:
+		return false
+	}
+	dir := filepath.Join(core.MarketplaceRoot(), marketplace)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(feedURL)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || len(body) == 0 {
+		return false
+	}
+	return os.WriteFile(filepath.Join(dir, "marketplace.json"), body, 0644) == nil
 }
 
 // Fetch downloads the entry's archive, verifies the digest the feed

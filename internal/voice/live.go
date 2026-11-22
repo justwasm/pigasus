@@ -64,6 +64,15 @@ type LiveSession interface {
 	// SendThinkerAnswer sends the final answer of a Thinker task to the live talker.
 	SendThinkerAnswer(answer string) error
 
+	// SendWaitingOnUser notifies the live talker that the background task is waiting for user confirmation or input.
+	SendWaitingOnUser(question string) error
+
+	// SendTaskStopped notifies the live talker that the background task was stopped or cancelled.
+	SendTaskStopped() error
+
+	// SendMedia sends a real-time visual image or video frame (e.g. image/jpeg, image/png) into the live session.
+	SendMedia(mimeType string, data []byte) error
+
 	// Receive waits for and returns the next event from the engine.
 	// Returns an error (e.g. io.EOF or context.Canceled) when the session ends.
 	Receive() (*LiveServerEvent, error)

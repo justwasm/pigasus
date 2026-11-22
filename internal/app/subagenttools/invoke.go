@@ -415,7 +415,7 @@ func invokeBuiltinSubagent(ctx context.Context, name, prompt string) (actor.Tool
 }
 
 var (
-	builtinRegistryOnce sync.Once
+	builtinRegistryOnce = new(sync.Once)
 	builtinRegistry     *builtinsubagent.Registry
 	builtinRegistryMu   sync.Mutex
 )

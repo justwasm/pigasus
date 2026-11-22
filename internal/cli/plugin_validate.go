@@ -477,6 +477,7 @@ func scanValidateHooks(dir string, rep *validateReport) {
 		})
 		return
 	}
+	delete(top, "$schema")
 	if hooksRaw, ok := top["hooks"]; ok {
 		validateWrappedHooks(hooksRaw, len(top), rep)
 		return
@@ -617,8 +618,46 @@ func hookErrorText(msg string) string {
 	return msg
 }
 
-// scanValidateMCPServers counts `mcp_config.json` servers.
+// scanValidateMCPServers counts MCP servers from mcp.json (if Agent Plugins spec) or mcp_config.json.
 func scanValidateMCPServers(dir string, rep *validateReport) {
+	if rep.AgentPluginsSpec {
+		mcpRaw, mcpErr := os.ReadFile(filepath.Join(dir, "mcp.json"))
+		if mcpErr == nil {
+			mcpRaw = bytes.TrimPrefix(mcpRaw, utf8BOM)
+			var config struct {
+				MCPServers map[string]json.RawMessage `json:"mcpServers"`
+			}
+			if err := json.Unmarshal(mcpRaw, &config); err == nil && len(config.MCPServers) > 0 {
+				rep.Components.MCPServers = len(config.MCPServers)
+			} else {
+				var flat map[string]json.RawMessage
+				if err2 := json.Unmarshal(mcpRaw, &flat); err2 == nil {
+					delete(flat, "$schema")
+					rep.Components.MCPServers = len(flat)
+				}
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dir, "mcp_config.json")); err == nil {
+			rep.Findings = append(rep.Findings, validateFinding{
+				Severity: validateWarning,
+				File:     "mcp_config.json",
+				Message:  "ignored while enable-agent-plugins-spec is on: declare the servers in mcp.json too, and the fields it can't express in mcp_config.json",
+			})
+		}
+		if rep.Components.MCPServers > 0 {
+			return
+		}
+	} else {
+		if _, err := os.Stat(filepath.Join(dir, "mcp.json")); err == nil {
+			schemaVal := agentPluginsSchemaPrefix + agentPluginsVersion + "/plugin.schema.json"
+			rep.Findings = append(rep.Findings, validateFinding{
+				Severity: validateWarning,
+				File:     "mcp.json",
+				Message:  fmt.Sprintf("never loaded: mcp.json is read only for Agent Plugins plugins (plugin.json \"$schema\": %q). Move the servers to mcp_config.json", schemaVal),
+			})
+		}
+	}
+
 	raw, err := os.ReadFile(filepath.Join(dir, "mcp_config.json"))
 	if err != nil {
 		return

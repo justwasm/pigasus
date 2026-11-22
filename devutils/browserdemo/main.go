@@ -24,8 +24,8 @@ import (
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
 

@@ -154,7 +154,7 @@ func TestInvokeSubagentBuiltinRouting_TypeNameReachesTheBuiltin(t *testing.T) {
 func TestSetBuiltinSubagentRegistrySurvivesTheFirstRead(t *testing.T) {
 	builtinRegistryMu.Lock()
 	oldOnce, oldReg := builtinRegistryOnce, builtinRegistry
-	builtinRegistryOnce, builtinRegistry = sync.Once{}, nil
+	builtinRegistryOnce, builtinRegistry = new(sync.Once), nil
 	builtinRegistryMu.Unlock()
 	t.Cleanup(func() {
 		builtinRegistryMu.Lock()

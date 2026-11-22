@@ -6,23 +6,27 @@ import (
 )
 
 func TestCompareWire_SelfIdentical(t *testing.T) {
-	sc, err := GetScenario("standard_turn")
-	if err != nil {
-		t.Fatalf("scenario standard_turn: %v", err)
-	}
-	p := BuildReferenceWire(*sc)
+	for _, scName := range []string{"standard_turn", "compaction_request", "compaction_turn"} {
+		t.Run(scName, func(t *testing.T) {
+			sc, err := GetScenario(scName)
+			if err != nil {
+				t.Fatalf("scenario %s: %v", scName, err)
+			}
+			p := BuildReferenceWire(*sc)
 
-	opts := DefaultCompareOptions()
-	diff := CompareWire(p, p, opts)
+			opts := DefaultCompareOptions()
+			diff := CompareWire(p, p, opts)
 
-	if !diff.Passed {
-		t.Errorf("self comparison failed: %s", RenderTerminal(diff))
-	}
-	if diff.FailedChecks > 0 {
-		t.Errorf("failed checks = %d, want 0", diff.FailedChecks)
-	}
-	if len(diff.Diagnostics) > 0 {
-		t.Errorf("diagnostics = %v, want none", diff.Diagnostics)
+			if !diff.Passed {
+				t.Errorf("self comparison failed for %s: %s", scName, RenderTerminal(diff))
+			}
+			if diff.FailedChecks > 0 {
+				t.Errorf("%s failed checks = %d, want 0", scName, diff.FailedChecks)
+			}
+			if len(diff.Diagnostics) > 0 {
+				t.Errorf("%s diagnostics = %v, want none", scName, diff.Diagnostics)
+			}
+		})
 	}
 }
 

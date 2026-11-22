@@ -71,9 +71,9 @@ def compare_trees(label: str, golden_dir: pathlib.Path, test_dir: pathlib.Path, 
 
 
 def verify_agy(tmp_root: pathlib.Path) -> bool:
-    golden = REPO / "out" / "extracted-1.5.13"
+    golden = REPO / "out" / "extracted-1.5.14"
     if not golden.is_dir():
-        print("Golden out/extracted-1.5.13 not found, skipping.")
+        print("Golden out/extracted-1.5.14 not found, skipping.")
         return False
 
     from extract_agy import extract_agy, find_agy_binary, get_agy_version

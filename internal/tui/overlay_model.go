@@ -24,6 +24,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/resumepicker"
 	"github.com/justwasm/pigasus/internal/ui/views/announce"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
+	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 )
 
 // OverlayModel owns all non-primary screen overlays, modals, popups, cards,
@@ -34,6 +35,9 @@ type OverlayModel struct {
 	panel        slashPanel
 	panelReg     *panelregistry.Registry
 	resumePicker *resumepicker.Picker
+
+	// Wire Diagnostics HUD Overlay (--debug-wire / /wire)
+	wireHUD *wirehud.HUD
 
 	// Side Question (/btw) Cards
 	btwManager      *sidequestion.Manager

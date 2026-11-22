@@ -132,11 +132,41 @@ func CompareWire(ref, tgt *WirePayload, opts CompareOptions) *WireDiffResult {
 	// 3. High-Leverage Semantic Diagnostics
 	checkSemanticParity(refPrompt, tgtPrompt, refTools, tgtTools, res)
 
+	// 4. Conversation Contents (if reference defines contents)
+	if len(workRef.Contents) > 0 {
+		compareContents(workRef.Contents, workTgt.Contents, res)
+	}
+
 	if res.FailedChecks > 0 {
 		res.Passed = false
 	}
 
 	return res
+}
+
+func compareContents(ref, tgt []ContentTurn, res *WireDiffResult) {
+	res.TotalChecks++
+	if len(ref) != len(tgt) {
+		res.FailedChecks++
+		res.Diagnostics = append(res.Diagnostics, Diagnostic{
+			Code:     "DIAG_CONTENTS_COUNT",
+			Severity: SeverityError,
+			Message:  fmt.Sprintf("Contents turn count mismatch: ref=%d, tgt=%d", len(ref), len(tgt)),
+		})
+		return
+	}
+	for i := range ref {
+		if ref[i].Role != tgt[i].Role {
+			res.FailedChecks++
+			res.Diagnostics = append(res.Diagnostics, Diagnostic{
+				Code:     "DIAG_CONTENTS_ROLE",
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("Contents turn[%d] role mismatch: ref=%s, tgt=%s", i, ref[i].Role, tgt[i].Role),
+			})
+			return
+		}
+	}
+	res.PassedChecks++
 }
 
 func comparePrompts(ref, tgt *PromptDeconstruction, opts CompareOptions, res *WireDiffResult) *PromptDiff {

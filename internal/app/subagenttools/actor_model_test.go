@@ -229,16 +229,6 @@ func TestDrainSubagentEvents_TouchesWatchdogAndTaskActivity(t *testing.T) {
 		StartedAt: time.Now().Add(-10 * time.Second),
 	})
 
-	child := NewChild("sub-act-1", "DeepCoder", "Role", "/tmp", func() {})
-	_ = child
-	pinged := atomic.Bool{}
-	w := newActivityWatchdog(time.Minute, func() {})
-	defer w.Stop()
-
-	// Wrap ping to track activity
-	oldPing := w.Ping
-	_ = oldPing
-
 	taskReg.RecordActivity("sub-act-1")
 	task := taskReg.Get("sub-act-1")
 	if task == nil {
@@ -247,7 +237,6 @@ func TestDrainSubagentEvents_TouchesWatchdogAndTaskActivity(t *testing.T) {
 	if time.Since(task.LastActivityAt) > 2*time.Second {
 		t.Errorf("task.LastActivityAt was not updated: %v", task.LastActivityAt)
 	}
-	_ = pinged
 }
 
 func TestTranscriptResumePreservesAllPriorSteps(t *testing.T) {

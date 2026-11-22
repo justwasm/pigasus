@@ -3,6 +3,7 @@ package agentturn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -737,5 +739,43 @@ func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
 	}
 	if sawHugeToolOutput {
 		t.Error("Turn 2 request unexpectedly leaked the folded massive tool output from Turn 1")
+	}
+}
+
+func TestBackendStreamAdapter_PreservesTypedHTTPError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := make(chan backend.StreamChunk, 2)
+	adapter := &backendStreamAdapter{
+		ctx: ctx,
+		ch:  ch,
+	}
+
+	apiErr := &apierror.HTTPError{
+		StatusCode: 403,
+		Body:       []byte(`{"error":{"message":"Permission denied."}}`),
+		URL:        "https://example.com/api",
+	}
+
+	ch <- backend.StreamChunk{
+		Error: apiErr,
+		Done:  true,
+	}
+
+	_, err := adapter.Recv()
+	if err == nil {
+		t.Fatal("expected non-nil error from adapter.Recv()")
+	}
+
+	var he *apierror.HTTPError
+	if !errors.As(err, &he) {
+		t.Fatalf("expected error to unwrap to *apierror.HTTPError, got %T: %v", err, err)
+	}
+	if he.StatusCode != 403 {
+		t.Errorf("expected StatusCode 403, got %d", he.StatusCode)
+	}
+	if he.URL != "https://example.com/api" {
+		t.Errorf("expected URL https://example.com/api, got %s", he.URL)
 	}
 }

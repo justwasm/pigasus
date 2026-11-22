@@ -23,7 +23,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/branding"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	workspacetrust "github.com/justwasm/pigasus/internal/core/policy/trust"
 	"github.com/justwasm/pigasus/internal/core/settings"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
@@ -33,7 +33,7 @@ import (
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/infra/daemon"
 	"github.com/justwasm/pigasus/internal/infra/memtrim"
 	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
@@ -425,6 +425,11 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	if w, werr := pluginwatch.New(confhome.Antigravity()); werr == nil && w != nil {
 		m.viewport.pluginWatcher = w
 		pluginWatcherPtr.Store(w)
+		w.SetOnChange(func() {
+			if m.turn.prog != nil {
+				m.turn.prog.Send(pluginReloadMsg{})
+			}
+		})
 		go w.Run(watchCtx)
 	}
 	return m, watchCancel
@@ -475,6 +480,9 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 	m.statusLine.title = "off"
 	if v, ok := settings.Bool("title"); ok && v {
 		m.statusLine.title = "on"
+	}
+	if v, ok := settings.Bool("showThinking"); ok && v {
+		m.display.showThinking = true
 	}
 	m.reloadStatusLineConfig()
 }

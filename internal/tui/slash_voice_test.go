@@ -9,9 +9,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/rcaudio"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
-	"github.com/justwasm/pigasus/internal/features/auth"
 	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -158,14 +159,30 @@ func TestSlashVoice_LiveComposerActiveAndKeybindings(t *testing.T) {
 		t.Fatal("expected input cursor to be visible during PhaseLive")
 	}
 
-	// 2. Banner output format matches upstream agy
+	// 2. Banner output format matches upstream agy (StatusRow decompiled ground truth)
+	// On empty prompt: hint is "f6 mute · esc hang up"
 	view := termcolor.StripSGR(m.audio.Surface.View())
 	if !strings.Contains(view, "Live") || !strings.Contains(view, "listening") || !strings.Contains(view, "f6 mute") || !strings.Contains(view, "esc hang up") {
-		t.Fatalf("expected upstream agy Live banner, got %q", view)
+		t.Fatalf("expected upstream agy Live banner with 'f6 mute · esc hang up', got %q", view)
+	}
+
+	// Interim speech preview inside banner
+	model, _ := m.Update(voiceUserSpeechInterimMsg{text: "previewing voice command"})
+	m = model.(*RootModel)
+	previewView := termcolor.StripSGR(m.audio.Surface.View())
+	if !strings.Contains(previewView, "You: previewing voice command") {
+		t.Fatalf("expected interim speech preview inside status bar, got %q", previewView)
+	}
+
+	// Committed user speech clears preview and adds to transcript
+	model, _ = m.Update(voiceUserSpeechMsg{text: "previewing voice command"})
+	m = model.(*RootModel)
+	if m.audio.Surface.Preview() != "" {
+		t.Fatalf("expected committed user speech to clear preview, got %q", m.audio.Surface.Preview())
 	}
 
 	// 3. Typed prompts still work: deliver 'h' and 'i' keys
-	model, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'h', Text: "h"}))
+	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'h', Text: "h"}))
 	m = model.(*RootModel)
 	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: 'i', Text: "i"}))
 	m = model.(*RootModel)
@@ -181,8 +198,8 @@ func TestSlashVoice_LiveComposerActiveAndKeybindings(t *testing.T) {
 		t.Fatal("expected F6 to mute microphone")
 	}
 	mutedView := termcolor.StripSGR(m.audio.Surface.View())
-	if !strings.Contains(mutedView, "muted") || !strings.Contains(mutedView, "f6 unmute") {
-		t.Fatalf("expected muted banner on F6, got %q", mutedView)
+	if !strings.Contains(mutedView, "muted") || !strings.Contains(mutedView, "f6 unmute") || !strings.Contains(mutedView, "f7 hang up") {
+		t.Fatalf("expected muted banner on F6 with 'f6 unmute · f7 hang up', got %q", mutedView)
 	}
 
 	// F6 unmutes the microphone
@@ -209,11 +226,11 @@ func TestSlashVoice_LiveComposerActiveAndKeybindings(t *testing.T) {
 		t.Fatal("clearing prompt should not hang up live session")
 	}
 
-	// 6. Esc on empty prompt hangs up the call!
-	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	// 6. F7 hangs up the call!
+	model, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF7}))
 	m = model.(*RootModel)
 	if m.audio.Surface.Active() {
-		t.Fatal("Esc on empty prompt must hang up live session")
+		t.Fatal("F7 key must hang up live session")
 	}
 
 	// 7. Verify transcript messages
@@ -358,5 +375,103 @@ func TestLiveVoiceAvailability_OAuthToken(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-api-key")
 	if !m.IsLiveVoiceAvailable() {
 		t.Fatalf("expected IsLiveVoiceAvailable() == true when GEMINI_API_KEY is set")
+	}
+}
+
+func TestVoice_DictationTranscribeAndInsert(t *testing.T) {
+	m := diffTestModel()
+	initRootModelInput(m)
+	m.prompt.input.Focus()
+	m.audio.Surface = m.newVoiceSurface()
+
+	// Mock transcriber
+	m.audio.transcriber = rcaudio.TranscriberFunc(func(ctx context.Context, audio []byte, mimeType string) (string, error) {
+		if len(audio) == 0 {
+			return "", nil
+		}
+		return "transcribed test input", nil
+	})
+
+	// Start dictation
+	cmd := m.audio.Surface.Start("/voice dictate")
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from Start('/voice dictate')")
+	}
+	msg := cmd()
+	m.audio.Surface.HandleConnectDone(msg.(voice.ConnectDoneMsg))
+
+	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected PhaseRecording, got active=%v phase=%v", m.audio.Surface.Active(), m.audio.Surface.Phase())
+	}
+
+	// Simulate recording some audio
+	m.audio.dictMu.Lock()
+	m.audio.dictPCM = []byte{0x01, 0x02, 0x03, 0x04}
+	m.audio.dictMu.Unlock()
+
+	// Confirm dictation (Enter or F5)
+	handled, finishCmd := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || finishCmd == nil {
+		t.Fatalf("expected Enter to trigger finish command: handled=%v cmd=%v", handled, finishCmd)
+	}
+	if m.audio.Surface.Phase() != voice.PhaseFinishing {
+		t.Fatalf("expected PhaseFinishing during transcription, got %v", m.audio.Surface.Phase())
+	}
+
+	// Execute finishCmd to transcribe
+	doneMsg := finishCmd()
+	done, ok := doneMsg.(voice.DictationDoneMsg)
+	if !ok {
+		t.Fatalf("expected DictationDoneMsg, got %T", doneMsg)
+	}
+	if done.Text != "transcribed test input" {
+		t.Fatalf("expected 'transcribed test input', got %q", done.Text)
+	}
+
+	// Update surface with DictationDoneMsg
+	m.audio.Surface.HandleDictationDone(done)
+
+	if m.audio.Surface.Active() {
+		t.Fatal("expected surface to be inactive after dictation completes")
+	}
+	if got := m.prompt.input.Value(); got != "transcribed test input" {
+		t.Fatalf("expected prompt input = %q, got %q", "transcribed test input", got)
+	}
+}
+
+func TestVoice_DictationCancelOnEsc(t *testing.T) {
+	m := diffTestModel()
+	initRootModelInput(m)
+	m.prompt.input.Focus()
+	m.audio.Surface = m.newVoiceSurface()
+
+	cmd := m.audio.Surface.Start("f5")
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from Start('f5')")
+	}
+	msg := cmd()
+	m.audio.Surface.HandleConnectDone(msg.(voice.ConnectDoneMsg))
+
+	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected PhaseRecording, got active=%v phase=%v", m.audio.Surface.Active(), m.audio.Surface.Phase())
+	}
+
+	// Esc cancels session and clears buffer
+	m.audio.dictMu.Lock()
+	m.audio.dictPCM = []byte{0x01, 0x02}
+	m.audio.dictMu.Unlock()
+
+	handled, _ := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled {
+		t.Fatal("expected Esc to be handled")
+	}
+	if m.audio.Surface.Active() {
+		t.Fatal("expected surface to be inactive after Esc")
+	}
+	if len(m.audio.dictPCM) != 0 {
+		t.Fatal("expected dictation PCM buffer to be cleared on Esc")
+	}
+	if m.prompt.input.Value() != "" {
+		t.Fatalf("expected empty prompt input, got %q", m.prompt.input.Value())
 	}
 }

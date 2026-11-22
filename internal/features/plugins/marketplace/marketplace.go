@@ -55,7 +55,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/endpoints"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // skillFolderName is the directory the user-installed skills live in, taken

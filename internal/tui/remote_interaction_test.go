@@ -360,8 +360,8 @@ func TestRemoteSlashesSkipLocalPanels(t *testing.T) {
 	}
 }
 
-// TestRemoteAgentCycleMode pins the AGY 1.5.10 behavior: in a remote agent
-// session, cycleMode() (Shift+Tab) only toggles between default ("") and accept-edits.
+// TestRemoteAgentCycleMode pins the AGY 1.5.14 behavior: in a remote agent
+// session, cycleMode() (Shift+Tab) cycles default ("") -> accept-edits -> plan -> default.
 func TestRemoteAgentCycleMode(t *testing.T) {
 	m := &RootModel{}
 	m.session.remoteAgent = true
@@ -373,7 +373,12 @@ func TestRemoteAgentCycleMode(t *testing.T) {
 	}
 
 	m.cycleMode()
+	if m.session.mode != "plan" {
+		t.Fatalf("second cycleMode() = %q, want plan", m.session.mode)
+	}
+
+	m.cycleMode()
 	if m.session.mode != "" {
-		t.Fatalf("second cycleMode() = %q, want \"\"", m.session.mode)
+		t.Fatalf("third cycleMode() = %q, want \"\"", m.session.mode)
 	}
 }

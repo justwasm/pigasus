@@ -142,10 +142,10 @@ against the filesystem.
 | `internal/clipboard` | `internal/features/tools/clipboard` |
 | `internal/toolrunner` | `internal/features/tools/toolrunner` |
 | `internal/modelcatalog` | `internal/features/models/catalog` |
-| `internal/modelctx` | `internal/features/models/ctx` |
-| `internal/agybin` | `internal/infra/proxy/bin` |
-| `internal/rclink` | `internal/infra/remote/link` |
-| `internal/persistentrc` | `internal/infra/remote/persistent` |
+| `internal/modelctx` | `internal/features/models/modelctx` |
+| `internal/agybin` | `internal/infra/proxy/agybin` |
+| `internal/rclink` | `internal/infra/remote/rclink` |
+| `internal/persistentrc` | `internal/infra/remote/persistentrc` |
 | `internal/browsersubagent` | `internal/app/subagent/browser` |
 | `internal/builtinsubagent` | `internal/app/subagent/builtin` |
 | `internal/rcterminal` | `rcterminal/` (public) |

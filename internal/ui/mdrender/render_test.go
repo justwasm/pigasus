@@ -46,6 +46,31 @@ func TestStyleInlineBackticks(t *testing.T) {
 	}
 }
 
+func TestReplacePluginCards(t *testing.T) {
+	// Uninstalled / raw marketplace catalog ID:
+	uninstalledRaw := `Here is a suggestion: <plugin-card catalog-id="12345"></plugin-card>`
+	got1 := mdrender.ReplacePluginCards(uninstalledRaw)
+	want1 := "Here is a suggestion: ⚠ Open /plugin to install or sign in to this plugin."
+	if got1 != want1 {
+		t.Errorf("ReplacePluginCards(uninstalled) = %q, want %q", got1, want1)
+	}
+
+	tripleSlash := `Suggestion: <plugin-card catalog-id="market/pkg/plugin"></plugin-card>`
+	got2 := mdrender.ReplacePluginCards(tripleSlash)
+	want2 := "Suggestion: ⚠ Open /plugin to install or sign in to this plugin."
+	if got2 != want2 {
+		t.Errorf("ReplacePluginCards(tripleSlash) = %q, want %q", got2, want2)
+	}
+
+	// Installed plugin name:
+	installed := `<plugin-card catalog-id="github"></plugin-card>`
+	got3 := mdrender.ReplacePluginCards(installed)
+	want3 := "⚠ The github plugin needs you to sign in. Open /plugin to sign in."
+	if got3 != want3 {
+		t.Errorf("ReplacePluginCards(installed) = %q, want %q", got3, want3)
+	}
+}
+
 func TestLineIsBlankANSI(t *testing.T) {
 	if !mdrender.LineIsBlankANSI("   \t  ") {
 		t.Error("expected whitespace to be blank")

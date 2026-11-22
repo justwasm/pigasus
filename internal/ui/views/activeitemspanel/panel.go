@@ -48,7 +48,7 @@ package activeitemspanel
 
 import (
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // Seams are what the panel needs from the host that owns it.

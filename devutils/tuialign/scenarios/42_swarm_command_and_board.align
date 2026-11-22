@@ -1,0 +1,40 @@
+NAME "Swarm Command Completion, Ghost Text, and Board (/swarm) (1.5.14)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# 1. Type '/sw' to inspect slash command popup containing /swarm
+TYPE "/sw"
+SLEEP 500ms
+EXPECT_TEXT "/swarm"
+SNAPSHOT "01_swarm_in_slash_menu"
+
+# 2. Press Tab to complete to '/swarm '
+KEYS "Tab"
+SLEEP 500ms
+EXPECT_TEXT "> /swarm"
+ASSERT_NOT_TEXT "No matches"
+SNAPSHOT "02_swarm_completed_with_ghost_hint"
+
+# 3. Type 'b' to narrow ghost hint to 'oard'
+TYPE "b"
+SLEEP 500ms
+EXPECT_TEXT "> /swarm b"
+SNAPSHOT "03_swarm_b_typed"
+
+# 4. Press Tab to accept ghost text 'board' -> buffer becomes '/swarm board'
+KEYS "Tab"
+SLEEP 500ms
+EXPECT_TEXT "> /swarm board"
+SNAPSHOT "04_swarm_board_completed"
+
+# 5. Press Enter on '/swarm board' in empty conversation without active swarm
+ENTER
+SLEEP 500ms
+EXPECT_TEXT "No swarm in this conversation. Start one with /swarm <task>."
+SNAPSHOT "05_swarm_board_no_active_swarm"
+
+DIFF
+CLEANUP

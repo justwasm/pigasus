@@ -25,9 +25,9 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
@@ -37,8 +37,8 @@ import (
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/features/tools/isolation"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
@@ -60,6 +60,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/urlchunk"
 )
@@ -204,6 +205,7 @@ func init() {
 		"upload":           (*RootModel).slashUpload,
 		"triggers":         (*RootModel).slashTriggers,
 		"tasks":            (*RootModel).slashTasks,
+		"thinking":         (*RootModel).slashThinking,
 		"title":            (*RootModel).slashTitle,
 		"usage":            (*RootModel).slashUsage,
 		"voice":            (*RootModel).slashVoice,
@@ -226,6 +228,7 @@ func init() {
 		"narration":        (*RootModel).slashNarration,
 		"share":            (*RootModel).slashShare,
 		"swarm":            (*RootModel).slashSwarm,
+		"wire":             (*RootModel).slashWire,
 	}
 }
 
@@ -639,6 +642,10 @@ func (m *RootModel) slashTeamwork(args string) (bool, tea.Cmd) {
 func (m *RootModel) slashSwarm(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if trimmed == "board" {
+		if !m.hasActiveSwarm() {
+			m.slashRespond("/swarm board", "No swarm in this conversation. Start one with /swarm <task>.")
+			return true, nil
+		}
 		if m.swarm.Board == nil {
 			m.swarm.Board = m.newSwarmBoard()
 		}
@@ -1416,6 +1423,41 @@ func (m *RootModel) slashTasks(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashThinking handles /thinking, /thinking on and /thinking off.
+//
+// In AGY 1.5.14, /thinking toggles streaming the model's full thinking live in
+// the transcript while it thinks and keeps finished thoughts expanded without
+// pressing Ctrl+O. It is saved under "showThinking" in settings.json.
+//
+// Usage: /thinking [on|off]
+func (m *RootModel) slashThinking(args string) (bool, tea.Cmd) {
+	current, _ := settings.Bool("showThinking")
+	v := strings.TrimSpace(strings.ToLower(args))
+	var target bool
+	switch v {
+	case "":
+		target = !current
+	case "on", "enable", "true":
+		target = true
+	case "off", "disable", "false":
+		target = false
+	default:
+		m.slashRespond("/thinking", "Usage: /thinking [on|off]")
+		return true, nil
+	}
+	if err := settings.SetBool("showThinking", target); err != nil {
+		m.slashRespond("/thinking", fmt.Sprintf("Error saving settings: %v", err))
+		return true, nil
+	}
+	m.display.SetShowThinking(target)
+	if target {
+		m.slashRespond("/thinking", "Thinking shown in full: streamed in the transcript while the model thinks, kept expanded when", "     done.")
+	} else {
+		m.slashRespond("/thinking", "Thinking collapsed: the last line while the model thinks, ctrl+o to expand.")
+	}
+	return true, nil
+}
+
 // slashTitle handles /title, /title on and /title off.
 //
 // The reference accepts `on`/`enable` and `off`/`disable`
@@ -1465,6 +1507,38 @@ func (m *RootModel) setTitleEnabled(enabled bool, command string) tea.Cmd {
 		m.slashRespond("/title", tuilib.TitleDisabledMessage)
 	}
 	return m.maybeArmStatusLineTick()
+}
+
+// slashWire toggles the real-time streaming wire diagnostics HUD overlay.
+func (m *RootModel) slashWire(args string) (bool, tea.Cmd) {
+	if m == nil {
+		return true, nil
+	}
+	if m.overlays.wireHUD == nil {
+		m.overlays.wireHUD = wirehud.New()
+	}
+	v := strings.TrimSpace(strings.ToLower(args))
+	var visible bool
+	switch v {
+	case "":
+		visible = m.overlays.wireHUD.Toggle()
+	case "on", "enable", "true":
+		m.overlays.wireHUD.SetVisible(true)
+		visible = true
+	case "off", "disable", "false":
+		m.overlays.wireHUD.SetVisible(false)
+		visible = false
+	default:
+		m.slashRespond("/wire", "Usage: /wire [on|off]")
+		return true, nil
+	}
+
+	if visible {
+		m.slashRespond("/wire", "Wire diagnostics HUD enabled (top-right overlay). Press ctrl+shift+w or type /wire to hide.")
+	} else {
+		m.slashRespond("/wire", "Wire diagnostics HUD disabled.")
+	}
+	return true, nil
 }
 
 func (m *RootModel) slashUsage(args string) (bool, tea.Cmd) {

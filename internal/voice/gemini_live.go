@@ -256,77 +256,31 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 			{
 				FunctionDeclarations: []*genai.FunctionDeclaration{
 					{
-						Name:        "search_web",
-						Description: "Search the web for real-time information, documentation, news, or general web queries.",
+						Name:        "call_thinker_agent",
+						Description: "Tool for code, files, profile/desk, calendar/reminders, docs/chat, pricing, weather, web, accounts, screen/links. Never call on cues ([task progress], [waiting on the user], answer/error, [stopped]/[stop failed], [The user just sent in chat]), open [waiting on the user] (questions about the choice, constraints, approvals), or local tools; skip chitchat, thanks, remarks, declines, resuming speech, mic tests, settings, omitted-part reads, and fresh-call status. Otherwise never refuse, say cannot/unable, cite missing tools/access, or repeat refusals on pushback/retries/calendar/desk/link/how-to asks (commit and call, even on open calls), and call on context-covered asks needing detail. Speak first (no agent, thinker, or tool mentions): verified fact (no UUIDs/guesses/general knowledge/refusals) in two sentences (present tense, subject first, no context note, plus varied 'I'll' commitment), else one warm 'I'll' sentence (never 'I will'/'I am') varying clause ('To <user goal>, I'll...', 'I'll' + diverse verb + target without 'the', or brief ack + 'I'll...') and verb (no -ing openers, execution verbs, promises, vague pronouns; edits/reminders/sends/approvals as lookups; pushback: ONLY one positive commitment), and emit the call same turn right after speaking (never narrating it, silent, stopping, or uncalled).",
 						Parameters: &genai.Schema{
 							Type: genai.TypeObject,
 							Properties: map[string]*genai.Schema{
 								"query": {
 									Type:        genai.TypeString,
-									Description: "The search query string to look up.",
-								},
-								"domain": {
-									Type:        genai.TypeString,
-									Description: "Optional specific website domain to filter results (e.g. 'go.dev', 'github.com').",
+									Description: "Full request with context details, lookups read-only.",
 								},
 							},
 							Required: []string{"query"},
 						},
 					},
 					{
-						Name:        "fetch_url",
-						Description: "Fetch the text or markdown content of an HTTP or HTTPS web URL from the internet (e.g. GitHub changelogs, web documentation, release notes, APIs).",
+						Name:        "cancel_thinker_agent",
+						Description: "Cancels the active task. Call immediately silently with zero words beforehand only to cancel, drop, or ignore the entire running task (never on a bare stop, wait, or hold-on request; a stop that names the task or its work does cancel; to stop one branch, narrow, or redirect work, call the thinker instead; to stop updates, stop repeating, or stay quiet until done, call set_progress_updates with enabled=false instead so the task keeps running); confirm in future tense on return, stopped only on [stopped].",
 						Parameters: &genai.Schema{
 							Type: genai.TypeObject,
-							Properties: map[string]*genai.Schema{
-								"url": {
-									Type:        genai.TypeString,
-									Description: "The full HTTP or HTTPS URL to fetch.",
-								},
-							},
-							Required: []string{"url"},
 						},
 					},
 					{
-						Name:        "run_command",
-						Description: "Execute a shell command in the local workspace terminal (e.g. 'cal', 'curl -s https://...', 'git status', 'ls -la', 'go test'). Returns stdout and stderr.",
+						Name:        "hang_up",
+						Description: "Ends the voice call and hangs up. Call with no arguments only on explicit hang-up requests, clear end-of-call farewells, or an [idle] note that says to hang up, not mid-call thanks: speak one brief farewell first in the same turn, call this function, and stay silent afterward. Active chat tasks keep running.",
 						Parameters: &genai.Schema{
 							Type: genai.TypeObject,
-							Properties: map[string]*genai.Schema{
-								"command": {
-									Type:        genai.TypeString,
-									Description: "The exact command string to execute in the shell.",
-								},
-							},
-							Required: []string{"command"},
-						},
-					},
-					{
-						Name:        "read_file",
-						Description: "Read the contents of a local file in the workspace.",
-						Parameters: &genai.Schema{
-							Type: genai.TypeObject,
-							Properties: map[string]*genai.Schema{
-								"path": {
-									Type:        genai.TypeString,
-									Description: "Relative or absolute path of the file to read.",
-								},
-							},
-							Required: []string{"path"},
-						},
-					},
-					{
-						Name:        "delegate_to_thinker",
-						Description: "Delegate a complex coding, software engineering, terminal execution, file inspection, or debugging task to the background Thinker agent.",
-						Parameters: &genai.Schema{
-							Type: genai.TypeObject,
-							Properties: map[string]*genai.Schema{
-								"task": {
-									Type:        genai.TypeString,
-									Description: "Detailed and actionable task description for the Thinker agent.",
-								},
-							},
-							Required: []string{"task"},
 						},
 					},
 				},
@@ -415,7 +369,6 @@ func (s *GeminiLiveSession) readLoop() {
 				}
 			}
 
-			hasPartText := false
 			if sc.ModelTurn != nil {
 				for _, part := range sc.ModelTurn.Parts {
 					if part.FunctionCall != nil {
@@ -425,10 +378,16 @@ func (s *GeminiLiveSession) readLoop() {
 							Args: part.FunctionCall.Args,
 						})
 					}
-					if part.Text != "" {
-						hasPartText = true
+					if part.Text != "" && !part.Thought {
 						select {
 						case s.eventsCh <- &LiveServerEvent{VoiceTranscript: part.Text}:
+						case <-s.closedCh:
+							return
+						}
+					}
+					if part.AudioTranscription != nil && part.AudioTranscription.Text != "" {
+						select {
+						case s.eventsCh <- &LiveServerEvent{VoiceTranscript: part.AudioTranscription.Text}:
 						case <-s.closedCh:
 							return
 						}
@@ -459,7 +418,7 @@ func (s *GeminiLiveSession) readLoop() {
 				}
 			}
 
-			if sc.OutputTranscription != nil && sc.OutputTranscription.Text != "" && !hasPartText {
+			if sc.OutputTranscription != nil && sc.OutputTranscription.Text != "" {
 				select {
 				case s.eventsCh <- &LiveServerEvent{VoiceTranscript: sc.OutputTranscription.Text}:
 				case <-s.closedCh:
@@ -567,14 +526,48 @@ func (s *GeminiLiveSession) SendToolResponse(id string, name string, result any)
 
 // SendThinkerNote sends an asynchronous progress note from the Thinker agent to the Talker model.
 func (s *GeminiLiveSession) SendThinkerNote(note string) error {
-	prompt := fmt.Sprintf("[Thinker Note: %s. Briefly update the user with natural speech if helpful.]", note)
+	prompt := fmt.Sprintf("[task progress] %s", note)
 	return s.SendText(prompt)
 }
 
 // SendThinkerAnswer delivers the finalized answer from the Thinker agent to the Talker model.
 func (s *GeminiLiveSession) SendThinkerAnswer(answer string) error {
-	prompt := fmt.Sprintf("[Thinker Finished: %s. Please summarize and speak the result to the user.]", answer)
+	prompt := fmt.Sprintf("[answer] %s", answer)
 	return s.SendText(prompt)
+}
+
+// SendWaitingOnUser sends a prompt asking the user for confirmation or input.
+func (s *GeminiLiveSession) SendWaitingOnUser(question string) error {
+	prompt := fmt.Sprintf("[waiting on the user] %s", question)
+	return s.SendText(prompt)
+}
+
+// SendTaskStopped notifies the live talker that the active thinker task was stopped.
+func (s *GeminiLiveSession) SendTaskStopped() error {
+	return s.SendText("[stopped]")
+}
+
+// SendMedia sends a visual image or video frame into the live session.
+func (s *GeminiLiveSession) SendMedia(mimeType string, data []byte) error {
+	s.mu.Lock()
+	if s.closed {
+		err := s.closeErr
+		s.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		return io.ErrClosedPipe
+	}
+	s.mu.Unlock()
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.session.SendRealtimeInput(genai.LiveRealtimeInput{
+		Media: &genai.Blob{
+			MIMEType: mimeType,
+			Data:     data,
+		},
+	})
 }
 
 // Receive returns the next LiveServerEvent.

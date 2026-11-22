@@ -9,17 +9,29 @@ import (
 	"time"
 )
 
+// MicWireStats captures real-time diagnostic metrics on the JETSKI-AUDIO/1 wire.
+type MicWireStats struct {
+	SentFrames int64
+	SentBytes  int64
+	RecvFrames int64
+	RecvBytes  int64
+}
+
 // RemoteAudioStream manages a bidirectional TCP audio stream with an upstream mic server
 // using the JETSKI-AUDIO/1 protocol.
 type RemoteAudioStream struct {
-	conn      net.Conn
-	onAudio   func([]byte)
-	writeMu   sync.Mutex
-	muted     atomic.Bool
-	running   atomic.Bool
-	closed    atomic.Bool
-	closeOnce sync.Once
-	doneCh    chan struct{}
+	conn       net.Conn
+	onAudio    func([]byte)
+	writeMu    sync.Mutex
+	muted      atomic.Bool
+	running    atomic.Bool
+	closed     atomic.Bool
+	closeOnce  sync.Once
+	doneCh     chan struct{}
+	sentFrames atomic.Int64
+	sentBytes  atomic.Int64
+	recvFrames atomic.Int64
+	recvBytes  atomic.Int64
 }
 
 // DialRemoteAudio connects to a JETSKI-AUDIO/1 mic server (e.g. ANTIGRAVITY_MIC).
@@ -55,11 +67,26 @@ func (s *RemoteAudioStream) readPump() {
 		if err != nil {
 			return
 		}
+		s.recvFrames.Add(1)
+		s.recvBytes.Add(int64(len(payload)))
 		if frameType == FrameAudio && len(payload) > 0 {
 			if s.running.Load() && !s.muted.Load() && s.onAudio != nil {
 				s.onAudio(payload)
 			}
 		}
+	}
+}
+
+// WireStats answers real-time telemetry metrics across the remote audio stream.
+func (s *RemoteAudioStream) WireStats() MicWireStats {
+	if s == nil {
+		return MicWireStats{}
+	}
+	return MicWireStats{
+		SentFrames: s.sentFrames.Load(),
+		SentBytes:  s.sentBytes.Load(),
+		RecvFrames: s.recvFrames.Load(),
+		RecvBytes:  s.recvBytes.Load(),
 	}
 }
 
@@ -81,6 +108,8 @@ func (p *RemoteAudioPlayer) Write(pcm []byte) (int, error) {
 	if err := WriteFrame(p.stream.conn, FrameAudio, pcm); err != nil {
 		return 0, err
 	}
+	p.stream.sentFrames.Add(1)
+	p.stream.sentBytes.Add(int64(len(pcm)))
 	return len(pcm), nil
 }
 
@@ -172,10 +201,14 @@ func (s *RemoteAudioStream) Close() error {
 
 // MicServer serves a local microphone and speaker over the JETSKI-AUDIO/1 protocol.
 type MicServer struct {
-	addr   string
-	ln     net.Listener
-	closed atomic.Bool
-	stopCh chan struct{}
+	addr       string
+	ln         net.Listener
+	closed     atomic.Bool
+	stopCh     chan struct{}
+	sentFrames atomic.Int64
+	sentBytes  atomic.Int64
+	recvFrames atomic.Int64
+	recvBytes  atomic.Int64
 }
 
 // NewMicServer starts listening on addr.
@@ -248,7 +281,10 @@ func (s *MicServer) handleConn(conn net.Conn) {
 	capture, err := NewAudioCapture(16000, func(pcm16k []byte) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		_ = WriteFrame(conn, FrameAudio, pcm16k)
+		if err := WriteFrame(conn, FrameAudio, pcm16k); err == nil {
+			s.sentFrames.Add(1)
+			s.sentBytes.Add(int64(len(pcm16k)))
+		}
 	})
 	if err != nil {
 		return
@@ -262,6 +298,8 @@ func (s *MicServer) handleConn(conn net.Conn) {
 		if err != nil {
 			return
 		}
+		s.recvFrames.Add(1)
+		s.recvBytes.Add(int64(len(payload)))
 		switch frameType {
 		case FrameAudio:
 			_, _ = player.Write(payload)
@@ -270,6 +308,19 @@ func (s *MicServer) handleConn(conn net.Conn) {
 				player.Clear()
 			}
 		}
+	}
+}
+
+// WireStats answers real-time telemetry metrics on the server listener.
+func (s *MicServer) WireStats() MicWireStats {
+	if s == nil {
+		return MicWireStats{}
+	}
+	return MicWireStats{
+		SentFrames: s.sentFrames.Load(),
+		SentBytes:  s.sentBytes.Load(),
+		RecvFrames: s.recvFrames.Load(),
+		RecvBytes:  s.recvBytes.Load(),
 	}
 }
 

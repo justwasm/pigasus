@@ -36,7 +36,7 @@ import (
 
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/core/backend"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"

@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.5.12:\n\u00b7 Added split view to the Remote Control browser view, so you can keep several conversations open side by side: choose `Split Right` or `Split Down` from the `Split` submenu of a conversation's menu in the sidebar or of the ⋮ menu in its title bar (not available on phones)."
+	const want = "1.5.13:\n\u00b7 Added Gemini 4 Neon (Low, Medium, High, and XHigh) to `/model` and `--model` when you sign in with Application Default Credentials (`AGY_ADC_AUTH`), and added support for Gemini 4 Neon through an enterprise model gateway."
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

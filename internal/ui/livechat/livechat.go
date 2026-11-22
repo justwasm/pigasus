@@ -27,7 +27,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
-	inputselection "github.com/justwasm/pigasus/internal/ui/foundations/inputselection"
+	"github.com/justwasm/pigasus/internal/ui/foundations/inputselection"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"

@@ -225,13 +225,23 @@ func (b *EngineBridge) runTurnOn(turnCtx context.Context, model string, msgs []b
 			})
 		}
 	})
+	if turnCtx.Err() != nil {
+		return toolsteps.TurnDoneMsg{
+			Err: errors.New("Message not sent: canceled before it was sent"),
+		}
+	}
 	frames, err := b.engine.Turn(turnCtx, agentturn.Turn{
 		Model:        model,
 		History:      agentturn.ToWireMessages(msgs),
 		SessionEpoch: epoch,
 	})
 	if err != nil {
-		return backendDoneMsg{}
+		if turnCtx.Err() != nil {
+			return toolsteps.TurnDoneMsg{
+				Err: errors.New("Message not sent: canceled before it was sent"),
+			}
+		}
+		return toolsteps.TurnDoneMsg{Err: err}
 	}
 
 	c := &turnCollector{prog: b.prog}

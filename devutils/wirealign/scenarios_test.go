@@ -108,6 +108,74 @@ func TestAllScenarios_RenderFromTemplates(t *testing.T) {
 				if !pDec.IsGenericPrompt {
 					t.Errorf("compaction turn must preserve generic system prompt")
 				}
+				if len(refWire.Contents) != 1 {
+					t.Fatalf("compaction turn contents count = %d, want 1", len(refWire.Contents))
+				}
+				if !strings.Contains(refWire.Contents[0].Parts[0].Text, "<CONTEXT_SUMMARY>") {
+					t.Errorf("compaction turn must include <CONTEXT_SUMMARY> in resuming turn")
+				}
+				if !strings.Contains(refWire.Contents[0].Parts[0].Text, "</CONTEXT_SUMMARY>") {
+					t.Errorf("compaction turn must close with </CONTEXT_SUMMARY>")
+				}
+				if !strings.Contains(refWire.Contents[0].Parts[0].Text, "# User Requests") {
+					t.Errorf("compaction turn must include '# User Requests'")
+				}
+
+			case "compaction_request":
+				if tDec.Count != 12 {
+					t.Errorf("compaction request must expose full 12 tools, got %d", tDec.Count)
+				}
+				if !pDec.IsGenericPrompt {
+					t.Errorf("compaction request must preserve generic system prompt")
+				}
+				if len(refWire.Contents) < 1 {
+					t.Fatalf("compaction request must have conversation contents")
+				}
+				lastTurn := refWire.Contents[len(refWire.Contents)-1]
+				if lastTurn.Role != "user" {
+					t.Errorf("compaction request last turn role = %s, want user", lastTurn.Role)
+				}
+				lastText := lastTurn.Parts[0].Text
+				requiredSections := []string{
+					"Task Overview",
+					"Progress",
+					"Key Findings",
+					"Errors & Fixes",
+					"Active Context",
+					"Next Steps",
+					"Commitments & Constraints",
+					"ON-DEMAND COMPACTION:",
+				}
+				for _, sec := range requiredSections {
+					if !strings.Contains(lastText, sec) {
+						t.Errorf("compaction request prompt missing section %q", sec)
+					}
+				}
+
+			case "swarm_coordinator_turn":
+				swarmTool, ok := tDec.ToolMap["swarm"]
+				if !ok {
+					t.Fatalf("swarm_coordinator_turn missing swarm tool declaration")
+				}
+				if !strings.Contains(swarmTool.Description, "Manage the swarm of agents working with you") {
+					t.Errorf("unexpected swarm tool description: %s", swarmTool.Description)
+				}
+				props, ok := swarmTool.Parameters["properties"].(map[string]any)
+				if !ok {
+					t.Fatalf("swarm tool parameters missing properties")
+				}
+				actionProp, ok := props["action"].(map[string]any)
+				if !ok {
+					t.Fatalf("swarm tool properties missing action")
+				}
+				enums, ok := actionProp["enum"].([]any)
+				if !ok || len(enums) != 6 {
+					t.Errorf("swarm action enum count = %d, want 6", len(enums))
+				}
+				skillsSec, hasSkills := pDec.SectionMap["skills"]
+				if !hasSkills || !strings.Contains(skillsSec.Content, "native_swarm/SKILL.md") || !strings.Contains(skillsSec.Content, "swarm_monitor/SKILL.md") {
+					t.Errorf("swarm coordinator turn skills missing swarm/swarm_monitor: %s", skillsSec.Content)
+				}
 			}
 		})
 	}

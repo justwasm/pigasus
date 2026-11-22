@@ -284,6 +284,54 @@ func (s *MockLiveSession) SendThinkerAnswer(answer string) error {
 	return nil
 }
 
+// SendWaitingOnUser records a prompt asking the user for confirmation.
+func (s *MockLiveSession) SendWaitingOnUser(question string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return io.ErrClosedPipe
+	}
+	s.inNotes = append(s.inNotes, "[waiting on the user] "+question)
+	select {
+	case s.eventsCh <- &LiveServerEvent{
+		VoiceTranscript: "I need your confirmation: " + question,
+		Audio:           generateSilence24k(150),
+		TurnComplete:    true,
+	}:
+	default:
+	}
+	return nil
+}
+
+// SendTaskStopped notifies the live talker that the active thinker task was stopped.
+func (s *MockLiveSession) SendTaskStopped() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return io.ErrClosedPipe
+	}
+	s.inNotes = append(s.inNotes, "[stopped]")
+	select {
+	case s.eventsCh <- &LiveServerEvent{
+		VoiceTranscript: "Task has been stopped.",
+		Audio:           generateSilence24k(150),
+		TurnComplete:    true,
+	}:
+	default:
+	}
+	return nil
+}
+
+// SendMedia records a real-time visual image or video frame.
+func (s *MockLiveSession) SendMedia(mimeType string, data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return io.ErrClosedPipe
+	}
+	return nil
+}
+
 // Receive returns the next simulated event.
 func (s *MockLiveSession) Receive() (*LiveServerEvent, error) {
 	select {

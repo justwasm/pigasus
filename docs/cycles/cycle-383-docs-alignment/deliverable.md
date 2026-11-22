@@ -1082,7 +1082,7 @@ the cycle: the ledgers named them, and this is where they were closed.
   two the *current* reference prints depends on what the account's server
   advertises; the clone's static catalogue is the union.
 - **存疑**: **the eight new ids have no entry in the context-window
-  table.** `internal/features/models/ctx` carries the captured
+  table.** `internal/features/models/modelctx` carries the captured
   `maxTokens` per model, and the three families' numbers were never
   captured, so a turn pinned to one of them runs against the 200 K
   fallback window — conservative, and smaller than the reference's.

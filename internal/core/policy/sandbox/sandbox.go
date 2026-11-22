@@ -146,22 +146,43 @@ func (s Sandbox) Allowed(p string) bool {
 	if isBlockedSandboxPath(p) {
 		return false
 	}
+
+	canonP := canonicalPath(p)
+	if isBlockedSandboxPath(canonP) {
+		return false
+	}
+
 	for _, root := range s.AllowedPaths() {
 		root = filepath.Clean(root)
 		if root == "" {
 			continue
 		}
-		if p == root {
+		canonRoot := canonicalPath(root)
+		if within(canonRoot, canonP) {
 			return true
 		}
-		// HasPrefix requires a trailing separator, otherwise
-		// /foo/bar would match /foo/barbaz. Clean + the explicit
-		// separator check covers that case.
-		if strings.HasPrefix(p, root+string(filepath.Separator)) {
+		if within(root, p) && within(canonRoot, canonP) {
 			return true
 		}
 	}
 	return false
+}
+
+func canonicalPath(p string) string {
+	p = filepath.Clean(p)
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	dir, base := filepath.Split(p)
+	if dir == "" || filepath.Clean(dir) == p {
+		return p
+	}
+	return filepath.Join(canonicalPath(filepath.Clean(dir)), base)
+}
+
+func within(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // tokenPathRegexp matches a path-shaped token in a shell command

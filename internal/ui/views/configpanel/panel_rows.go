@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
 )

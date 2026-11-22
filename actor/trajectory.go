@@ -1,7 +1,11 @@
 package actor
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -615,4 +619,85 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 	}
 
 	return msgs
+}
+
+// TierColdHistory writes bulky tool outputs of folded steps (<= IncludedThroughStep)
+// to persistent JSON files in coldDir and clears their in-memory Output buffers,
+// preventing unconstrained heap growth in ultra-long sessions (100+ turns).
+func (t *Trajectory) TierColdHistory(coldDir string) (prunedSteps int, freedBytes int64, err error) {
+	if coldDir == "" {
+		return 0, 0, errors.New("coldDir is required")
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.checkpoints) == 0 {
+		return 0, 0, nil
+	}
+	boundary := t.checkpoints[len(t.checkpoints)-1].IncludedThroughStep
+	if boundary < 0 {
+		return 0, 0, nil
+	}
+
+	if err := os.MkdirAll(coldDir, 0o755); err != nil {
+		return 0, 0, err
+	}
+
+	for _, turn := range t.turns {
+		for si := range turn.Steps {
+			st := &turn.Steps[si]
+			if st.GlobalIndex > boundary {
+				continue
+			}
+			needsPruning := false
+			var stepBytes int64
+			for _, tr := range st.ToolResults {
+				if !tr.ColdStored && (len(tr.Output) > 0 || len(tr.Error) > 0) {
+					needsPruning = true
+					stepBytes += int64(len(tr.Output) + len(tr.Error))
+				}
+			}
+			if !needsPruning {
+				continue
+			}
+
+			// Write to cold file
+			coldPath := filepath.Join(coldDir, fmt.Sprintf("step_%d.json", st.GlobalIndex))
+			data, err := json.Marshal(st.ToolResults)
+			if err != nil {
+				return prunedSteps, freedBytes, err
+			}
+			if err := os.WriteFile(coldPath, data, 0o600); err != nil {
+				return prunedSteps, freedBytes, err
+			}
+
+			// Clear in-memory buffers
+			for ri := range st.ToolResults {
+				st.ToolResults[ri].ColdStored = true
+				st.ToolResults[ri].Output = ""
+				st.ToolResults[ri].Error = ""
+			}
+			prunedSteps++
+			freedBytes += stepBytes
+		}
+	}
+
+	if prunedSteps > 0 {
+		t.revision++
+	}
+	return prunedSteps, freedBytes, nil
+}
+
+// LoadColdStepResults retrieves historical tool results from cold storage on demand.
+func LoadColdStepResults(coldDir string, globalIndex int) ([]ToolResult, error) {
+	coldPath := filepath.Join(coldDir, fmt.Sprintf("step_%d.json", globalIndex))
+	data, err := os.ReadFile(coldPath)
+	if err != nil {
+		return nil, err
+	}
+	var results []ToolResult
+	if err := json.Unmarshal(data, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
 }

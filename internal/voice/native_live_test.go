@@ -851,3 +851,57 @@ func TestNativeLiveSession_FatalErrorDoesNotLoop(t *testing.T) {
 		t.Fatalf("expected isFatalLiveError(err) to be true for %v", err)
 	}
 }
+
+func TestNativeLiveSession_ThinkerCues(t *testing.T) {
+	mockBackend := NewMockLiveBackend()
+	handler := &mockLiveHandler{}
+	sess := NewNativeLiveSession(mockBackend, handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := sess.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	// 1. Send WaitingOnUser
+	if err := sess.SendWaitingOnUser("Do you approve deleting file.txt?"); err != nil {
+		t.Fatalf("SendWaitingOnUser failed: %v", err)
+	}
+
+	// 2. Send TaskStopped
+	if err := sess.SendTaskStopped(); err != nil {
+		t.Fatalf("SendTaskStopped failed: %v", err)
+	}
+
+	// 3. Send ThinkerNote
+	if err := sess.SendThinkerNote("Compiling project"); err != nil {
+		t.Fatalf("SendThinkerNote failed: %v", err)
+	}
+}
+
+func TestNativeLiveSession_VisualAndTerminalFrame(t *testing.T) {
+	mockBackend := NewMockLiveBackend()
+	handler := &mockLiveHandler{}
+	sess := NewNativeLiveSession(mockBackend, handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := sess.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	// 1. Send TerminalFrame
+	if err := sess.SendTerminalFrame("panic: runtime error: invalid memory address"); err != nil {
+		t.Fatalf("SendTerminalFrame failed: %v", err)
+	}
+
+	// 2. Send Realtime Media Frame
+	mockJPEG := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10}
+	if err := sess.SendMedia("image/jpeg", mockJPEG); err != nil {
+		t.Fatalf("SendMedia failed: %v", err)
+	}
+}

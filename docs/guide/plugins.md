@@ -13,7 +13,7 @@
 | the panel's state, its rows and its keys | `internal/ui/views/pluginsui` (`panel.go`, `panel_rows.go`, `panel_keys.go`, `panel_actions.go`) |
 | the panel's rendering | `internal/ui/views/pluginsui` (`panel_render.go`, `sections.go`, `render.go`) |
 | the host's seam | `internal/cliapp/plugin_host.go` — the way out of the panel, and nothing else |
-| the import command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/import` |
+| the import command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/pluginimport` |
 | the install command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/marketinstall` |
 | the Web UI's plugin panels | `internal/remotecontrol/plugins_ls.go`, `internal/remotecontrol/plugins_marketplace.go` |
 | the documents both read | `internal/features/plugins/core/catalog.go` |
@@ -285,9 +285,9 @@ arguments and in the environment values.
 
 | what | where |
 |---|---|
-| the run loop, the report, the staging, the manifest | `internal/features/plugins/import/pluginimport.go` |
-| the two discovery passes, the source manifests | `internal/features/plugins/import/discover.go` |
-| the MCP server conversion | `internal/features/plugins/import/mcp.go` |
+| the run loop, the report, the staging, the manifest | `internal/features/plugins/pluginimport/pluginimport.go` |
+| the two discovery passes, the source manifests | `internal/features/plugins/pluginimport/discover.go` |
+| the MCP server conversion | `internal/features/plugins/pluginimport/mcp.go` |
 | the command surface | `internal/cli/subcommand_plugin.go` (`runPluginImport`) |
 
 The reference's discovery errors carry Go type names from the reference's
@@ -297,3 +297,13 @@ those two messages are emitted as compatibility shims rather than produced
 by the clone's decoder.
 
 Report: `docs/cycles/cycle-364-agy-1.4.11-alignment/deliverable.md` §6.
+
+---
+
+## Runtime Hot-Reloading & File Watching
+
+In interactive TUI sessions, plugins, user skills (`~/.gemini/skills`), and MCP configurations (`mcp_config.json`) are monitored in real time by `internal/features/plugins/watch`.
+
+- **Fsnotify Watcher**: Debounces filesystem modifications over a 200ms window (`debounceWindow`).
+- **Active Turn Invalidation**: Triggers `pluginReloadMsg` to `RootModel.Update`, invoking `reloadPluginsAndMCP()`.
+- **Zero-Restart Updates**: New MCP servers, updated plugin tools, and newly added skills become immediately callable in the next model step without restarting the CLI session or killing background agents.

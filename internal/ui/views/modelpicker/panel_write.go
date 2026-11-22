@@ -12,7 +12,7 @@
 package modelpicker
 
 import (
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // cycleEffort advances the effort slider by dir (+1 / -1) with

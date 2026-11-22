@@ -6,7 +6,7 @@ package statusline
 import (
 	"strings"
 
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // Config is the effective configuration of a `statusLine` (or `title`)

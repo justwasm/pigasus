@@ -11,6 +11,7 @@ type ModelHost interface {
 	ApplyModel(label string)
 	ClosePanel() tea.Cmd
 	CustomModelRows() []modelpicker.Row
+	IsRemoteAgent() bool
 }
 
 // NewModelPanel builds the /model panel with the given host seams.
@@ -20,5 +21,6 @@ func NewModelPanel(h ModelHost) *modelpicker.Panel {
 		ApplyModel:        h.ApplyModel,
 		Close:             h.ClosePanel,
 		CustomRows:        h.CustomModelRows,
+		IsRemoteAgent:     h.IsRemoteAgent,
 	})
 }

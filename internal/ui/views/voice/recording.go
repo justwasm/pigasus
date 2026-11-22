@@ -128,9 +128,10 @@ type Recorder struct {
 // is rejected so the same Recorder value cannot silently overwrite an
 // earlier session.
 //
-// maxDur defaults to MaxRecordingDuration when zero. Tests can pass a
-// shorter duration to exercise the auto-stop path without waiting for
-// the real wall clock.
+// maxDur defaults to MaxRecordingDuration when zero. A negative value
+// configures an unlimited duration (used in continuous live voice calls).
+// Tests can pass a shorter duration to exercise the auto-stop path without
+// waiting for the real wall clock.
 //
 // nowFunc is the clock the Recorder reads to stamp Start and Stop
 // times. It defaults to a wall-clock reader when nil. Tests inject a
@@ -140,7 +141,7 @@ func NewRecorder(id string, maxDur time.Duration, nowFunc func() time.Duration) 
 	if id == "" {
 		return nil, ErrEmptyID
 	}
-	if maxDur <= 0 {
+	if maxDur == 0 {
 		maxDur = MaxRecordingDuration
 	}
 	if nowFunc == nil {
@@ -269,7 +270,7 @@ func (r *Recorder) Tick(d time.Duration) {
 		return
 	}
 	r.elapsed += d
-	if r.elapsed >= r.maxDur {
+	if r.maxDur > 0 && r.elapsed >= r.maxDur {
 		r.reason = ReasonMaxDurationReached
 		r.state = StateAutoStopped
 		r.stoppedAt = r.nowFunc()

@@ -131,6 +131,24 @@ func (b *Board) PostCount() int {
 	return len(b.posts)
 }
 
+// MemberCount returns the total number of members.
+func (b *Board) MemberCount() int {
+	if b == nil {
+		return 0
+	}
+	return len(b.roster)
+}
+
+// Members returns a copy of the swarm members.
+func (b *Board) Members() []Member {
+	if b == nil {
+		return nil
+	}
+	out := make([]Member, len(b.roster))
+	copy(out, b.roster)
+	return out
+}
+
 // LatestPost returns the latest post if any.
 func (b *Board) LatestPost() (Post, bool) {
 	if b == nil || len(b.posts) == 0 {
@@ -479,6 +497,16 @@ func (b *Board) View() string {
 		contentHeight = 6
 	}
 
+	if h >= 28 && !b.zoomed {
+		ov := b.renderOverview(w)
+		sb.WriteString(ov)
+		ovLines := strings.Count(ov, "\n")
+		contentHeight -= ovLines
+		if contentHeight < 6 {
+			contentHeight = 6
+		}
+	}
+
 	if b.zoomed {
 		// Render only the focused pane
 		switch b.focusPane {
@@ -730,6 +758,71 @@ func (b *Board) renderFooterHints(width int) string {
 		palette.BlueOpen + "Esc" + palette.BlueClose + ": back",
 	}
 	return palette.DimGrayOpen + strings.Join(hints, " · ") + palette.DimGrayClose
+}
+
+func (b *Board) renderOverview(w int) string {
+	var total, done, blocked int
+	for _, m := range b.roster {
+		if m.IsCoordinator {
+			continue
+		}
+		total++
+		switch strings.ToLower(m.State) {
+		case "done", "completed":
+			done++
+		case "waiting", "blocked", "waiting on a peer":
+			blocked++
+		}
+	}
+	if total == 0 && len(b.roster) > 0 {
+		total = len(b.roster)
+	}
+
+	header := fmt.Sprintf("Overview · %d of %d tasks done", done, total)
+	if blocked > 0 {
+		header += fmt.Sprintf(" · %d blocked", blocked)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(palette.BoldOpen + header + palette.BoldClose + "\n")
+	if b.title != "" {
+		sb.WriteString("Goal: " + b.title + "\n")
+	}
+
+	// Up to 6 workstream threads
+	count := 0
+	var threadItems []string
+	for _, m := range b.roster {
+		if m.IsCoordinator && len(b.roster) > 1 {
+			continue
+		}
+		if count >= 6 {
+			break
+		}
+		count++
+		status := m.State
+		var glyph string
+		switch strings.ToLower(status) {
+		case "working":
+			glyph = palette.AgentActiveOpen + "● working" + palette.BlueClose
+		case "review", "in review":
+			glyph = palette.BlueOpen + "◎ in review" + palette.BlueClose
+		case "waiting", "waiting on a peer":
+			glyph = palette.WarningOpen + "◷ waiting on a peer" + palette.BlueClose
+		case "failed", "killed", "error":
+			glyph = palette.AgentErrorOpen + "✗ failed" + palette.BlueClose
+		case "done", "completed":
+			glyph = palette.AgentDoneOpen + "✓ done" + palette.BlueClose
+		default:
+			glyph = palette.DimGrayOpen + "○ " + status + palette.DimGrayClose
+		}
+		threadItems = append(threadItems, fmt.Sprintf("%s: %s", m.Name, glyph))
+	}
+	if len(threadItems) > 0 {
+		sb.WriteString("Threads: " + strings.Join(threadItems, "  ") + "\n")
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 func stripANSI(s string) string {

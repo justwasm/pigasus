@@ -9,16 +9,16 @@ import (
 	"testing"
 )
 
-// The capture is a real AGY 1.5.9 request body recorded from live proxy
+// The capture is a real AGY 1.5.14 request body recorded from live proxy
 // interception. Reproducing it byte for byte is the whole point of this
 // package: every static section, the list rendering, and the user_information
 // layout are pinned by the reference rather than by our reading of it.
 //
-// The 1.5.9 fixture carries a <user_rules> section so the options carry the
+// The 1.5.14 fixture carries a <user_rules> section so the options carry the
 // rules too. That is what pins the rule rendering (labels, verbatim bodies,
 // the token truncation) against the reference.
 func TestBuildMatchesCapture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/capture_1.5.9.json")
+	raw, err := os.ReadFile("testdata/capture_1.5.14.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestBuildMatchesCapture(t *testing.T) {
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile("testdata/capture_1.5.9.txt")
+	want, err := os.ReadFile("testdata/capture_1.5.14.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +99,25 @@ func TestSectionOrderAndFraming(t *testing.T) {
 		"communication_style", "slash_commands", "messaging", "subagents", "skills", "user_information"}
 	if strings.Join(sandboxedNames, ",") != strings.Join(wantSandboxed, ",") {
 		t.Fatalf("sandboxed sections = %v, want %v", sandboxedNames, wantSandboxed)
+	}
+
+	// Verify AGY 1.5.14 work_efficiently section between guidelines and communication_style
+	weOpts := DefaultOptions("/tmp/ws", "/tmp/agent", "00000000-0000-0000-0000-000000000000")
+	weOpts.WorkEfficiently = true
+	gotWE := Build(weOpts)
+	var weNames []string
+	for _, line := range strings.Split(gotWE, "\n") {
+		if m := re.FindStringSubmatch(line); m != nil {
+			weNames = append(weNames, m[1])
+		}
+	}
+	wantWE := []string{"identity", "artifacts", "conversation_transcript", "guidelines", "work_efficiently",
+		"communication_style", "slash_commands", "messaging", "subagents", "skills", "user_information"}
+	if strings.Join(weNames, ",") != strings.Join(wantWE, ",") {
+		t.Fatalf("work_efficiently sections = %v, want %v", weNames, wantWE)
+	}
+	if !strings.Contains(gotWE, WorkEfficientlyText) {
+		t.Fatal("prompt does not contain WorkEfficientlyText")
 	}
 }
 

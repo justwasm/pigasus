@@ -142,7 +142,7 @@ printed
 - **存疑**: `internal/agentserver` still depends on `internal/cli` for one
   constant (`cli.ReferenceVersion`). That is accepted: tier packages already
   import `internal/cli` (`internal/core/registry`,
-  `internal/features/models/catalog`, `internal/infra/backend/select`), and
+  `internal/features/models/catalog`, `internal/infra/backend/backendselect`), and
   `internal/cli` is a top-level package outside the tier ordering.
 - **limitations**: the move was mechanical apart from the `setup` extraction.
   No test was added for the placement itself — a test cannot assert a

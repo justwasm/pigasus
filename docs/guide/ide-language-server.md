@@ -611,7 +611,7 @@ in the conversation.
 **defaults to the deterministic stand-in**. The CLI overrides it
 (`internal/cliapp`), so the standalone language server overrides it too
 (`cmd/langserver/backend.go`), with the clone's own rule
-(`internal/infra/backend/select`): a model the user configured goes to its own
+(`internal/infra/backend/backendselect`): a model the user configured goes to its own
 endpoint, a model of the reference's catalogue goes to CloudCode, and a
 model nobody configured gets the stand-in **with a warning** — an answer
 that silently came from the stand-in would look like a working model.

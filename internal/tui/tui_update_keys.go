@@ -56,6 +56,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 	"github.com/justwasm/pigasus/vim"
 )
 
@@ -451,6 +452,9 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 	case "cli.test":
 		return m, nil, true
 	case "swarm.board":
+		if !m.hasActiveSwarm() {
+			return m, nil, true
+		}
 		if m.swarm.Board == nil {
 			m.swarm.Board = m.newSwarmBoard()
 		}
@@ -560,6 +564,9 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 			}
 		}
 		if r == 's' {
+			if !m.hasActiveSwarm() {
+				return m, nil, true
+			}
 			if m.swarm.Board == nil {
 				m.swarm.Board = m.newSwarmBoard()
 			}
@@ -807,9 +814,16 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 		m.cancelBashCommand()
 		return m, nil
 	}
-	if m.conversation.streaming && m.turn.activeBridge != nil && m.turn.activeBridge.IsRunning() {
-		m.cancelActiveTurn()
-		return m, nil
+	if m.conversation.streaming {
+		if m.conversation.turnInterrupted {
+			// AGY 1.5.14: Pressing Esc to cancel a turn while it is still tearing down
+			// keeps the Interrupted status hint visible and does not clear it or wipe the composer.
+			return m, nil
+		}
+		if m.turn.activeBridge != nil && m.turn.activeBridge.IsRunning() {
+			m.cancelActiveTurn()
+			return m, nil
+		}
 	}
 
 	// Priority 3: Composer input editing state (selection, draft text)
@@ -895,7 +909,63 @@ func (m *RootModel) handleTabCompletion(key tea.Key) bool {
 		m.prompt.promptHistory.Reset()
 		return true
 	}
+	// Accept argument ghost text when present (e.g. /swarm -> /swarm board, /copy -> /copy btw).
+	val := m.prompt.input.Value()
+	if strings.HasPrefix(val, "/swarm") {
+		rest := strings.TrimPrefix(val, "/swarm")
+		if rest == "" {
+			m.prompt.input.SetValue("/swarm ")
+			m.prompt.SetInputCursorOffset(len("/swarm "))
+			m.prompt.input.CursorEnd()
+			m.syncTabVimInput()
+			return true
+		}
+		if rest == " " {
+			m.prompt.input.SetValue("/swarm board")
+			m.prompt.SetInputCursorOffset(len("/swarm board"))
+			m.prompt.input.CursorEnd()
+			m.syncTabVimInput()
+			return true
+		}
+		trimmedRest := strings.TrimPrefix(rest, " ")
+		if strings.HasPrefix("board", trimmedRest) && trimmedRest != "board" {
+			m.prompt.input.SetValue("/swarm board")
+			m.prompt.SetInputCursorOffset(len("/swarm board"))
+			m.prompt.input.CursorEnd()
+			m.syncTabVimInput()
+			return true
+		}
+	}
+	if strings.HasPrefix(val, "/copy") {
+		rest := strings.TrimPrefix(val, "/copy")
+		if rest == " " {
+			m.prompt.input.SetValue("/copy btw")
+			m.prompt.SetInputCursorOffset(len("/copy btw"))
+			m.prompt.input.CursorEnd()
+			m.syncTabVimInput()
+			return true
+		}
+		trimmedRest := strings.TrimPrefix(rest, " ")
+		if strings.HasPrefix("btw", trimmedRest) && trimmedRest != "btw" {
+			m.prompt.input.SetValue("/copy btw")
+			m.prompt.SetInputCursorOffset(len("/copy btw"))
+			m.prompt.input.CursorEnd()
+			m.syncTabVimInput()
+			return true
+		}
+	}
 	return false
+}
+
+func (m *RootModel) syncTabVimInput() {
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.SetTextKeepingPending(m.prompt.input.Value())
+		m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
+		if m.prompt.vimEng.Row >= 0 && m.prompt.vimEng.Row < len(m.prompt.vimEng.Lines) {
+			m.prompt.vimEng.Col = len([]rune(m.prompt.vimEng.Lines[m.prompt.vimEng.Row]))
+		}
+		m.syncVimInput()
+	}
 }
 
 func (m *RootModel) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
@@ -1024,6 +1094,15 @@ func (m *RootModel) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) && m.prompt.input.Value() == "" {
 		m.display.quitting = true
 		return m, tea.Quit
+	}
+
+	// Wire diagnostics toggle: Ctrl+Shift+W or Alt+W
+	if (key.Code == 'w' || key.Code == 'W') && ((key.Mod.Contains(tea.ModCtrl) && key.Mod.Contains(tea.ModShift)) || key.Mod.Contains(tea.ModAlt)) {
+		if m.overlays.wireHUD == nil {
+			m.overlays.wireHUD = wirehud.New()
+		}
+		m.overlays.wireHUD.Toggle()
+		return m, nil
 	}
 
 	// Cycle 383 (B-21): the `esc esc` pair is broken by any other key —
@@ -1629,6 +1708,9 @@ func (m *RootModel) updateEditorFinished(msg editorFinishedMsg) (tea.Model, tea.
 
 func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
+	case pluginReloadMsg:
+		m.reloadPluginsAndMCP()
+		return m, nil, true
 	case askQuestionOpenMsg:
 		m.askQuestion.OpenQuestions(msg.questions, m.viewport.width, msg.replyCh)
 		return m, nil, true
@@ -1687,6 +1769,8 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 		return m, m.audio.Surface.HandleConnectDone(msg), true
 	case voice.TickMsg:
 		return m, m.audio.Surface.HandleTick(), true
+	case voice.DictationDoneMsg:
+		return m, m.audio.Surface.HandleDictationDone(msg), true
 	case tea.PasteMsg:
 		// The question form owns the input area while it is up. A paste
 		// goes to its write-in field (when that field has the focus)
@@ -1862,10 +1946,13 @@ func (m *RootModel) updateBashDoneMsg(msg bashDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *RootModel) updateSpinnerTickMsg(msg sp.TickMsg) (tea.Model, tea.Cmd) {
-	if m.conversation.streaming {
+	if m.conversation.streaming || m.audio.thinking {
 		var cmd tea.Cmd
 		m.conversation.spinner, cmd = m.conversation.spinner.Update(msg)
 		m.conversation.spinFrame++
+		if cmd == nil {
+			cmd = func() tea.Msg { return m.conversation.spinner.Tick() }
+		}
 		return m, cmd
 	}
 	return m, nil

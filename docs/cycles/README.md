@@ -32,25 +32,24 @@
 
 ## Active Baseline vs Historical Reverse-Engineering Artifacts
 
-### 1. Active Clean-room Baseline (Official Antigravity CLI 1.5.11)
+### 1. Active Clean-room Baseline (Official Antigravity CLI 1.5.14)
 
-The active reverse-engineering baseline targets official Antigravity CLI **1.5.11** (`jetski/cortex`; clean-room compatibility contract: `internal/cli.ReferenceVersion = "1.5.11"`). Recovered assets, proto descriptors, web UI bundles, and the 185,730-function symbol map live under [`out/extracted-1.5.11/`](../../out/extracted-1.5.11/):
+The active reverse-engineering baseline targets official Antigravity CLI **1.5.14** (`jetski/cortex`; clean-room compatibility contract: `internal/cli.ReferenceVersion = "1.5.14"`). Recovered assets, proto descriptors, web UI bundles, and the 188,485-function symbol map live under [`out/extracted-1.5.14/`](../../out/extracted-1.5.14/):
 
-- **Protocol Buffer Descriptors ([`out/extracted-1.5.11/protos/`](../../out/extracted-1.5.11/protos/)):**
-  - `cortex_1.5.11.txt`: `exa.cortex_pb` (218 KB, 511 messages, 87 enums). Defines `WorkflowSpec`, `CascadeConfig`, `DiscoveryCategory`, `MarketplaceInstall`, `CortexMemoryScope`, and the new `CitationConfig`.
-  - `cascade_plugins_1.5.11.txt`: `exa.cascade_plugins_pb` (3 KB, 13 messages). Defines `CascadePluginTemplate`, `CascadePluginLocalConfig`, `CascadePluginRemoteConfig`, `CascadePluginCommand`.
-  - `remote_agent_proxy_1.5.11.txt` & `remote_agent_proxy_pb_1.5.11.txt`: `google.gca.aicode.v1main` (89 KB, 306 messages, 14 enums) and `exa.remote_agent_proxy_pb` (4.8 KB, 11 messages). Defines `StartCascadeRequest`, `StartCascadeResponse`, `Environment` (Capsule / Ace), `ConfigOverrides`, and the new extension-catalog RPCs (`SearchExtensionsRequest` / `SearchExtensionsResponse` / `CatalogExtension`).
-  - `trajectory_1.5.11.txt` & `trajectory_steps_1.5.11.txt`: `gemini_coder` (13.7 KB) and `devtools.cider.agent.trajectory_steps` (11 KB). Defines `Conversation`, `Trajectory`, `ConversationState`, `BuildCleanerStep`, `DummyStep`, `ToolStatus`.
-  - `prompt_1.5.11.txt`: `exa.prompt_pb` (3.8 KB, 6 messages). Defines `CommandIntentInfo`, `PendingCommand`, `IntellisenseSuggestion`, `CodeDiagnostic`.
-- **Symbols & Seeds ([`out/extracted-1.5.11/seeds/`](../../out/extracted-1.5.11/seeds/)):**
-  - `funcs.txt`: Complete 185,730-symbol pclntab extraction covering all internal packages (190,954 pclntab entries before dedup).
+- **Protocol Buffer Descriptors ([`out/extracted-1.5.14/protos/`](../../out/extracted-1.5.14/protos/)):**
+  - `cortex_1.5.14.txt`: `exa.cortex_pb` (195 KB). Defines `WorkflowSpec`, `CascadeConfig`, `DiscoveryCategory`, `MarketplaceInstall`, `CortexMemoryScope`, and `CitationConfig`.
+  - `cascade_plugins_1.5.14.txt`: `exa.cascade_plugins_pb` (3.2 KB). Defines `CascadePluginTemplate`, `CascadePluginLocalConfig`, `CascadePluginRemoteConfig`, `CascadePluginCommand`.
+  - `remote_agent_proxy_1.5.14.txt` & `remote_agent_proxy_pb_1.5.14.txt`: `google.gca.aicode.v1main` (82 KB) and `exa.remote_agent_proxy_pb` (6.3 KB). Defines `StartCascadeRequest`, `StartCascadeResponse`, `Environment` (Capsule / Ace), `ConfigOverrides`, and extension-catalog RPCs.
+  - `trajectory_1.5.14.txt` & `trajectory_steps_1.5.14.txt`: `gemini_coder` (10.3 KB) and `devtools.cider.agent.trajectory_steps` (4.7 KB). Defines `Conversation`, `Trajectory`, `ConversationState`, `BuildCleanerStep`, `DummyStep`, `ToolStatus`.
+- **Symbols & Seeds ([`out/extracted-1.5.14/seeds/`](../../out/extracted-1.5.14/seeds/)):**
+  - `funcs.txt`: Complete 188,485-symbol pclntab extraction covering all internal packages.
   - `seeds.txt`: Verified function boundaries and entry addresses for Ghidra and static analysis.
-- **Remote Control & Web UI Assets ([`out/extracted-1.5.11/web-assets/`](../../out/extracted-1.5.11/web-assets/)):**
+- **Remote Control & Web UI Assets ([`out/extracted-1.5.14/web-assets/`](../../out/extracted-1.5.14/web-assets/)):**
   - Client web application bundle: `compiled_tailwind.css`, `jetbox.css`, `index.html`, `main.js`, `audio_processor.js`.
   - Specialized web workers: `diff_worker.js`, `shiki_worker.js`, `pdf.worker.mjs`, `pdfjs_loader.mjs`.
   - Audio sound cues: `antigravityCascadeDone.mp3`, `antigravityActionRequired.mp3`.
   - Voice dictation character audio fixtures: 9 speaker profiles (`arlo`, `cleo`, `finn`, `fola`, `gero`, `lora`, `neno`, `olin`, `tari`).
-- **Syntax Highlighting & Schemas ([`out/extracted-1.5.11/embed/`](../../out/extracted-1.5.11/embed/)):**
+- **Syntax Highlighting & Schemas ([`out/extracted-1.5.14/embed/`](../../out/extracted-1.5.14/embed/)):**
   - 50+ Chroma / Pygments XML highlighting styles (Tokyo Night, Catppuccin, Gruvbox, Nord, Rose Pine, Solarized, etc.).
   - Embedded JSON Schema draft definitions (draft-04, draft-06, draft-07).
 

@@ -99,6 +99,13 @@ type ConversationModel struct {
 
 	// modelRetry tracks in-progress unavailable model retry countdown.
 	modelRetry *ModelRetry
+
+	// voiceReplyStart marks the response row where live voice agent speech begins (-1 when inactive).
+	voiceReplyStart int
+	// voiceReplyBuf accumulates streamed voice speech deltas.
+	voiceReplyBuf string
+	// voiceTextLines tracks how many rows the current live voice speech occupies.
+	voiceTextLines int
 }
 
 // ModelRetry tracks model unavailable retry countdown.

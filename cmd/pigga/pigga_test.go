@@ -71,8 +71,8 @@ func TestPiggaNativeVersion(t *testing.T) {
 		t.Fatalf("go run . --version failed: %v, output: %s", err, string(out))
 	}
 	s := string(out)
-	if !strings.Contains(s, "1.5.13-wasm") {
-		t.Fatalf("expected 1.5.13-wasm, got: %s", s)
+	if !strings.Contains(s, "1.5.14-wasm") {
+		t.Fatalf("expected 1.5.14-wasm, got: %s", s)
 	}
 }
 

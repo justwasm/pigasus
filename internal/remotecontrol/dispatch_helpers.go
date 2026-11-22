@@ -70,7 +70,7 @@ func timeFormat(t time.Time) string {
 // a dashboard's status pill doesn't need a verbose breakdown.
 //
 // Mirrors the formatUptime helper in
-// internal/infra/remote/persistent/helpers.go (cycle 11). The two helpers
+// internal/infra/remote/persistentrc/helpers.go (cycle 11). The two helpers
 // differ slightly because the persistent helper is bound to
 // time.Duration in seconds (the persistentrc layer works with
 // int64 second counts from time.Time); richStatusSnapshot's

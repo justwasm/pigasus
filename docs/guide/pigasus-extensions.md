@@ -23,6 +23,13 @@
 |---|---|---|
 | `pigasus --remote-agent` | a native client of `JetskiRemoteAgentProxyService`; it does not spawn `agy` | [`remote-agents.md`](remote-agents.md) §2.3, §3.6 |
 | `pigasus agent-server` | the mock server as a subcommand; `mock-remote-agent` is the compatibility shell | [`remote-agents.md`](remote-agents.md) §2.1 |
+| `pigasus livechat --debug-wire` | real-time duplex wire diagnostics; exposes audio frames, chunk bytes, and latency metrics | [`remote-agents.md`](remote-agents.md) §3.6 |
+| `pigasus mic-serve` | local audio server over `JETSKI-AUDIO/1` (`micwire`); exposes real-time `MicWireStats` | [`remote-agents.md`](remote-agents.md) §3.6 |
+| `/wire` & `Ctrl+Shift+W` | interactive TUI Wire Diagnostics HUD overlay; real-time RTT, TTFT, packets and tok/s rate | `internal/ui/views/wirehud` |
+| Trajectory Cold Storage | tiering folded turns (<= checkpoint boundary) to disk to bound heap in 200+ turn sessions | `actor/trajectory.go` |
+| Dynamic Routing Failover | multi-provider fallback chain (CloudCode -> Gateway -> Claude/GPT) with typed error interception | `internal/infra/backend/failover` |
+| Plugin Runtime Hot-Reload | hot-reloading tool catalogs & MCP providers during active turn on filesystem changes | `internal/features/plugins/watch` |
+| Upstream Parity Fuzzer | AST and binary string symbol fuzzing against upstream reference binary to detect schema drift | `scripts/re/parity_fuzz.py` |
 | `/terminal` | hidden host-only command over `create/list/send/stream/closeTerminal` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/upload <path>` | hidden host-only wrapper over `uploadProjectFile` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/triggers` | hidden host-only trigger management | [`remote-agents.md`](remote-agents.md) §3.6 |

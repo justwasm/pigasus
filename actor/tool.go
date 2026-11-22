@@ -27,6 +27,7 @@ type ToolResult struct {
 	Output     string `json:"output,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Terminate  bool   `json:"terminate,omitempty"`
+	ColdStored bool   `json:"cold_stored,omitempty"`
 }
 
 type toolCallIDKey struct{}

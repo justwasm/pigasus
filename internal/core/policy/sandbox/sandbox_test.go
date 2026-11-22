@@ -13,6 +13,7 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -374,4 +375,41 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestSandbox_BlocksSymlinkEscapes(t *testing.T) {
+	wsDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// Inside file
+	insideFile := filepath.Join(wsDir, "valid.txt")
+	if err := os.WriteFile(insideFile, []byte("valid"), 0644); err != nil {
+		t.Fatalf("failed to write insideFile: %v", err)
+	}
+
+	// Outside file
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("failed to write outsideFile: %v", err)
+	}
+
+	// Create a symlink in the workspace that points to outsideDir
+	symlinkPath := filepath.Join(wsDir, "escape_link")
+	if err := os.Symlink(outsideDir, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	s := Sandbox{
+		Enabled: true,
+		Cwd:     wsDir,
+	}
+
+	if !s.Allowed(insideFile) {
+		t.Errorf("expected insideFile to be allowed")
+	}
+
+	escapedTarget := filepath.Join(symlinkPath, "secret.txt")
+	if s.Allowed(escapedTarget) {
+		t.Errorf("expected symlinked path escaping the workspace to be blocked, but Allowed returned true")
+	}
 }

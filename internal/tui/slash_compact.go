@@ -12,6 +12,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/infra/memtrim"
 	"github.com/justwasm/pigasus/internal/ui/rows"
 )
 
@@ -328,6 +329,7 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 		m.session.store.CompactTokensBefore = msg.StatsBefore.Tokens
 		m.session.store.CompactTokensAfter = msg.StatsAfter.Tokens
 		m.session.store.CompactEnd = time.Now()
+		memtrim.Release()
 	}
 	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
 	m.conversation.response = append(m.conversation.response,

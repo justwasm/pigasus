@@ -43,7 +43,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/core/compaction"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
@@ -52,9 +52,10 @@ import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
@@ -75,6 +76,8 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
 	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
+	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -428,6 +431,10 @@ func (m *RootModel) newTurnBridge() *EngineBridge {
 		PromptMgr: DefaultPermissionPrompts,
 		OnUsage:   m.recordTurnUsage,
 		OnFrame: func(f agentlink.Frame) {
+			if m.overlays.wireHUD != nil {
+				m.overlays.wireHUD.RecordFirstToken()
+				m.overlays.wireHUD.RecordChunk(len(f.Text))
+			}
 			if rec := m.remote.inprocessDisp; rec != nil {
 				var toolName, toolArgs, toolResult string
 				var toolErr bool
@@ -466,6 +473,14 @@ func (m *RootModel) streamPrompt(prompt string) tea.Cmd {
 	msgs := m.prepareStreamTurnMessages()
 	model := m.turnModel()
 
+	if m.session.remoteAgent && !models.IsRemoteAgentSupported(model) {
+		return func() tea.Msg {
+			return toolsteps.TurnDoneMsg{
+				Err: errors.New(models.RemoteAgentUnsupportedMessage(model)),
+			}
+		}
+	}
+
 	var unlock func()
 	if tl := m.remote.turnLock; tl != nil {
 		if !tl.TryLock() {
@@ -486,13 +501,20 @@ func (m *RootModel) streamPrompt(prompt string) tea.Cmd {
 	m.turn.activeBridge = bridge
 	turnCtx, endTurn := bridge.turns.Begin(context.Background())
 	turnCtx = interaction.WithHost(turnCtx, m.turnInteractionHost())
+	if m.overlays.wireHUD != nil {
+		m.overlays.wireHUD.RecordStreamStart(model)
+	}
 
 	return func() tea.Msg {
 		defer endTurn()
 		if unlock != nil {
 			defer unlock()
 		}
-		return bridge.runTurnOn(turnCtx, model, msgs)
+		res := bridge.runTurnOn(turnCtx, model, msgs)
+		if m.overlays.wireHUD != nil {
+			m.overlays.wireHUD.RecordStreamDone()
+		}
+		return res
 	}
 }
 
@@ -705,6 +727,9 @@ func (m *RootModel) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	m.conversation.replyStart = -1
 	m.conversation.liveTextLines = 0
 	m.conversation.liveReplyBuf = ""
+	m.conversation.voiceReplyStart = -1
+	m.conversation.voiceReplyBuf = ""
+	m.conversation.voiceTextLines = 0
 	m.conversation.steerReplyPrefix = ""
 	m.session.store.SendingMessages = nil
 	m.conversation.lastStreamSave = time.Time{}
@@ -747,13 +772,16 @@ func (m *RootModel) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	// calls are what the rehydration pass reads back.
 	m.recordTrajectoryCalls(msg.Steps)
 	m.flushPendingCheckpoints()
-	// A turn the user cancelled with Esc leaves no error row behind. The
-	// reference answers a cancelled turn with the composer's interrupted
-	// hint instead (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`),
-	// and the turn's own failure is the cancellation itself.
-	if msg.Err != nil && !m.conversation.turnInterrupted {
-		if message, ok := agentturn.TurnErrorMessage(msg.Err); ok {
-			m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow(message))
+	// A turn the user cancelled with Esc leaves no error row behind, except when
+	// canceled in the pre-send window which aborts the send and shows
+	// "Message not sent: canceled before it was sent" (AGY 1.5.14).
+	if msg.Err != nil {
+		if strings.Contains(msg.Err.Error(), "canceled before it was sent") {
+			m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow("Message not sent: canceled before it was sent"))
+		} else if !m.conversation.turnInterrupted {
+			if message, ok := agentturn.TurnErrorMessage(msg.Err); ok {
+				m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow(message))
+			}
 		}
 	}
 	m.conversation.replyStart = -1
@@ -788,6 +816,9 @@ func (m *RootModel) flushNextQueued(nextQueued string) tea.Cmd {
 	if handled, cmd := m.dispatchSlashLine(nextQueued); handled {
 		return cmd
 	}
+	if m.isLiveVoiceActive() {
+		return m.startLiveVoiceTurn(nextQueued)
+	}
 	m.drainTaskNotifications()
 	for len(m.conversation.response) > 0 && strings.TrimSpace(m.conversation.response[len(m.conversation.response)-1]) == "" {
 		m.conversation.response = m.conversation.response[:len(m.conversation.response)-1]
@@ -815,6 +846,9 @@ func (m *RootModel) flushNextQueued(nextQueued string) tea.Cmd {
 	m.conversation.thinking = false
 	m.conversation.liveTextLines = 0
 	m.conversation.liveReplyBuf = ""
+	m.conversation.voiceReplyStart = -1
+	m.conversation.voiceReplyBuf = ""
+	m.conversation.voiceTextLines = 0
 	m.conversation.steerReplyPrefix = ""
 	m.conversation.lastStreamSave = time.Time{}
 	m.conversation.streamedText = false
@@ -888,6 +922,29 @@ func (m *RootModel) moveWord(back bool) bool {
 		return composer.HandleWordLeft(seams)
 	}
 	return composer.HandleWordRight(seams)
+}
+
+func (m *RootModel) reloadPluginsAndMCP() {
+	if m == nil {
+		return
+	}
+	workspace := m.session.cwd
+	if workspace == "" {
+		workspace, _ = os.Getwd()
+	}
+	setup.InstallMCPProvider(auth.AntigravityHome(), workspace)
+	catalog := agentToolRegistry(workspace, m.session.agentBody)
+	m.tools.catalog = catalog
+	m.registerSubagentQuestionTool(catalog)
+	if m.session.policy != nil {
+		m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, m.tools.sandbox.Enabled), &permissionRunner{
+			inner:   &toolrunner.RegistryRunner{Reg: catalog},
+			policy:  m.session.policy,
+			sandbox: m.tools.sandbox,
+			hook:    m.hookToolGate,
+			post:    m.hookPostToolUse,
+		})
+	}
 }
 
 func agentToolRegistry(workspace, agentBody string) *tools.Registry {
@@ -1179,6 +1236,7 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 			replyStart:        -1,
 			liveReplyIdx:      -1,
 			liveThoughtRunIdx: -1,
+			voiceReplyStart:   -1,
 		},
 		askQuestion: AskQuestionModel{
 			manager: subagentquestions.NewManager(false),
@@ -1198,6 +1256,7 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 	m.help.Panel = m.newHelpPanel()
 	m.audio.Surface = m.newVoiceSurface()
 	m.swarm.Board = m.newSwarmBoard()
+	m.overlays.wireHUD = wirehud.New()
 	return m
 }
 
@@ -2266,7 +2325,8 @@ func (m *RootModel) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 	}
 
 	// In Send Immediately mode (QueueMode is off): submitting plain text steers the active turn
-	if !m.session.store.QueueMode && !strings.HasPrefix(prompt, "/") {
+	// unless the turn is tearing down / interrupted (AGY 1.5.14), where follow-up messages queue instead.
+	if !m.session.store.QueueMode && !strings.HasPrefix(prompt, "/") && !m.conversation.turnInterrupted {
 		m.pushHistory(prompt)
 		if m.steerActiveTurn(prompt) {
 			m.prompt.input.Reset()
@@ -2415,6 +2475,9 @@ func (m *RootModel) resetLiveTurnState(prompt string) {
 	}
 	m.conversation.liveTextLines = 0
 	m.conversation.liveReplyBuf = ""
+	m.conversation.voiceReplyStart = -1
+	m.conversation.voiceReplyBuf = ""
+	m.conversation.voiceTextLines = 0
 	m.conversation.steerReplyPrefix = ""
 	m.conversation.lastStreamSave = time.Time{}
 	m.conversation.streamedText = false
@@ -2478,7 +2541,33 @@ func (m *RootModel) submitPrompt() tea.Cmd {
 	if handled, cmd := m.dispatchPromptPrefix(prompt); handled {
 		return cmd
 	}
+	if m.isLiveVoiceActive() {
+		return m.startLiveVoiceTurn(prompt)
+	}
 	return m.startModelTurn(prompt)
+}
+
+func (m *RootModel) isLiveVoiceActive() bool {
+	return m.audio.Surface != nil &&
+		m.audio.Surface.Active() &&
+		m.audio.Surface.Phase() == voice.PhaseLive
+}
+
+func (m *RootModel) startLiveVoiceTurn(prompt string) tea.Cmd {
+	m.session.conversationStarted = true
+	m.drainTaskNotifications()
+	m.resetLiveTurnState(prompt)
+	m.appendUserTurn(prompt)
+	m.saveSession()
+	sess := m.audio.liveSession
+	sendCmd := func() tea.Msg {
+		if sess != nil && sess.IsActive() {
+			_ = sess.SendText(prompt)
+		}
+		return nil
+	}
+	tickCmd := func() tea.Msg { return m.conversation.spinner.Tick() }
+	return tea.Batch(sendCmd, tickCmd)
 }
 
 func (m *RootModel) appendUserTurn(text string) {

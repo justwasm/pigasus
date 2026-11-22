@@ -363,16 +363,26 @@ func TestStatic(t *testing.T) {
 func TestStatusRow_OutOfCredits(t *testing.T) {
 	s := base()
 	s.OutOfCredits = true
+	s.CreditsKnown = true
+	s.Credits = 0
 	s.IsGeminiAPIKey = false
 	rendered := Render(s)
-	if !strings.Contains(rendered, "AI: Out of credits") {
-		t.Errorf("rendered missing AI: Out of credits: %q", rendered)
+	// AGY 1.5.14: The status line shows AI credits only when you have a positive balance.
+	if strings.Contains(rendered, "AI: Out of credits") {
+		t.Errorf("rendered unexpectedly contains AI: Out of credits: %q", rendered)
 	}
 
-	// Under GEMINI_API_KEY, AI: Out of credits must NOT appear (1.5.12).
+	// With positive credits:
+	s.Credits = 42
+	renderedPositive := Render(s)
+	if !strings.Contains(renderedPositive, "AI Credits: 42") {
+		t.Errorf("renderedPositive missing AI Credits: 42: %q", renderedPositive)
+	}
+
+	// Under GEMINI_API_KEY, AI credits must NOT appear (1.5.12).
 	s.IsGeminiAPIKey = true
 	renderedAPIKey := Render(s)
-	if strings.Contains(renderedAPIKey, "AI: Out of credits") {
-		t.Errorf("rendered under GEMINI_API_KEY unexpectedly contains AI: Out of credits: %q", renderedAPIKey)
+	if strings.Contains(renderedAPIKey, "AI Credits") {
+		t.Errorf("rendered under GEMINI_API_KEY unexpectedly contains AI Credits: %q", renderedAPIKey)
 	}
 }

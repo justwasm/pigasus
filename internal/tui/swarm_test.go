@@ -20,28 +20,26 @@ func TestSwarmBoard_SlashAndToggle(t *testing.T) {
 		t.Fatal("swarm board should initially be closed")
 	}
 
-	// 1. /swarm board toggles the board open
+	// 1. Without active swarm, /swarm board outputs no-swarm guidance and does not open board
 	handled, _ := m.handleSlashCommand("/swarm board")
 	if !handled {
 		t.Fatal("expected /swarm board to be handled")
 	}
-	if !m.swarm.Board.Active() {
-		t.Fatal("expected /swarm board to activate swarm board")
-	}
-
-	// 2. Esc closes the board
-	_, _ = m.handleEscKeyMsg()
 	if m.swarm.Board.Active() {
-		t.Fatal("expected Esc to close swarm board")
+		t.Fatal("expected /swarm board to remain inactive when no swarm is active")
+	}
+	resStr := strings.Join(m.conversation.response, "\n")
+	if !strings.Contains(resStr, "No swarm in this conversation. Start one with /swarm <task>.") {
+		t.Fatalf("expected no-swarm response in conversation, got %q", resStr)
 	}
 
-	// 3. alt+s toggles the board open
-	_, _, handledAltS := m.handleGlobalOrModalKeys(tea.Key{Code: 's', Mod: tea.ModAlt})
-	if !handledAltS || !m.swarm.Board.Active() {
-		t.Fatal("expected alt+s to toggle board open")
+	// alt+s also does not open board when no swarm is active
+	_, _, handledAltSNoSwarm := m.handleGlobalOrModalKeys(tea.Key{Code: 's', Mod: tea.ModAlt})
+	if !handledAltSNoSwarm || m.swarm.Board.Active() {
+		t.Fatal("expected alt+s to do nothing when no swarm is active")
 	}
 
-	// 4. While open, keyboard keys route to swarm board
+	// 2. Set active swarm snapshot
 	m.swarm.Board.ApplySnapshot(&swarmboard.SwarmSnapshot{
 		Title: "Refactor",
 		Members: []swarmboard.Member{
@@ -52,6 +50,29 @@ func TestSwarmBoard_SlashAndToggle(t *testing.T) {
 			{Seq: 1, Author: "coordinator", Body: "@alice please inspect module"},
 		},
 	})
+
+	// 3. With active swarm, /swarm board toggles the board open
+	handled, _ = m.handleSlashCommand("/swarm board")
+	if !handled {
+		t.Fatal("expected /swarm board to be handled")
+	}
+	if !m.swarm.Board.Active() {
+		t.Fatal("expected /swarm board to activate swarm board")
+	}
+
+	// 4. Esc closes the board
+	_, _ = m.handleEscKeyMsg()
+	if m.swarm.Board.Active() {
+		t.Fatal("expected Esc to close swarm board")
+	}
+
+	// 5. alt+s toggles the board open
+	_, _, handledAltS := m.handleGlobalOrModalKeys(tea.Key{Code: 's', Mod: tea.ModAlt})
+	if !handledAltS || !m.swarm.Board.Active() {
+		t.Fatal("expected alt+s to toggle board open")
+	}
+
+	// 6. While open, keyboard keys route to swarm board
 	// Tab moves focus between panes
 	m.handleGlobalOrModalKeys(tea.Key{Code: tea.KeyTab})
 	if m.swarm.Board.FocusPane() != swarmboard.PanePosts {
@@ -146,5 +167,33 @@ func TestSwarmBoard_DetailEscReturnsToBoard(t *testing.T) {
 	}
 	if m.swarm.fromBoard {
 		t.Fatal("expected swarm.fromBoard to be reset")
+	}
+}
+
+func TestSwarmTabCompletion(t *testing.T) {
+	m := diffTestModel()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
+
+	// 1. /sw + Tab completes to /swarm 
+	m.prompt.input.SetValue("/sw")
+	m.prompt.picker.Update([]rune("/sw"))
+	handled := m.handleTabCompletion(tea.Key{Code: tea.KeyTab})
+	if !handled || m.prompt.input.Value() != "/swarm " {
+		t.Fatalf("expected Tab on /sw to complete to '/swarm ', got handled=%v, val=%q", handled, m.prompt.input.Value())
+	}
+
+	// 2. Tab on /swarm  completes to /swarm board
+	handled = m.handleTabCompletion(tea.Key{Code: tea.KeyTab})
+	if !handled || m.prompt.input.Value() != "/swarm board" {
+		t.Fatalf("expected Tab on '/swarm ' to complete to '/swarm board', got handled=%v, val=%q", handled, m.prompt.input.Value())
+	}
+
+	// 3. Tab on /swarm b completes to /swarm board
+	m.prompt.input.SetValue("/swarm b")
+	m.prompt.picker.Update([]rune("/swarm b"))
+	handled = m.handleTabCompletion(tea.Key{Code: tea.KeyTab})
+	if !handled || m.prompt.input.Value() != "/swarm board" {
+		t.Fatalf("expected Tab on '/swarm b' to complete to '/swarm board', got handled=%v, val=%q", handled, m.prompt.input.Value())
 	}
 }

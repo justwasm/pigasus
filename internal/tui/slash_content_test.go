@@ -22,7 +22,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/features/tools/isolation"
@@ -1283,7 +1283,7 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 	m := newVoiceTestMode(t)
 	t.Setenv("ANTIGRAVITY_MIC", "")
 
-	cmd := m.audio.Surface.Start("/voice")
+	cmd := m.audio.Surface.Start("/voice dictate")
 	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseConnecting {
 		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.audio.Surface.Phase())
 	}

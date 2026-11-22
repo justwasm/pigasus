@@ -67,6 +67,9 @@ func NewTmuxDriver(cfg TmuxConfig) (*TmuxDriver, error) {
 	if cfg.PigasusBin == "" {
 		if env := os.Getenv("PIGASUS_BIN"); env != "" {
 			cfg.PigasusBin = env
+		} else if _, err := os.Stat("./bin/pigasus"); err == nil {
+			abs, _ := filepath.Abs("./bin/pigasus")
+			cfg.PigasusBin = abs
 		} else {
 			cfg.PigasusBin = "/tmp/pigasus"
 		}

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/justwasm/pigasus/internal/voice/voicepb"
 )
 
@@ -18,6 +20,14 @@ type mockAICodeStream struct {
 	sendErr   error
 	recvErr   error
 	closed    bool
+	done      chan struct{}
+}
+
+func (m *mockAICodeStream) getDone() chan struct{} {
+	if m.done == nil {
+		m.done = make(chan struct{})
+	}
+	return m.done
 }
 
 func (m *mockAICodeStream) SendMsg(msg any) error {
@@ -36,29 +46,44 @@ func (m *mockAICodeStream) SendMsg(msg any) error {
 
 func (m *mockAICodeStream) RecvMsg(target any) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.recvErr != nil {
+		defer m.mu.Unlock()
 		return m.recvErr
 	}
-	if len(m.recvMsgs) == 0 {
+	if len(m.recvMsgs) > 0 {
+		msg := m.recvMsgs[0]
+		m.recvMsgs = m.recvMsgs[1:]
+		m.mu.Unlock()
+
+		if resp, ok := target.(*voicepb.StreamVoiceResponse); ok {
+			if src, ok := msg.(*voicepb.StreamVoiceResponse); ok {
+				proto.Reset(resp)
+				proto.Merge(resp, src)
+				return nil
+			}
+		}
+		return nil
+	}
+	if m.closed {
+		m.mu.Unlock()
 		return io.EOF
 	}
-	msg := m.recvMsgs[0]
-	m.recvMsgs = m.recvMsgs[1:]
+	done := m.getDone()
+	m.mu.Unlock()
 
-	if resp, ok := target.(*voicepb.StreamVoiceResponse); ok {
-		if src, ok := msg.(*voicepb.StreamVoiceResponse); ok {
-			*resp = *src
-			return nil
-		}
-	}
-	return nil
+	<-done
+	return io.EOF
 }
 
 func (m *mockAICodeStream) CloseSend() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.closed = true
+	if !m.closed {
+		m.closed = true
+		if m.done != nil {
+			close(m.done)
+		}
+	}
 	return nil
 }
 

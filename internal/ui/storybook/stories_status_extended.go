@@ -194,7 +194,7 @@ func (s *seasonalBannerStory) View() string {
 		Model:   "Gemini 3.8 Flash (High)",
 		Cwd:     "~/GitHub/openagy",
 		CLIName: "Pigasus CLI",
-		Version: "1.5.5",
+		Version: "1.5.14",
 	}
 	oldArt, oldGreet := seasonal.SetBannerPicks(s.state, s.state%4)
 	defer seasonal.SetBannerPicks(oldArt, oldGreet)
@@ -244,7 +244,7 @@ func (s *announcementCardStory) View() string {
 		}, w)
 	default: // update-notice
 		return announce.RenderBoxedCard(&announce.Card{
-			Title: "Antigravity CLI v1.5.5 is now available",
+			Title: "Antigravity CLI v1.5.14 is now available",
 			Body:  "Features improved CAPTCHA defense guidelines, updated remote agent wire schemas, and bug fixes.",
 			Hint:  "Esc to dismiss · Run agy update to upgrade",
 		}, w)

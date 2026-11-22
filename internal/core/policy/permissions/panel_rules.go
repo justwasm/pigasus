@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	projectflags "github.com/justwasm/pigasus/internal/core/cliflags/projects"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/palette"
 )
 

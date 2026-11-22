@@ -20,8 +20,8 @@ import (
 	"github.com/justwasm/pigasus/internal/cli"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/rctunnel"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
@@ -417,7 +417,7 @@ func runServeEventLoop(srv *remotetransport.TCPServer, tunnelClient *rctunnel.Cl
 	}
 	// The link that reaches *this* instance from another device — the
 	// account chooser wrapping the deep link, so the browser picks the
-	// account the tunnel registered with. See internal/infra/remote/link.
+	// account the tunnel registered with. See internal/infra/remote/rclink.
 	fmt.Fprintf(errOut, "%s: open %s on another device to take over.\n",
 		label, rclink.BrowserURL(instanceID, ""))
 	// Cycle rc-auth-bearer-required: the secret a client from another

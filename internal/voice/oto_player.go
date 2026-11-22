@@ -31,16 +31,19 @@ type OtoPlayer struct {
 	volume   float64
 }
 
-// NewOtoPlayer creates a new 24kHz 16-bit PCM mono speaker player.
-func NewOtoPlayer(sampleRate int, channels int) (*OtoPlayer, error) {
-	if sampleRate <= 0 {
-		sampleRate = 24000
-	}
-	if channels <= 0 {
-		channels = 1
-	}
+var (
+	globalOtoMu       sync.Mutex
+	globalOtoCtx      *oto.Context
+	globalOtoDisabled bool
+)
 
-	stream := newAudioBuffer()
+func getOrCreateOtoContext(sampleRate, channels int) (*oto.Context, bool, error) {
+	globalOtoMu.Lock()
+	defer globalOtoMu.Unlock()
+
+	if globalOtoCtx != nil {
+		return globalOtoCtx, globalOtoDisabled, nil
+	}
 
 	opts := &oto.NewContextOptions{
 		SampleRate:   sampleRate,
@@ -52,17 +55,36 @@ func NewOtoPlayer(sampleRate int, channels int) (*OtoPlayer, error) {
 	otoCtx, readyChan, err := oto.NewContext(opts)
 	if err != nil {
 		// Headless environment fallback (e.g. CI without soundcard)
-		return &OtoPlayer{
-			stream:   stream,
-			disabled: true,
-			volume:   1.0,
-		}, nil
+		globalOtoDisabled = true
+		return nil, true, nil
 	}
 
 	// Wait for context readiness or timeout
 	select {
 	case <-readyChan:
 	case <-time.After(2 * time.Second):
+		globalOtoDisabled = true
+		return nil, true, nil
+	}
+
+	globalOtoCtx = otoCtx
+	globalOtoDisabled = false
+	return globalOtoCtx, false, nil
+}
+
+// NewOtoPlayer creates a new 24kHz 16-bit PCM mono speaker player.
+func NewOtoPlayer(sampleRate int, channels int) (*OtoPlayer, error) {
+	if sampleRate <= 0 {
+		sampleRate = 24000
+	}
+	if channels <= 0 {
+		channels = 1
+	}
+
+	stream := newAudioBuffer()
+
+	otoCtx, disabled, _ := getOrCreateOtoContext(sampleRate, channels)
+	if disabled || otoCtx == nil {
 		return &OtoPlayer{
 			stream:   stream,
 			disabled: true,

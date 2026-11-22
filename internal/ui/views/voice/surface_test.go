@@ -245,14 +245,29 @@ func TestSurface_LiveMode(t *testing.T) {
 		t.Fatalf("expected F6 key to toggle mute, handled=%v, muted=%v", handled, muted)
 	}
 	viewMuted := termcolor.StripSGR(s.View())
-	if !strings.Contains(viewMuted, "muted") || !strings.Contains(viewMuted, "f6 unmute") {
-		t.Fatalf("expected muted banner, got %q", viewMuted)
+	if !strings.Contains(viewMuted, "muted") || !strings.Contains(viewMuted, "f6 unmute") || !strings.Contains(viewMuted, "esc hang up") {
+		t.Fatalf("expected muted banner with esc hang up on empty prompt, got %q", viewMuted)
 	}
 
-	// Hang up via Esc (when prompt is empty)
-	handled, _ = s.HandleKey(tea.Key{Code: tea.KeyEsc})
+	// Dynamic hint when prompt is non-empty
+	promptEmpty := false
+	s.seams.PromptEmpty = func() bool { return promptEmpty }
+	viewNonEmpty := termcolor.StripSGR(s.View())
+	if !strings.Contains(viewNonEmpty, "f7 hang up") {
+		t.Fatalf("expected f7 hang up on non-empty prompt, got %q", viewNonEmpty)
+	}
+
+	// Preview ticker
+	s.SetPreview("checking files in repo")
+	viewPreview := termcolor.StripSGR(s.View())
+	if !strings.Contains(viewPreview, "You: checking files in repo") {
+		t.Fatalf("expected speech preview in banner, got %q", viewPreview)
+	}
+
+	// Hang up via F7 key
+	handled, _ = s.HandleKey(tea.Key{Code: tea.KeyF7})
 	if !handled || s.Active() {
-		t.Fatalf("expected Esc on empty prompt to hang up, active=%v", s.Active())
+		t.Fatalf("expected F7 to hang up live session, active=%v", s.Active())
 	}
 	if !liveStopped {
 		t.Fatal("expected StopLive seam to be called")

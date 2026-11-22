@@ -8,7 +8,7 @@
 // deterministic stand-in** — the CLI overrides it (internal/cliapp),
 // so the language server has to override it too.
 //
-// The rule is the clone's own (internal/infra/backend/select): a model the
+// The rule is the clone's own (internal/infra/backend/backendselect): a model the
 // user configured goes to its own endpoint, a model of the reference's
 // catalogue goes to CloudCode, and a model nobody configured gets the
 // stand-in *with a warning* — an answer that silently comes from the
@@ -24,7 +24,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )

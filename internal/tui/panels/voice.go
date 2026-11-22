@@ -1,6 +1,8 @@
 package panels
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 )
 
@@ -17,6 +19,9 @@ type VoiceHost interface {
 	IsLiveSpeaking() bool
 	IsPromptEmpty() bool
 	IsLiveVoiceAvailable() bool
+	IsLiveThinking() bool
+	FinishDictation() tea.Cmd
+	CancelDictation()
 }
 
 // NewVoiceSurface builds the voice dictation surface with the host's seams.
@@ -35,5 +40,8 @@ func NewVoiceSurface(h VoiceHost) *voice.Surface {
 		IsSpeaking:      h.IsLiveSpeaking,
 		PromptEmpty:     h.IsPromptEmpty,
 		IsLiveAvailable: h.IsLiveVoiceAvailable,
+		IsThinking:      h.IsLiveThinking,
+		FinishDictation: h.FinishDictation,
+		CancelDictation: h.CancelDictation,
 	})
 }

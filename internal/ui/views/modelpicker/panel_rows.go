@@ -23,13 +23,26 @@ func (p *Panel) Rows() []Row {
 		return nil
 	}
 	var raw []Row
-	if p.seams.CustomRows != nil {
+	isRemote := p.seams.IsRemoteAgent != nil && p.seams.IsRemoteAgent()
+	if !isRemote && p.seams.CustomRows != nil {
 		if custom := p.seams.CustomRows(); custom != nil {
 			raw = FilterRows(custom, p.query)
 		}
 	}
 	if raw == nil {
 		raw = RowsFiltered(p.query)
+	}
+	if isRemote {
+		filtered := make([]Row, len(raw))
+		for i, r := range raw {
+			if !models.IsRemoteAgentSupported(r.Slug) && !models.IsRemoteAgentSupported(r.Display) {
+				r.Dim = true
+				r.Note = "not available for remote agents"
+				r.UnavailableReason = models.RemoteAgentUnsupportedMessage(r.Display)
+			}
+			filtered[i] = r
+		}
+		raw = filtered
 	}
 	if len(p.variantChoices) == 0 {
 		return raw

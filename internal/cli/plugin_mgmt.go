@@ -12,7 +12,7 @@ import (
 
 	"github.com/justwasm/pigasus/atomicfile"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
-	pluginimport "github.com/justwasm/pigasus/internal/features/plugins/import"
+	"github.com/justwasm/pigasus/internal/features/plugins/pluginimport"
 	"github.com/justwasm/pigasus/internal/features/plugins/marketinstall"
 )
 
@@ -231,7 +231,7 @@ func runPluginList(j *JetskiCLI, args []string) error {
 // 【一手】 agy 1.4.11: the bare command imports from both sources — the
 // Gemini CLI importer first, the Claude Code importer second — and each
 // source that finds something ends with its own "Staged to <dir>" line.
-// The importers themselves live in internal/features/plugins/import.
+// The importers themselves live in internal/features/plugins/pluginimport.
 //
 // The usage line is the reference's:
 //

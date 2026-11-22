@@ -44,7 +44,7 @@ import (
 
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 )

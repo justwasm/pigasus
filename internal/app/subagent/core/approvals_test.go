@@ -10,7 +10,7 @@ package core
 import (
 	"testing"
 
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // TestManagerPendingAuthorization — the queue answers for the subagent

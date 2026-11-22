@@ -415,7 +415,6 @@ func (s *AICodeLiveSession) readLoop() {
 
 // tryActivateFallback switches the session over to the fallback backend if upstream rejected.
 func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
-	var activated bool
 	s.fallbackOnce.Do(func() {
 		if s.fallback == nil {
 			return
@@ -457,11 +456,11 @@ func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
 				}
 			}
 		}()
-
-		activated = true
 	})
 
-	return activated
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fallbackSession != nil
 }
 
 // SendAudio sends a chunk of raw 16kHz 16-bit PCM mono audio.
@@ -585,7 +584,7 @@ func (s *AICodeLiveSession) SendThinkerNote(note string) error {
 	}
 	s.mu.Unlock()
 
-	prompt := fmt.Sprintf("[Thinker Note: %s. Briefly update the user with natural speech if helpful.]", note)
+	prompt := fmt.Sprintf("[task progress] %s", note)
 	return s.SendText(prompt)
 }
 
@@ -599,8 +598,44 @@ func (s *AICodeLiveSession) SendThinkerAnswer(answer string) error {
 	}
 	s.mu.Unlock()
 
-	prompt := fmt.Sprintf("[Thinker Finished: %s. Please summarize and speak the result to the user.]", answer)
+	prompt := fmt.Sprintf("[answer] %s", answer)
 	return s.SendText(prompt)
+}
+
+// SendWaitingOnUser sends a prompt asking the user for confirmation or input.
+func (s *AICodeLiveSession) SendWaitingOnUser(question string) error {
+	s.mu.Lock()
+	if s.fallbackSession != nil {
+		fb := s.fallbackSession
+		s.mu.Unlock()
+		return fb.SendWaitingOnUser(question)
+	}
+	s.mu.Unlock()
+	return s.SendText(fmt.Sprintf("[waiting on the user] %s", question))
+}
+
+// SendTaskStopped notifies the live talker that the active thinker task was stopped.
+func (s *AICodeLiveSession) SendTaskStopped() error {
+	s.mu.Lock()
+	if s.fallbackSession != nil {
+		fb := s.fallbackSession
+		s.mu.Unlock()
+		return fb.SendTaskStopped()
+	}
+	s.mu.Unlock()
+	return s.SendText("[stopped]")
+}
+
+// SendMedia sends a visual image or video frame into the live session.
+func (s *AICodeLiveSession) SendMedia(mimeType string, data []byte) error {
+	s.mu.Lock()
+	if s.fallbackSession != nil {
+		fb := s.fallbackSession
+		s.mu.Unlock()
+		return fb.SendMedia(mimeType, data)
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // Receive waits for and returns the next LiveServerEvent.

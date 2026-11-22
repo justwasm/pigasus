@@ -20,7 +20,7 @@ table, and a black-box probe of `agy plugin import` against a synthetic
 | 2 | `PreInvocation` hooks gain `terminationBehavior` and an injected `errorMessage.userMessage` | **doc only** — the clone ships the reference's 1.4.11 `hooks.md` byte for byte; the runtime is open, because the clone has no hook-command host (§3) |
 | 3 | `finished_reason` in the `--output-format json` / `stream-json` result | **done** — `internal/printmode` (§4) |
 | 4 | the `/plugin` Discover tab's shelves: six plugins, a `⋯ N more` row, `Ctrl+E`, `[`/`]` | **done** — `internal/pluginsui`, `internal/cliapp` (§5) |
-| 5 | `agy plugin import claude` reads Claude Code's installed plugins and keeps their MCP servers | **done** — `internal/features/plugins/import` (§6) |
+| 5 | `agy plugin import claude` reads Claude Code's installed plugins and keeps their MCP servers | **done** — `internal/features/plugins/pluginimport` (§6) |
 
 Three of five are done, one is doc-only, one is not applicable.
 
@@ -360,7 +360,7 @@ environment values.
 
 ### 6.6 The clone's implementation
 
-`internal/features/plugins/import` (package `pluginimport`):
+`internal/features/plugins/pluginimport` (package `pluginimport`):
 
 - `pluginimport.go` — the run loop, the report writer, the staging and the
   `import_manifest.json`.

@@ -242,8 +242,11 @@ func TestNextRemoteAgentMode(t *testing.T) {
 	if got := NextRemoteAgentMode(""); got != ModeAcceptEdits {
 		t.Errorf("NextRemoteAgentMode(\"\") = %q, want %q", got, ModeAcceptEdits)
 	}
-	if got := NextRemoteAgentMode(ModeAcceptEdits); got != "" {
-		t.Errorf("NextRemoteAgentMode(ModeAcceptEdits) = %q, want \"\"", got)
+	if got := NextRemoteAgentMode(ModeAcceptEdits); got != ModePlan {
+		t.Errorf("NextRemoteAgentMode(ModeAcceptEdits) = %q, want %q", got, ModePlan)
+	}
+	if got := NextRemoteAgentMode(ModePlan); got != "" {
+		t.Errorf("NextRemoteAgentMode(ModePlan) = %q, want \"\"", got)
 	}
 	if got := NextRemoteAgentMode(ModeAuto); got != ModeAcceptEdits {
 		t.Errorf("NextRemoteAgentMode(ModeAuto) = %q, want %q", got, ModeAcceptEdits)
@@ -318,32 +321,48 @@ func TestSuggestAllowAlwaysPattern(t *testing.T) {
 	}
 }
 
-// TestAutoModeNonWorkspaceAccess pins AGY 1.5.10: Auto mode honors allowNonWorkspaceAccess
-// without prompting to read files outside the workspace.
+// TestAutoModeNonWorkspaceAccess pins AGY 1.5.14: Auto mode allows reading files outside
+// the workspace without asking for approval. Writing or editing outside the workspace still asks.
 func TestAutoModeNonWorkspaceAccess(t *testing.T) {
 	ws := "/Users/example/project"
 
-	// 1. allowNonWorkspaceAccess = false: reads outside workspace ask
-	polDenied := Policy{
-		Mode:                    ModeAuto,
-		WorkspaceRoots:          []string{ws},
-		AllowNonWorkspaceAccess: false,
+	pol := Policy{
+		Mode:           ModeAuto,
+		WorkspaceRoots: []string{ws},
 	}
-	if got := polDenied.Decide(Request{Tool: "read_file", Target: "/etc/hosts"}); got != Ask {
-		t.Errorf("polDenied.Decide(/etc/hosts) = %v, want Ask", got)
+	// Reads outside workspace are allowed without prompting (AGY 1.5.14)
+	if got := pol.Decide(Request{Tool: "read_file", Target: "/etc/hosts"}); got != Allow {
+		t.Errorf("pol.Decide(read /etc/hosts) = %v, want Allow", got)
 	}
-	// Reads inside workspace still allowed
-	if got := polDenied.Decide(Request{Tool: "read_file", Target: "/Users/example/project/main.go"}); got != Allow {
-		t.Errorf("polDenied.Decide(main.go) = %v, want Allow", got)
+	// Reads inside workspace allowed
+	if got := pol.Decide(Request{Tool: "read_file", Target: "/Users/example/project/main.go"}); got != Allow {
+		t.Errorf("pol.Decide(read main.go) = %v, want Allow", got)
 	}
 
-	// 2. allowNonWorkspaceAccess = true: reads outside workspace allowed without prompt
-	polAllowed := Policy{
-		Mode:                    ModeAuto,
-		WorkspaceRoots:          []string{ws},
-		AllowNonWorkspaceAccess: true,
+	// Writes/edits outside workspace still ask for approval
+	if got := pol.Decide(Request{Tool: "write_file", Target: "/etc/hosts"}); got != Ask {
+		t.Errorf("pol.Decide(write /etc/hosts) = %v, want Ask", got)
 	}
-	if got := polAllowed.Decide(Request{Tool: "read_file", Target: "/etc/hosts"}); got != Allow {
-		t.Errorf("polAllowed.Decide(/etc/hosts) = %v, want Allow", got)
+	// Writes/edits inside workspace allowed
+	if got := pol.Decide(Request{Tool: "write_file", Target: "/Users/example/project/main.go"}); got != Allow {
+		t.Errorf("pol.Decide(write main.go) = %v, want Allow", got)
+	}
+}
+
+func TestForbiddenWindowsPaths(t *testing.T) {
+	pol := Policy{
+		Mode:           ModeAuto,
+		WorkspaceRoots: []string{"/Users/example/project"},
+	}
+	for _, target := range []string{
+		`\\server\share\file.txt`,
+		`//server/share/file.txt`,
+		`\??\C:\Windows`,
+		`/??/C:/Windows`,
+		`\\.\COM1`,
+	} {
+		if got := pol.Decide(Request{Tool: "read_file", Target: target}); got != Deny {
+			t.Errorf("pol.Decide(%q) = %v, want Deny", target, got)
+		}
 	}
 }

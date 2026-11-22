@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/endpoints"
-	trust "github.com/justwasm/pigasus/internal/core/policy/trust"
+	"github.com/justwasm/pigasus/internal/core/policy/trust"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/core/titlefmt"
 	"github.com/justwasm/pigasus/internal/features/auth"

@@ -2,10 +2,52 @@ package mdrender
 
 import (
 	"bytes"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/justwasm/pigasus/palette"
 )
+
+var (
+	pluginCardRx  = regexp.MustCompile(`<plugin-card\s+catalog-id\s*=\s*"([^"<>]*)"\s*/?>(?:\s*</plugin-card\s*>)?`)
+	validIdRx     = regexp.MustCompile(`^[\w.@:/ -]{1,256}$`)
+	uninstalledRx = regexp.MustCompile(`^(?:-?[0-9]+|[^/\s]+/[^/\s]+/[^/\s]+)$`)
+	cardReplacer  = strings.NewReplacer(
+		`\`, `\\`,
+		"`", "\\`",
+		"*", `\*`,
+		"_", `\_`,
+		"[", `\[`,
+		"]", `\]`,
+		"<", `\<`,
+		">", `\>`,
+		"|", `\|`,
+		"~", `\~`,
+		"#", `\#`,
+	)
+)
+
+// ReplacePluginCards transforms <plugin-card ...> tags into user-facing suggestions.
+func ReplacePluginCards(text string) string {
+	if !strings.Contains(text, "<plugin-card") {
+		return text
+	}
+	return pluginCardRx.ReplaceAllStringFunc(text, func(match string) string {
+		sub := pluginCardRx.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		id := strings.TrimSpace(sub[1])
+		if !validIdRx.MatchString(id) {
+			return match
+		}
+		if uninstalledRx.MatchString(id) {
+			return "⚠ Open /plugin to install or sign in to this plugin."
+		}
+		return fmt.Sprintf("⚠ The %s plugin needs you to sign in. Open /plugin to sign in.", cardReplacer.Replace(id))
+	})
+}
 
 // Indent prepends an indent prefix to each non-empty line of a styled block.
 func Indent(styled, indent string) string {
@@ -26,6 +68,7 @@ func RenderMarkdown(text string, width int) string {
 	if text == "" {
 		return text
 	}
+	text = ReplacePluginCards(text)
 	pre := PreprocessFileLinks(text)
 	stripped, placeholders := StripMermaidAndMath(pre)
 	convWidth := width

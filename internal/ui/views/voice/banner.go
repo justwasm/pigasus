@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
@@ -41,6 +42,37 @@ func BannerVisibleLen(s string) int {
 	return runewidth.StringWidth(termcolor.StripSGR(s))
 }
 
+// KeepTail truncates text from the left to keep the most recent tail visible,
+// matching upstream Jetski/AGY live.keepTail.
+// If the text starts with "You: ", the prefix is preserved and the remainder
+// is truncated with an ellipsis "…".
+func KeepTail(text string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	w := ansi.StringWidth(text)
+	if w <= maxCols {
+		return text
+	}
+	prefix := ""
+	rem := text
+	if strings.HasPrefix(text, "You: ") {
+		prefix = "You: "
+		rem = text[5:]
+		maxCols -= 5
+		if maxCols <= 1 {
+			return prefix + "…"
+		}
+	}
+	remW := ansi.StringWidth(rem)
+	if remW <= maxCols {
+		return prefix + rem
+	}
+	toRemove := remW - maxCols + 1
+	tail := ansi.TruncateLeft(rem, toRemove, "")
+	return prefix + "…" + tail
+}
+
 // BannerTexts returns the left and right banner labels for a given phase and elapsed time.
 func BannerTexts(phase Phase, elapsed time.Duration) (left, right string, ok bool) {
 	switch phase {
@@ -72,24 +104,54 @@ func BannerTexts(phase Phase, elapsed time.Duration) (left, right string, ok boo
 }
 
 // FormatBannerLive renders the status line and bottom rule for PhaseLive matching upstream agy.
-func FormatBannerLive(elapsed time.Duration, width int, muted bool, speaking bool) string {
-	mins := int(elapsed.Minutes())
-	secs := int(elapsed.Seconds()) % 60
-	timeStr := fmt.Sprintf("%02d:%02d", mins, secs)
+func FormatBannerLive(elapsed time.Duration, width int, muted bool, speaking bool, thinking bool, preview string, promptEmpty bool) string {
+	timeStr := FormatTimer(elapsed)
 
-	dotColor := "\x1b[38;5;221m"
+	dotColor := "\x1b[38;5;221m" // yellow
 	state := "listening"
 	muteAction := "mute"
 	if muted {
-		dotColor = "\x1b[38;5;109m"
+		dotColor = "\x1b[38;5;109m" // slate
 		state = "muted"
 		muteAction = "unmute"
 	} else if speaking {
+		dotColor = "\x1b[38;5;221m" // yellow
 		state = "speaking"
+	} else if thinking {
+		dotColor = "\x1b[38;5;111m" // cyan
+		state = "thinking"
 	}
 
-	line := fmt.Sprintf("\x1b[39m  %s●\x1b[39m Live \x1b[38;5;109m%s · \x1b[39m%s\x1b[38;5;109m · \x1b[38;5;111mf6\x1b[38;5;109m %s · \x1b[38;5;111mesc\x1b[38;5;109m hang up\x1b[39m",
-		dotColor, timeStr, state, muteAction)
+	left := fmt.Sprintf("  %s●\x1b[39m Live \x1b[38;5;109m%s · \x1b[39m%s",
+		dotColor, timeStr, state)
+	stopKey := "f7"
+	if promptEmpty {
+		stopKey = "esc"
+	}
+	hints := fmt.Sprintf("\x1b[38;5;111mf6\x1b[38;5;109m %s\x1b[38;5;109m · \x1b[38;5;111m%s\x1b[38;5;109m hang up\x1b[39m",
+		muteAction, stopKey)
+	sep := "\x1b[38;5;109m · \x1b[39m"
+
+	line := left + sep + hints
+	preview = strings.TrimSpace(strings.ReplaceAll(preview, "\n", " "))
+
+	if preview != "" && width > 0 {
+		if !strings.HasPrefix(preview, "You: ") {
+			preview = "You: " + preview
+		}
+		leftW := BannerVisibleLen(left)
+		hintsW := BannerVisibleLen(hints)
+		sepW := 3 // " · "
+		avail := width - leftW - hintsW - (2 * sepW)
+		if avail >= 8 {
+			truncatedPreview := KeepTail(preview, avail)
+			line = left + sep + "\x1b[38;5;109m" + truncatedPreview + "\x1b[39m" + sep + hints
+		}
+	}
+
+	if width > 0 && BannerVisibleLen(line) > width {
+		line = ansi.Truncate(line, width, "…")
+	}
 
 	rule := ""
 	if width > 0 {
@@ -106,7 +168,7 @@ func FormatBanner(phase Phase, elapsed time.Duration, width int) string {
 // FormatBannerMuted renders the voice banner with optional mute indicator.
 func FormatBannerMuted(phase Phase, elapsed time.Duration, width int, muted bool) string {
 	if phase == PhaseLive {
-		return FormatBannerLive(elapsed, width, muted, false)
+		return FormatBannerLive(elapsed, width, muted, false, false, "", true)
 	}
 	if width <= 0 {
 		width = 80

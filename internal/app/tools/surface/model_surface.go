@@ -51,6 +51,13 @@
 // one this fixture holds — so the clone ships the variant the reference
 // actually puts on the wire. The newer ones are recorded as evidence in
 // testdata/tool_variants_1.4.7.json.
+//
+// 1.5.14 vs 1.4.6 / 1.4.8: Re-verified against official agy 1.5.14 binary (sha256
+// e8c2959bf4744580d0e5b8f938ec2dc3918a942b620a6262e53856400f14e5fb). The default
+// twelve declarations remain byte-identical (13,449 B without sandbox, 13,773 B
+// with --sandbox), with identical BypassSandbox parameter semantics. The fixture
+// is mirrored as model_tools_1.5.14.json. Version 1.5.14 additionally introduces
+// native Swarm coordination as a dynamic 13th declaration (surface.SwarmDeclaration()).
 package surface
 
 import (
@@ -66,6 +73,14 @@ import (
 
 //go:embed model_tools_1.4.6.json
 var modelToolsJSON []byte
+
+//go:embed model_tools_1.5.14.json
+var modelTools1514JSON []byte
+
+// ModelTools1514JSON returns the raw embedded 1.5.14 declarations JSON.
+func ModelTools1514JSON() []byte {
+	return modelTools1514JSON
+}
 
 // ModelToolDecl is one function declaration exactly as the reference sends it.
 // Parameters stays raw so a round trip through backend.ToolDecl cannot
@@ -127,6 +142,69 @@ func ModelDeclarationsFor(sandboxed bool) []ModelToolDecl {
 		}
 	}
 	return out
+}
+
+// SwarmDeclaration returns the reference model tool declaration for the swarm coordinator tool.
+func SwarmDeclaration() ModelToolDecl {
+	return ModelToolDecl{
+		Name: "swarm",
+		Description: "Manage the swarm of agents working with you on the shared message board. ONLY call this tool when the user explicitly invoked `/swarm`, a skill you read explicitly instructs you to call it, or this conversation already has an active swarm. NEVER start or inspect a swarm on your own (do not call `add`, `title`, `status`, or `models` unprompted); use `invoke_subagent` for normal subagent delegation instead. Actions: `add` spawns a worker under a roster name (or `<name>-1`..`<name>-<k>` when `tasks` or `n` is set), pinned to a model, and posts `brief` on the board as an @mention of it, which is where the swarm sees its assignment -- by default a worker starts fresh and sees nothing of this conversation, so the brief must say what it owns and what done looks like; pass `fork:\"<member>\"` (or `\"coordinator\"`) to branch the new worker from that member's conversation history instead. `workspace:\"share\"` gives each worker its own working copy of your repository, for authors who edit or build at the same time as others; `\"branch\"` gives an isolated clone; readers and verifiers keep the default `inherit`. Briefs are public: every member can read them. `models` lists the models to choose from (`all:true` lists every model `add` accepts); with no model, a worker runs on your own model, which is what to use unless the user asks for another. `status` lists every member, the model it runs on, and its state: `waiting` is asleep on the board, costing nothing until somebody posts; `working` is somewhere in a turn; `stopped` is not loaded (e.g. after a restart) and a post naming it revives it; `killed` is gone. `model` switches a `waiting` worker (or yourself, when `name` is your own name or omitted) to another model, keeping its conversation: it is told of the switch, resumes any unfinished work on the new model, and runs on it from then on. Use it only when a worker or you run out of quota or capacity, or the user asks for another model, and say why; never `kill` and `add` instead. `kill` ends a worker PERMANENTLY and deletes its own workspace, so land its work first (uploaded for review, or its branch merged into your working copy; push to a remote only when the user asks): a killed worker cannot be revived, so use it when the work is over, never as a pause -- bringing one back means `add`ing a new worker with a new conversation. `title` names the swarm. Workers may call `status`, `models` and `add` too, to bring in helpers for their own work: the helper's brief is posted as you, it works in your workspace (or a share/branch of it), and should report back to you by name. A worker may `kill` only the workers it added, and `model` itself or the workers it added; killing a worker does not kill its helpers. The coordinator may `kill` any worker and `model` itself or any worker, and `title` is the coordinator's alone.",
+		Parameters: json.RawMessage(`{
+			"type": "OBJECT",
+			"properties": {
+				"action": {
+					"type": "STRING",
+					"description": "What to do: status, models, add, model, kill or title.",
+					"enum": ["status", "models", "add", "model", "kill", "title"]
+				},
+				"all": {
+					"type": "BOOLEAN",
+					"description": "For models: list every model add accepts, not just the suggested ones."
+				},
+				"brief": {
+					"type": "STRING",
+					"description": "The worker's assignment, for add: what it owns and what done looks like. Posted publicly on the board."
+				},
+				"fork": {
+					"type": "STRING",
+					"description": "Optional roster name of an existing member (or \"coordinator\") whose conversation history the new worker forks from instead of starting fresh."
+				},
+				"model": {
+					"type": "STRING",
+					"description": "Model to pin this worker to, for add and model: a model name listed by the models action, or its display name. Leave it unset to use your own model, unless the user asks for another."
+				},
+				"n": {
+					"type": "INTEGER",
+					"description": "Optional number of homogeneous copies to spawn (<name>-1 through <name>-<n>), for add when the user explicitly asks for multiple agents sharing one role and brief. Omit (defaults to 1) to spawn a single named worker."
+				},
+				"name": {
+					"type": "STRING",
+					"description": "Roster name of the worker, for add, model and kill (or base name when n > 1 or tasks is set). Worker names: lowercase, starting with a letter or digit, up to 24 of a-z, 0-9, - and _ (including any -<k> suffix); not all, coordinator or coordinator-*."
+				},
+				"tasks": {
+					"type": "ARRAY",
+					"description": "Optional per-worker slice targets for add when spawning a sharded group (<name>-1 through <name>-<len(tasks)>), each combined with the shared brief. Omit for normal single-worker add calls.",
+					"items": {"type": "STRING"}
+				},
+				"title": {
+					"type": "STRING",
+					"description": "A short title for the swarm, for the UI."
+				},
+				"workspace": {
+					"type": "STRING",
+					"description": "Where each worker works, for add. inherit (default) is your own workspace. share gives each worker its own working copy of your repository; branch gives each an isolated clone. kill deletes a share or branch workspace.",
+					"enum": ["inherit", "share", "branch"]
+				}
+			},
+			"required": ["action"]
+		}`),
+	}
+}
+
+// ModelDeclarationsForSwarm returns the model declarations including the swarm tool.
+func ModelDeclarationsForSwarm(sandboxed bool) []ModelToolDecl {
+	decls := ModelDeclarationsFor(sandboxed)
+	return append(decls, SwarmDeclaration())
 }
 
 func stripBypassSandbox(raw json.RawMessage) json.RawMessage {

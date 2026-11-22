@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
@@ -206,6 +207,13 @@ func (e *RemoteAgentEngine) Turn(ctx context.Context, t Turn) (<-chan agentlink.
 	prompt := lastUserPrompt(t.History)
 	if prompt == "" {
 		return nil, errors.New("remote agent: empty prompt")
+	}
+	displayModel := t.Model
+	if displayModel == "" {
+		displayModel = e.model
+	}
+	if displayModel != "" && !models.IsRemoteAgentSupported(displayModel) {
+		return nil, errors.New(models.RemoteAgentUnsupportedMessage(displayModel))
 	}
 	// The TUI's /model writes the display label into the session; the
 	// proxy expects the catalogue id ("gemini-3.8-flash-high"), not

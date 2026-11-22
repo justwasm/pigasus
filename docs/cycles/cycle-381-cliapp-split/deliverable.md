@@ -320,7 +320,7 @@ Three call sites repeated a literal that a named constant already
 carried: `internal/features/models/catwalk.go` now names
 `HyperProviderID`, `cmd/harness/{sidetools,events,prompt}.go` now
 name `harnesstools.ToolInvokeSubagen` / `ToolSendMessage`, and
-`internal/features/models/ctx/profiles_1.4.8.go` now names the
+`internal/features/models/modelctx/profiles_1.4.8.go` now names the
 `Strategy*` constants — that enum was dead only because the literals
 shadowed it.
 

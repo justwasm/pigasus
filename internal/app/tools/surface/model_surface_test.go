@@ -55,6 +55,26 @@ func TestModelToolsFixtureMatchesDisk(t *testing.T) {
 	}
 }
 
+// TestModelTools1514MatchesReference pins the 1.5.14 mirror fixture to be byte-identical.
+func TestModelTools1514MatchesReference(t *testing.T) {
+	onDisk146, err := os.ReadFile("model_tools_1.4.6.json")
+	if err != nil {
+		t.Fatalf("read 1.4.6 fixture: %v", err)
+	}
+	onDisk1514, err := os.ReadFile("model_tools_1.5.14.json")
+	if err != nil {
+		t.Fatalf("read 1.5.14 fixture: %v", err)
+	}
+	if !bytes.Equal(onDisk146, onDisk1514) {
+		t.Errorf("model_tools_1.5.14.json differs from model_tools_1.4.6.json (%d vs %d bytes)",
+			len(onDisk1514), len(onDisk146))
+	}
+	if !bytes.Equal(onDisk1514, ModelTools1514JSON()) {
+		t.Errorf("embedded fixture differs from model_tools_1.5.14.json (%d vs %d bytes)",
+			len(ModelTools1514JSON()), len(onDisk1514))
+	}
+}
+
 // 1.4.6 added a BypassSandbox flag to the run_command declaration (【一手】,
 // live 1.4.6 request body; the 1.4.5 capture does not have it).
 // In AGY 1.4.7+, BypassSandbox is conditional on running with --sandbox.

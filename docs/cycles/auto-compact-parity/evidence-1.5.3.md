@@ -8,7 +8,7 @@
 The binary embeds the same `model_profiles` JSON document as 1.4.8. It was
 extracted by locating the `"model_profiles"` key and walking the enclosing
 balanced JSON object; the result is committed at
-`internal/features/models/ctx/testdata/model_profiles_1.5.3.json` (28 174
+`internal/features/models/modelctx/testdata/model_profiles_1.5.3.json` (28 174
 bytes, keys `base`, `subclients`, `os`, `model_profiles`, `models`).
 
 The only payload field that differs from the 1.4.8 document is

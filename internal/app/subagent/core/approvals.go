@@ -27,7 +27,7 @@
 package core
 
 import (
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // approvalQueue is the manager's pending-authorization queue.

@@ -24,7 +24,7 @@ type ExitBannerOptions struct {
 	ConversationID string   // Active or prior conversation ID (empty to omit resume hint)
 	LogoLines      []string // Rendered ANSI art lines of the logo (5 lines)
 	AppName        string   // Display product name (default "Pigasus CLI")
-	Version        string   // CLI version (e.g. "1.4.4")
+	Version        string   // CLI version (e.g. "1.5.14")
 	Email          string   // User account email (e.g. "user@example.com")
 	Cwd            string   // Current working directory (e.g. "~/GitHub/openagy")
 }

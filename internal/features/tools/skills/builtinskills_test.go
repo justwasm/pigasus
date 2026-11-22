@@ -9,12 +9,13 @@ import (
 )
 
 // wantDirs is the reference's builtin bundle: the four external skills and the
-// eleven shared ones (【一手】, the reference's own install on this machine
-// lists exactly these fifteen at 1.5.11).
+// twelve shared ones (【一手】, the reference's own install on this machine
+// lists exactly these sixteen at 1.5.14).
 var wantDirs = []string{
 	"agy-customizations",
 	"antigravity_guide",
 	"automation",
+	"conversations",
 	"generative_ui",
 	"mcp-app-development",
 	"migrate-agent-settings",

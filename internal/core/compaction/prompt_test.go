@@ -137,7 +137,7 @@ func TestOnDemandCompactionSuffix(t *testing.T) {
 //
 // The fixture is the override's own bytes, taken from the binary's
 // embedded model_profiles.json (the document committed at
-// internal/features/models/ctx/testdata/model_profiles_1.4.7.json).
+// internal/features/models/modelctx/testdata/model_profiles_1.4.7.json).
 func TestSummarizePrompt_MatchesCheckpointOverride(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "session_summary_prompt_1.4.7.txt"))
 	if err != nil {

@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 )
 
 // ScenarioSpec defines a test scenario where the Single Source of Truth is
@@ -17,6 +19,7 @@ type ScenarioSpec struct {
 	Sandboxed   bool
 	Subagent    bool
 	AgentBody   string
+	Swarm       bool
 }
 
 // AllScenarios lists the standard common benchmark scenarios.
@@ -108,6 +111,38 @@ var AllScenarios = []ScenarioSpec{
 		),
 		Sandboxed: false,
 	},
+	{
+		Name:        "compaction_request",
+		Description: "The summarization request sent to the model during compaction: keeps Antigravity instructions and appends 7-section continuation summary as last turn",
+		Options: agyprompt.DefaultOptions(
+			"/tmp/workspace",
+			"/tmp/appdata",
+			"00000000-0000-0000-0000-000000000000",
+		),
+		Sandboxed: false,
+	},
+	{
+		Name:        "swarm_coordinator_turn",
+		Description: "Swarm coordinator turn (/swarm <task>): native_swarm skill and swarm monitor skills, plus swarm tool surface with 6 actions",
+		Options: func() agyprompt.Options {
+			o := agyprompt.DefaultOptions("/tmp/workspace", "/tmp/appdata", "00000000-0000-0000-0000-000000000000")
+			o.Skills = []agyprompt.Skill{
+				{
+					Name:        "swarm",
+					Path:        "/Users/gear/.gemini/antigravity-cli/builtin/skills/native_swarm/SKILL.md",
+					Description: "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work.",
+				},
+				{
+					Name:        "swarm_monitor",
+					Path:        "/Users/gear/.gemini/antigravity-cli/builtin/skills/swarm_monitor/SKILL.md",
+					Description: "ONLY for the native-swarm worker whose brief says it is the monitor. On a timer, it checks whether the whole swarm has stalled and calls on the one member who can unstick it. Coordinators and other workers: do not load this.",
+				},
+			}
+			return o
+		}(),
+		Sandboxed: false,
+		Swarm:     true,
+	},
 }
 
 // BuildReferenceWire generates the ground-truth wire payload directly by executing
@@ -121,6 +156,9 @@ func BuildReferenceWire(sc ScenarioSpec) *WirePayload {
 	}
 
 	modelDecls := surface.ModelDeclarationsFor(sc.Sandboxed)
+	if sc.Swarm {
+		modelDecls = append(modelDecls, surface.SwarmDeclaration())
+	}
 	var tools []FunctionDecl
 	for _, md := range modelDecls {
 		fd := FunctionDecl{
@@ -135,12 +173,47 @@ func BuildReferenceWire(sc ScenarioSpec) *WirePayload {
 		tools = append(tools, fd)
 	}
 
+	var contents []ContentTurn
+	if sc.Name == "compaction_request" {
+		contents = []ContentTurn{
+			{
+				Role: "user",
+				Parts: []ContentPart{
+					{Text: "Please analyze the code structure."},
+				},
+			},
+			{
+				Role: "model",
+				Parts: []ContentPart{
+					{Text: "I will read the source files now."},
+				},
+			},
+			{
+				Role: "user",
+				Parts: []ContentPart{
+					{Text: compaction.SummarizePrompt + compaction.OnDemandCompactionSuffix},
+				},
+			},
+		}
+	} else if sc.Name == "compaction_turn" {
+		resumeText := compaction.ResumingBlock([]string{"Please analyze the code structure."}, "<summary>\n## 1. Task Overview\nAnalyzed code structure.\n</summary>")
+		contents = []ContentTurn{
+			{
+				Role: "user",
+				Parts: []ContentPart{
+					{Text: compaction.FormatContextSummary(resumeText, time.Now()) + "\n\nContinue with the next steps."},
+				},
+			},
+		}
+	}
+
 	return &WirePayload{
 		Model:             "gemini-3.8-flash-high",
 		Project:           "aicode-consumers",
 		RequestType:       "agent",
 		SystemInstruction: promptText,
 		Tools:             tools,
+		Contents:          contents,
 	}
 }
 

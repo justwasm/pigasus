@@ -180,6 +180,30 @@ string table:
 A **denied** call is a *result*, not an error: the model reads it and
 decides what to do next.
 
+## The Terminal Sandbox and Symlink Containment
+
+When `enableTerminalSandbox` is set to `true` (controlled via `/config` or settings), the sandbox (`internal/core/policy/sandbox`) restricts `run_command` from accessing paths outside approved roots:
+
+1. **Allowed Roots**:
+   - `Cwd`: the active workspace root.
+   - `ArtifactDir`: `~/.gemini/antigravity-cli/artifacts` (brain outputs and review panes).
+   - `ScratchDir`: `~/.gemini/antigravity-cli/brain/<conv-id>/scratch` (intermediate turn artifacts).
+   - `ExtraPaths`: subagent worktrees and explicit additional directories.
+
+2. **Symlink Escape Protection**:
+   - Path containment does not rely solely on string prefixes. `canonicalPath` evaluates existing path prefixes via `filepath.EvalSymlinks`.
+   - If a file or symlink inside the workspace resolves to a target outside the allowed roots (e.g. `workspace/link -> /etc`), access is blocked.
+   - macOS `/var` -> `/private/var` canonical roots are handled symmetrically so legitimate aliases inside allowed roots remain permitted.
+
+3. **Sensitive Path Blocking & Safe Read Carve-outs**:
+   - Sensitive paths are blocked by default: `.config`, `XDG_CONFIG_HOME`, `.git-credentials`, `AppData/Roaming`, and macOS `Library/Application Support`.
+   - Safe SSH configuration reads are carved out for non-secret assets: `config`, `known_hosts`, `authorized_keys`, and `.pub` public keys.
+   - Developer configuration directories (such as `.vscode`, `.idea`, `.git`) are permitted when reading configuration files.
+
+4. **Single-Shot Bypass Contract**:
+   - Bypassing the sandbox is strictly a per-call user decision (`BypassSandbox: true`).
+   - The engine never stores a sticky bypass flag; subsequent commands re-evaluate the sandbox independently.
+
 ## Where to look
 
 | what | where |

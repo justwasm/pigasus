@@ -48,6 +48,9 @@ case "$MODE" in
     echo "==> Running architecture layering guard..."
     go test ./internal/core/architecture/...
 
+    echo "==> Running alignment suites (tuialign & wirealign)..."
+    go test ./devutils/tuialign/... ./devutils/wirealign/...
+
     echo "==> Running standard package suite (excluding scratch/ & uncompiled dev tools)..."
     go test ./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/...
 

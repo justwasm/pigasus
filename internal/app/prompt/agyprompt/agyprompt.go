@@ -126,6 +126,8 @@ type Options struct {
 	// Sandboxed controls whether <terminal_sandbox> is rendered. In AGY 1.5.9+,
 	// terminal sandbox instructions are only included when running in sandboxed mode.
 	Sandboxed bool
+	// WorkEfficiently controls whether <work_efficiently> is rendered (AGY 1.5.13+ / 1.5.14).
+	WorkEfficiently bool
 	// SectionOrder overrides the tag emission order. When empty, sectionOrder is used.
 	SectionOrder []string
 	// KnowledgeDirectoryPath and MetadataFileName feed the reference's
@@ -135,6 +137,10 @@ type Options struct {
 	MetadataFileName       string
 }
 
+// WorkEfficientlyText is the exact text of <work_efficiently> introduced in AGY 1.5.13
+// and present in 1.5.14 (cortex/core/prehooks/work_efficiently_reminder_hook.go).
+const WorkEfficientlyText = "Every turn re-sends the whole conversation, so batch: in each turn, issue in parallel every independent search, read and edit or write you need next. Run all independent search operations at once; read all needed files (data, documents, references, source) in the same turn; read whole files within the max limit of your tool to read files, otherwise substantial ranges per read, plus the top of the file (for headers) if you may edit it; create or edit all files in one turn. In the shell, chain dependent steps with `&&` and independent checks with `;` so execution, validation, and status or diff checks happen in a single command across all affected targets; when a command fails, fix all reported errors before re-running. Never one call per turn; never repeat a search or re-read content you already know that hasn't changed. Working efficiently never means skipping checks to save turns; don't re-run passing tests or diffs without new edits."
+
 // sectionOrder is the order agy emits its tags in.
 var sectionOrder = []string{
 	"identity",
@@ -142,6 +148,7 @@ var sectionOrder = []string{
 	"artifacts",
 	"conversation_transcript",
 	"guidelines",
+	"work_efficiently",
 	"communication_style",
 	"slash_commands",
 	"messaging",
@@ -166,6 +173,9 @@ func Build(o Options) string {
 	first := true
 	for _, name := range order {
 		if name == "terminal_sandbox" && !o.Sandboxed {
+			continue
+		}
+		if name == "work_efficiently" && !o.WorkEfficiently {
 			continue
 		}
 		if name == "user_rules" && len(o.UserRules) == 0 {
@@ -214,6 +224,7 @@ func sectionBodies(o Options) map[string]string {
 		"artifacts":               framed(renderArtifacts(set, data, o.PlanningMode)),
 		"conversation_transcript": framed(renderTemplate(set, "system_prompts/conversation_transcript.tmpl", data)),
 		"guidelines":              framed(renderTemplate(set, "system_prompts/guidelines.tmpl", data)),
+		"work_efficiently":        framed(WorkEfficientlyText),
 		"communication_style":     framed(renderTemplate(set, "system_prompts/communication_style.tmpl", data)),
 		"slash_commands":          framed(renderTemplate(set, "system_prompts/slash_commands.tmpl", slash)),
 		"messaging":               mustSection("messaging.txt"),

@@ -31,14 +31,14 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/browser"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
-	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/features/models/modelctx"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"github.com/justwasm/pigasus/internal/ui/editor/vimkeys"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
@@ -62,13 +62,12 @@ import (
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/cli"
 	coreprojects "github.com/justwasm/pigasus/internal/core/cliflags/projects"
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
-	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -102,6 +101,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/swarmboard"
 	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
+	"github.com/justwasm/pigasus/internal/rcaudio"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
@@ -1057,6 +1057,18 @@ func (m *RootModel) OpenTasksDetail(id string, isSubagent bool) { m.openTasksDet
 func (m *RootModel) newActiveItemsPanel() *activeitemspanel.Panel {
 	return panels.NewActiveItemsPanel(m)
 }
+func (m *RootModel) hasActiveSwarm() bool {
+	if m == nil || m.swarm.dismissed {
+		return false
+	}
+	if m.swarm.item != nil {
+		return true
+	}
+	if m.swarm.Board != nil && (m.swarm.Board.PostCount() > 0 || m.swarm.Board.Title() != "" || len(m.swarm.Board.Members()) > 0) {
+		return true
+	}
+	return false
+}
 func (m *RootModel) SwarmItem() *activeitemspanel.SwarmItem {
 	if m == nil || m.swarm.dismissed {
 		return nil
@@ -1365,6 +1377,7 @@ func (m *RootModel) syncBackendForModel() {
 	}
 	m.session.wireSettingsPending = true
 }
+func (m *RootModel) IsRemoteAgent() bool                 { return m != nil && m.session.remoteAgent }
 func (m *RootModel) newModelPanel() *modelpicker.Panel { return panels.NewModelPanel(m) }
 func (m *RootModel) modelPanel() *modelpicker.Panel {
 	if m.overlays.panel.mdl == nil {
@@ -1878,7 +1891,32 @@ func (m *RootModel) ConnectVoice() error {
 		}
 		_ = conn.Close()
 	}
+	_ = m.audio.startDictationCapture()
 	return nil
+}
+
+func (m *RootModel) FinishDictation() tea.Cmd {
+	pcm := m.audio.stopDictationCapture()
+	if len(pcm) == 0 {
+		return nil
+	}
+	transcriber := m.audio.transcriber
+	if transcriber == nil {
+		transcriber = rcaudio.NewCloudCodeTranscriber()
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		text, err := transcriber.Transcribe(ctx, pcm, "audio/pcm;rate=16000")
+		return voice.DictationDoneMsg{
+			Text: text,
+			Err:  err,
+		}
+	}
+}
+
+func (m *RootModel) CancelDictation() {
+	m.audio.cancelDictationCapture()
 }
 
 func (m *RootModel) IsLiveVoiceAvailable() bool {
@@ -1910,9 +1948,44 @@ func (m *RootModel) StartLiveVoice() error {
 	if liveModel == "" {
 		liveModel = voicebackend.DefaultGeminiLiveModel
 	}
+	ws := m.session.cwd
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+	sysPrompt := fmt.Sprintf(`You are Antigravity's real-time spoken voice agent running in workspace: %s.
+
+Primary behavioral guidelines:
+1. Spoken persona: Speak concisely, naturally, warmly, and helpfully in 1-2 spoken sentences. Never read out raw markdown tables, verbose code blocks, URLs, or UUIDs.
+2. Thinker agent handoff: For any coding, file inspection, editing, terminal command execution, tests, git operations, web searches, or complex analysis tasks, you MUST call 'call_thinker_agent'.
+3. Never refuse a request or claim you lack tools or capabilities. Speak one brief commitment sentence first (e.g. "To check the files, I'll examine the workspace directory." or "好的，我来帮你查看项目下的文件。"), and in the SAME turn call 'call_thinker_agent' with the user's full request and context.
+4. When Thinker progress notes or answers arrive, summarize the key takeaway to the user naturally in 1-2 spoken sentences.
+5. If the user explicitly asks to hang up or say goodbye, speak a brief farewell and call 'hang_up'.`, ws)
+
+	msgs := m.SessionMessages()
+	if len(msgs) > 0 {
+		var hist strings.Builder
+		hist.WriteString("\n\nActive conversation history prior to starting this voice session:\n")
+		start := 0
+		if len(msgs) > 30 {
+			start = len(msgs) - 30
+		}
+		for _, msg := range msgs[start:] {
+			role := "User"
+			if msg.Role == "assistant" {
+				role = "Assistant"
+			}
+			content := strings.TrimSpace(msg.Content)
+			if content != "" {
+				hist.WriteString(fmt.Sprintf("%s: %s\n", role, content))
+			}
+		}
+		sysPrompt += hist.String()
+	}
+
 	cfg := voicebackend.LiveSessionConfig{
-		Voice: voiceName,
-		Model: liveModel,
+		Voice:        voiceName,
+		Model:        liveModel,
+		SystemPrompt: sysPrompt,
 	}
 
 	apiKey := endpoints.CurrentGeminiAPIKey()
@@ -1920,8 +1993,25 @@ func (m *RootModel) StartLiveVoice() error {
 	voiceEndpoint := endpoints.Current().Voice
 	var backend voicebackend.LiveBackend
 
-	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
-		backend = voicebackend.NewMockLiveBackend()
+	if mockMode := os.Getenv("PIGASUS_MOCK_VOICE"); mockMode != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
+		mb := voicebackend.NewMockLiveBackend()
+		pcm24k := make([]byte, 4800)
+		switch mockMode {
+		case "interim":
+			interimText := os.Getenv("PIGASUS_MOCK_INTERIM")
+			if interimText == "" {
+				interimText = "what is this project?"
+			}
+			mb.SetCustomEvents([]*voicebackend.LiveServerEvent{
+				{UserSpeech: interimText, Interim: true},
+			})
+		case "speech", "simulate":
+			mb.SetCustomEvents([]*voicebackend.LiveServerEvent{
+				{UserSpeech: "what is this project?", Interim: false},
+				{VoiceTranscript: "This is Pigasus, an extensible clean-room AI agent engine.", Audio: pcm24k, TurnComplete: true},
+			})
+		}
+		backend = mb
 	} else if apiKey != "" {
 		backend = voicebackend.NewGeminiLiveBackend(apiKey)
 	} else if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
@@ -1935,14 +2025,36 @@ func (m *RootModel) StartLiveVoice() error {
 
 	sess := voicebackend.NewNativeLiveSession(backend, &tuiLiveHandler{m: m})
 	sess.SetDuplex(m.audio.duplex)
+	if len(msgs) > 0 {
+		var initialTurns []voicebackend.LiveTurnRecord
+		for _, msg := range msgs {
+			role := "User"
+			if msg.Role == "assistant" {
+				role = "Agent"
+			}
+			content := strings.TrimSpace(msg.Content)
+			if content != "" {
+				initialTurns = append(initialTurns, voicebackend.LiveTurnRecord{Role: role, Content: content})
+			}
+		}
+		if len(initialTurns) > 0 {
+			sess.SetConversationHistory(initialTurns)
+		}
+	}
 	if err := sess.Start(context.Background(), cfg); err != nil {
 		return err
 	}
 	m.audio.liveSession = sess
+	if m.session.Domain() != nil {
+		m.session.Domain().SetLiveVoiceRouter(sess)
+	}
 	return nil
 }
 
 func (m *RootModel) StopLiveVoice() error {
+	if m.session.Domain() != nil {
+		m.session.Domain().SetLiveVoiceRouter(nil)
+	}
 	if m.audio.liveSession != nil {
 		_ = m.audio.liveSession.HangUp()
 		m.audio.liveSession = nil
@@ -1977,72 +2089,55 @@ func (m *RootModel) IsPromptEmpty() bool {
 	return strings.TrimSpace(m.prompt.input.Value()) == ""
 }
 
+func (m *RootModel) IsLiveThinking() bool {
+	return m.audio.thinking
+}
+
 type tuiLiveHandler struct {
 	m *RootModel
 }
 
 func (h *tuiLiveHandler) OnUserSpeech(text string, interim bool) {
-	if !interim && text != "" && h.m != nil {
-		h.m.slashRespond("/voice", fmt.Sprintf("You: %s", text))
+	if h.m == nil || h.m.turn.prog == nil {
+		return
+	}
+	if interim {
+		h.m.turn.prog.Send(voiceUserSpeechInterimMsg{text: text})
+	} else if text != "" {
+		h.m.turn.prog.Send(voiceUserSpeechInterimMsg{text: ""})
+		h.m.turn.prog.Send(voiceUserSpeechMsg{text: text})
 	}
 }
 
 func (h *tuiLiveHandler) OnAgentSpeech(text string) {
-	if text != "" && h.m != nil {
-		h.m.slashRespond("/voice", fmt.Sprintf("Agent: %s", text))
+	if text != "" && h.m != nil && h.m.turn.prog != nil {
+		h.m.turn.prog.Send(voiceAgentDoneMsg{text: text})
 	}
 }
 
-func (h *tuiLiveHandler) OnAgentSpeechDelta(delta string) {}
+func (h *tuiLiveHandler) OnAgentSpeechDelta(delta string) {
+	if delta != "" && h.m != nil && h.m.turn.prog != nil {
+		h.m.turn.prog.Send(voiceAgentDeltaMsg{delta: delta})
+	}
+}
 
 func (h *tuiLiveHandler) OnTurnComplete() {}
 
 func (h *tuiLiveHandler) OnInterrupted() {
-	if h.m != nil {
-		h.m.slashRespond("/voice", "[Barge-in interrupted]")
+	if h.m != nil && h.m.turn.prog != nil {
+		h.m.turn.prog.Send(voiceInterruptedMsg{})
 	}
 }
 
 func (h *tuiLiveHandler) OnToolCall(call voicebackend.LiveToolCall) {}
 
 func (h *tuiLiveHandler) OnThinkerHandoff(invocationID string, task string) {
-	if h.m == nil || strings.TrimSpace(task) == "" {
-		return
-	}
-
-	h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Handoff] %s", task))
-
-	// Acknowledge the tool invocation to Talker immediately
-	if h.m.audio.liveSession != nil {
-		_ = h.m.audio.liveSession.CompleteHandoff(invocationID, map[string]any{
-			"status":  "dispatched",
-			"task":    task,
-			"message": "Thinker agent has started working on the task.",
+	if h.m != nil && h.m.turn.prog != nil && strings.TrimSpace(task) != "" {
+		h.m.turn.prog.Send(voiceThinkerHandoffMsg{
+			invocationID: invocationID,
+			task:         task,
 		})
-		_ = h.m.audio.liveSession.SendThinkerNote(fmt.Sprintf("Started working on: %s", task))
 	}
-
-	// Run Thinker task asynchronously in background
-	go func() {
-		sess := h.m.audio.liveSession
-		throttler := voicebackend.NewNoteThrottler(voicebackend.DefaultNoteInterval)
-		result, err := h.m.RunThinkerTask(task, func(note string) {
-			if sess != nil && sess.IsActive() && throttler.ShouldSend(time.Now(), note, false) {
-				_ = sess.SendThinkerNote(note)
-			}
-		})
-		if err != nil {
-			if sess != nil && sess.IsActive() {
-				_ = sess.SendThinkerNote(fmt.Sprintf("Task failed: %v", err))
-			}
-			h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Error] %v", err))
-			return
-		}
-		if sess != nil && sess.IsActive() {
-			_ = sess.SendThinkerAnswer(result)
-		}
-		h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Completed] %s", result))
-	}()
 }
 
 // RunThinkerTask executes a Thinker turn using the active turn engine and tools.
@@ -2068,32 +2163,77 @@ func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string
 	defer endTurn()
 	turnCtx = interaction.WithHost(turnCtx, m.turnInteractionHost())
 
-	msgs := []backend.Message{
-		{
-			Role:        "user",
-			Content:     task,
-			WireContent: backend.WrapUserContent(task, modelcatalog.FormatModelLabel(m.turnModel()), m.session.wireSettingsPending, time.Now()),
-		},
+	var talkerCtx string
+	if m.audio.liveSession != nil {
+		turns := m.audio.liveSession.ConversationHistory()
+		var sb strings.Builder
+		for _, t := range turns {
+			role := strings.ToLower(t.Role)
+			if strings.Contains(role, "user") {
+				role = "user"
+			} else {
+				role = "talker"
+			}
+			sb.WriteString(fmt.Sprintf("%s: %q\n", role, t.Content))
+		}
+		talkerCtx = sb.String()
 	}
 
+	content := fmt.Sprintf(`<voice_instructions>
+With <talker_agent_context>, a live voice handles casual chat, sends tasks here, and speaks your reply. Without it, reply in markdown.
+
+1. Share one persona with the voice: continue from its last line with no filler, restatements, or mentions of the voice or instructions, correcting any hedge or small-talk slip cleanly.
+2. Fulfill any running task and the new request unless it cancels, replaces, or narrows the first; on stop, cancel, or ignore, stop immediately and reply briefly.
+3. Act only on the current request, using prior lines only as context.
+
+<talker_agent_context> lists timestamped user and talker lines oldest first (trailing hyphen marks cutoffs), matched in order to attached audio/wav clips. Check audio if speech looks misheard or clipped, honor self-corrections, and ask one short question instead of guessing unclear targets. Claim finished or logged only after tool success, treat the chat screen as a live canvas (rendering interactive generative UI, visuals, diagrams, tables, cards, code, printouts, or clickable links directly on screen whenever asked), and state key facts in brief prose with requested lists, shortlinks, URLs, slash commands, caveats, options, and colleague names.
+</voice_instructions>
+<talker_agent_context>
+%s</talker_agent_context>
+User request: %s`, talkerCtx, task)
+
+	userMsg := backend.Message{
+		Role:        "user",
+		Content:     content,
+		WireContent: backend.WrapUserContent(content, catalog.FormatModelLabel(m.turnModel()), m.session.wireSettingsPending, time.Now()),
+	}
+
+	msgs := append([]backend.Message(nil), m.SessionMessages()...)
+	msgs = append(msgs, userMsg)
+
 	rawMsg := bridge.runTurnOn(turnCtx, m.turnModel(), msgs)
+	var finalAnswer string
+	var runErr error
+
 	if done, ok := rawMsg.(toolsteps.TurnDoneMsg); ok {
 		if done.Err != nil {
-			return "", done.Err
-		}
-		if done.Reply != "" {
-			return done.Reply, nil
-		}
-		if len(done.Steps) > 0 {
+			runErr = done.Err
+		} else if done.Reply != "" {
+			finalAnswer = done.Reply
+		} else if len(done.Steps) > 0 {
 			lastStep := done.Steps[len(done.Steps)-1]
 			if lastStep.Result != "" {
-				return lastStep.Result, nil
+				finalAnswer = lastStep.Result
+			} else {
+				finalAnswer = fmt.Sprintf("Completed %d tool steps", len(done.Steps))
 			}
-			return fmt.Sprintf("Completed %d tool steps", len(done.Steps)), nil
+		} else {
+			finalAnswer = "Task completed successfully."
 		}
-		return "Task completed successfully.", nil
+	} else {
+		finalAnswer = "Task completed."
 	}
-	return "Task completed.", nil
+
+	if runErr != nil {
+		return "", runErr
+	}
+
+	m.session.appendMessage(userMsg)
+	m.session.appendMessage(backend.Message{
+		Role:    "assistant",
+		Content: finalAnswer,
+	})
+	return finalAnswer, nil
 }
 
 func (h *tuiLiveHandler) OnError(err error) {
@@ -2126,15 +2266,11 @@ func (h *tuiLiveHandler) OnClose() {
 }
 
 func (h *tuiLiveHandler) OnReconnecting(attempt int, maxAttempts int, err error) {
-	if h.m != nil {
-		h.m.slashRespond("/voice", fmt.Sprintf("Live session reconnecting (%d/%d)...", attempt, maxAttempts))
-	}
+	// Reconnection in live call is handled seamlessly in the background and reflected in status
 }
 
 func (h *tuiLiveHandler) OnReconnected() {
-	if h.m != nil {
-		h.m.slashRespond("/voice", "Live session reconnected successfully.")
-	}
+	// Reconnected silently without polluting transcript
 }
 
 // deadcode: staged (voice connection seam tested in slash_content_test.go)
@@ -2541,7 +2677,7 @@ func (m *RootModel) panelCurrentModelLabel() string {
 	if lbl := strings.TrimSpace(m.session.model); lbl != "" {
 		return lbl
 	}
-	lbl, _ := modelcatalog.ResolveEffectiveModel("")
+	lbl, _ := catalog.ResolveEffectiveModel("")
 	return lbl
 }
 
@@ -2566,12 +2702,12 @@ func (m *RootModel) applyEffortLevel(name string, level int) tea.Cmd {
 		name = effortpanel.EffortLevelName(level)
 	}
 	model := m.effortModel()
-	if !modelcatalog.EffortAdjustableFor(model) {
+	if !catalog.EffortAdjustableFor(model) {
 		m.slashRespond("/effort", models.NotAdjustableMessage(models.BaseLabel(model)))
 		return nil
 	}
 	before := model
-	label := modelcatalog.EffortLabelFor(model, name)
+	label := catalog.EffortLabelFor(model, name)
 	changed := label != "" && label != before
 
 	if m.session.flags != nil {

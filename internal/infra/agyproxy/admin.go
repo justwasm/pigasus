@@ -18,7 +18,7 @@ import (
 	"github.com/justwasm/pigasus/endpoints"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/models"
-	agybin "github.com/justwasm/pigasus/internal/infra/proxy/bin"
+	"github.com/justwasm/pigasus/internal/infra/proxy/agybin"
 )
 
 // ---- capture -------------------------------------------------------------

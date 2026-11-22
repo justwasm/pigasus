@@ -18,7 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // harness is a panel over a task registry.

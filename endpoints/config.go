@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/tailscale/hujson"
 	"github.com/tidwall/gjson"
@@ -55,6 +57,14 @@ type Config struct {
 	// GeminiLiveModel is an optional override for the real-time voice model
 	// (e.g. "models/gemini-3.8-live" or "models/gemini-3.8-live-extended-thinking").
 	GeminiLiveModel string `json:"gemini_live_model,omitempty"`
+
+	// VoiceNoteInterval is an optional override for the minimum delay between
+	// voice progress notes during background tool execution (e.g. "5s", "3000ms", or 5).
+	VoiceNoteInterval json.RawMessage `json:"voice_note_interval,omitempty"`
+
+	// VoiceNoteIntervalSeconds is an optional numeric override (in seconds) for
+	// the minimum delay between voice progress notes.
+	VoiceNoteIntervalSeconds *float64 `json:"voice_note_interval_seconds,omitempty"`
 
 	// Wrapper is the proxy's persisted state, carried verbatim. It is
 	// nil when the file carries no such section.
@@ -170,6 +180,64 @@ func CurrentGeminiLiveModel() string {
 		return strings.TrimSpace(cfg.GeminiLiveModel)
 	}
 	return ""
+}
+
+// DefaultVoiceNoteInterval is the default minimum delay between non-critical voice progress notes.
+const DefaultVoiceNoteInterval = 5 * time.Second
+
+func parseVoiceInterval(s string) (time.Duration, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, false
+	}
+	if d, err := time.ParseDuration(s); err == nil && d > 0 {
+		return d, true
+	}
+	if f, err := strconv.ParseFloat(s, 64); err == nil && f > 0 {
+		return time.Duration(f * float64(time.Second)), true
+	}
+	return 0, false
+}
+
+func parseVoiceIntervalRaw(raw json.RawMessage) (time.Duration, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return parseVoiceInterval(str)
+	}
+	var num float64
+	if err := json.Unmarshal(raw, &num); err == nil && num > 0 {
+		return time.Duration(num * float64(time.Second)), true
+	}
+	return 0, false
+}
+
+// CurrentVoiceNoteInterval returns the voice note throttle interval from
+// OPENAGY_VOICE_NOTE_INTERVAL, GEMINI_VOICE_NOTE_INTERVAL, or the
+// configuration file's voice_note_interval / voice_note_interval_seconds fields.
+// If none is configured or invalid, it returns DefaultVoiceNoteInterval (5 seconds).
+func CurrentVoiceNoteInterval() time.Duration {
+	if v := os.Getenv("OPENAGY_VOICE_NOTE_INTERVAL"); v != "" {
+		if d, ok := parseVoiceInterval(v); ok {
+			return d
+		}
+	}
+	if v := os.Getenv("GEMINI_VOICE_NOTE_INTERVAL"); v != "" {
+		if d, ok := parseVoiceInterval(v); ok {
+			return d
+		}
+	}
+	if cfg, err := Load(Path()); err == nil {
+		if d, ok := parseVoiceIntervalRaw(cfg.VoiceNoteInterval); ok {
+			return d
+		}
+		if cfg.VoiceNoteIntervalSeconds != nil && *cfg.VoiceNoteIntervalSeconds > 0 {
+			return time.Duration(*cfg.VoiceNoteIntervalSeconds * float64(time.Second))
+		}
+	}
+	return DefaultVoiceNoteInterval
 }
 
 // wrapperKey is the section name the proxy's persisted state lives under in

@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/features/models"
-	agybin "github.com/justwasm/pigasus/internal/infra/proxy/bin"
+	"github.com/justwasm/pigasus/internal/infra/proxy/agybin"
 )
 
 // Launch starts the proxy, points CLOUD_CODE_URL at it, and execs the

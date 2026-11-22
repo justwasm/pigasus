@@ -327,3 +327,23 @@ func TestCLI_ListAgentsFlag(t *testing.T) {
 		t.Errorf("legacyLoadPluginAgents(p2) = %v, want nil", got)
 	}
 }
+
+func TestCLI_InstallSummaryAgentsWithDots(t *testing.T) {
+	// AGY 1.5.14 Item 24: fixed the agy plugin install summary cutting off subagent names at a `.`
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0755); err != nil {
+		t.Fatalf("mkdir agents: %v", err)
+	}
+	agentPath := filepath.Join(dir, "agents", "code.helper.agent.md")
+	content := "---\nname: code.helper.agent\ndescription: helper\n---\nPrompt\n"
+	if err := os.WriteFile(agentPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+	names, err, missing := legacyListAgents(dir)
+	if err != nil || missing {
+		t.Fatalf("legacyListAgents failed: err=%v, missing=%v", err, missing)
+	}
+	if len(names) != 1 || names[0] != "code.helper.agent" {
+		t.Fatalf("subagent name cut off at dot: got %v, want [code.helper.agent]", names)
+	}
+}

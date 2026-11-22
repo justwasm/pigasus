@@ -34,6 +34,9 @@ type DisplayModel struct {
 	quotaFrame int
 	// streamingSearch gates the streaming search path.
 	streamingSearch bool
+	// showThinking controls whether the model's full thinking is streamed live
+	// in the transcript and kept expanded on completion (AGY 1.5.14).
+	showThinking bool
 	// lastTurnOutcome is the last OSC 7501 (Program Status Protocol)
 	// state the TUI reported.
 	lastTurnOutcome tea.ProgramState
@@ -52,5 +55,17 @@ func (d *DisplayModel) IsQuitting() bool {
 func (d *DisplayModel) SetQuitting(quitting bool) {
 	if d != nil {
 		d.quitting = quitting
+	}
+}
+
+// ShowThinking reports whether the model's full thinking is streamed live.
+func (d *DisplayModel) ShowThinking() bool {
+	return d != nil && d.showThinking
+}
+
+// SetShowThinking sets whether the model's full thinking is streamed live.
+func (d *DisplayModel) SetShowThinking(show bool) {
+	if d != nil {
+		d.showThinking = show
 	}
 }

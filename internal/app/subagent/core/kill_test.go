@@ -15,7 +15,7 @@ import (
 	"context"
 	"testing"
 
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // TestManagerKillRunning — only a running subagent may be killed.

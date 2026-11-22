@@ -29,7 +29,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/rchost"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 	uirows "github.com/justwasm/pigasus/internal/ui/rows"
@@ -252,7 +252,7 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 // user configured goes to its own endpoint. An explicit `--backend gateway`
 // forces the configured endpoint even for a reference model.
 //
-// The rule itself now lives in internal/infra/backend/select; the wrappers here
+// The rule itself now lives in internal/infra/backend/backendselect; the wrappers here
 // keep the clone's own vocabulary (and its tests').
 
 type gatewayBackend interface {

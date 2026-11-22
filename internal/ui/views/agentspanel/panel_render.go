@@ -16,7 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"

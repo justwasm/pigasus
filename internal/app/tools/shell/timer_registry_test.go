@@ -6,7 +6,7 @@ import (
 	"time"
 
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
-	tools "github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // TestKilledTimerLeavesTheTaskRegistry pins the cancellation contract of a

@@ -91,7 +91,7 @@ finding is marked *missing-feature* rather than guessed at.
 
 ### Migration / ops
 
-- `serverUrl` is the accepted schema key — `gcli-migration.md:84` vs `internal/features/plugins/import/mcp.go:46`.
+- `serverUrl` is the accepted schema key — `gcli-migration.md:84` vs `internal/features/plugins/pluginimport/mcp.go:46`.
 - The installer places the binary at `~/.local/bin/agy` — `troubleshooting.md:30,44` vs `internal/cli/install.go:72`.
 - `GEMINI.md` / `AGENTS.md` workspace rules and `~/.gemini/GEMINI.md` — `gcli-migration.md:50-51`.
 - Workspace skills live in `.agents/skills` — `gcli-migration.md:60` vs `internal/pigrt/skills.go:53`.

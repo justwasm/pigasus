@@ -106,3 +106,34 @@ func TestTurnErrorMessage_AutoContWithoutCause(t *testing.T) {
 type emptyMessageError struct{}
 
 func (emptyMessageError) Error() string { return "" }
+
+func TestTurnErrorMessage_AutoContWrappedHTTPError(t *testing.T) {
+	httpErr := &apierror.HTTPError{
+		StatusCode: 429,
+		Body:       []byte(`{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}`),
+	}
+
+	maxDepth := &ErrAutoContMaxDepth{
+		Depth: 3,
+		Last:  httpErr,
+	}
+	got, ok := TurnErrorMessage(maxDepth)
+	if !ok {
+		t.Fatal("expected TurnErrorMessage to report message")
+	}
+	if !strings.Contains(got, "Resource has been exhausted") {
+		t.Errorf("TurnErrorMessage(maxDepth) = %q, want it to contain API error message", got)
+	}
+
+	netErr := &ErrAutoContNetworkFailed{
+		Attempts: 5,
+		Last:     httpErr,
+	}
+	gotNet, ok := TurnErrorMessage(netErr)
+	if !ok {
+		t.Fatal("expected TurnErrorMessage to report message")
+	}
+	if !strings.Contains(gotNet, "Resource has been exhausted") {
+		t.Errorf("TurnErrorMessage(netErr) = %q, want it to contain API error message", gotNet)
+	}
+}

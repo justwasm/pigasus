@@ -530,6 +530,9 @@ func TestGroupLines_MultiCallShowsTheLastCall(t *testing.T) {
 	if strings.Contains(plain, "2 commands") {
 		t.Errorf("expanded block kept an aggregate header:\n%s", plain)
 	}
+	if !strings.Contains(plain, "│") {
+		t.Errorf("expanded block missing │ gutter:\n%s", plain)
+	}
 }
 
 // TestSearchWeb_ReferenceForms pins the search step forms measured on 1.4.3

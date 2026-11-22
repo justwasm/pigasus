@@ -1,0 +1,19 @@
+NAME "Thinking Command Toggle (/thinking) (1.5.14)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "/thinking"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_thinking_toggle_on"
+
+TYPE "/thinking off"
+ENTER
+SLEEP 500ms
+SNAPSHOT "02_thinking_toggle_off"
+
+DIFF
+CLEANUP

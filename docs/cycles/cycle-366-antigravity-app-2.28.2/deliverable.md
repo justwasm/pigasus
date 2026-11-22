@@ -268,7 +268,7 @@ implemented the fields are already in the schema.
 
 **The clone's own `plugin.json` reader still drops the three fields.**
 `internal/features/plugins/core.Manifest` keeps `name`, `description` and
-`version`; the importer (`internal/features/plugins/import/`) keeps the
+`version`; the importer (`internal/features/plugins/pluginimport/`) keeps the
 author's **name** only — which is exactly what the reference's staged
 `plugin.json` carries (measured at agy 1.4.11, cycle 364). The clone's
 `plugin validate` already accepts `author`, `homepage` and `repository` as

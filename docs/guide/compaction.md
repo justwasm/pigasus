@@ -25,7 +25,7 @@ step.
 
 The seam lives in `actor` (`TurnConfig.Checkpoint`); the policy lives in
 `internal/features/checkpoint`; the reference's per-model numbers live in
-`internal/features/models/ctx`; the prompt/resume/accounting live in
+`internal/features/models/modelctx`; the prompt/resume/accounting live in
 `internal/core/compaction`.
 
 ## 2. The reference's policy
@@ -58,9 +58,18 @@ tool steps. The clone adds a **hard-limit override**: when the next call cannot
 fit, a checkpoint is taken regardless of step type. Without it a single-step
 turn or a pure-chat session could overflow before any tool step.
 
+## 2.1. Memory Reclamation (Post-Compaction Heap Release)
+
+Compaction across multi-turn sessions (100+ turns) generates temporary JSON buffers, token arrays, and candidate message blocks that leave large freed heap spans in the Go runtime. 
+
+To prevent memory bloat:
+- **Manual `/compact`**: `applyGenericCompactSuccess` in `internal/tui/slash_compact.go` calls `memtrim.Release()` immediately after setting the new single resume turn.
+- **Step-Boundary Checkpoints**: `emitCheckpointEvent` in `internal/app/agentturn/actor_adapter.go` triggers `go memtrim.Release()` on `checkpoint.EventEnd` when the checkpoint finishes successfully without abort.
+- `memtrim.Release()` executes `runtime/debug.FreeOSMemory()`, returning unmapped virtual memory pages directly to the operating system.
+
 The live 1.5.3 binary ships the same profile table as 1.4.8 except that
 every payload sets `use_model_reported_token_count` to `true`; the extracted
-document is `internal/features/models/ctx/testdata/model_profiles_1.5.3.json`.
+document is `internal/features/models/modelctx/testdata/model_profiles_1.5.3.json`.
 The 1.5.3 payloads omit `moving_window_size`; the clone keeps the 1.4.4 value
 (1) and marks the omission as an open item.
 
@@ -342,7 +351,7 @@ resume block itself, so a rebuilt actor cannot mistake it for a request.
   constraints and open questions.
 - `docs/cycles/cycle-303-cascade-model-profiles/deliverable.md` — the 1.4.8
   catalogue, clamps and model profiles.
-- `internal/features/models/ctx/profiles_1.4.8.go` + `testdata/` — the shipped
+- `internal/features/models/modelctx/profiles_1.4.8.go` + `testdata/` — the shipped
   per-model checkpoint payloads.
 - `docs/cycles/auto-compact-parity/evidence-1.5.3.md` — the 1.5.3 profile
   extraction, the Go 1.28 pclntab offset, `shouldCheckpoint` and the default

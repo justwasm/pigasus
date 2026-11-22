@@ -10,6 +10,7 @@ import (
 	"github.com/justwasm/pigasus/websocket"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/voice/voicepb"
 )
 
@@ -83,6 +84,136 @@ func TestGeminiLiveBackend_BearerToken(t *testing.T) {
 		t.Fatalf("expected APIKey() == test-api-key, got %q", apiKeyBackend.APIKey())
 	}
 }
+
+func TestGeminiLive_RealRoundtrip(t *testing.T) {
+	key := endpoints.CurrentGeminiAPIKey()
+	if key == "" {
+		t.Skip("skipping real Gemini Live test: no GEMINI_API_KEY")
+	}
+
+	b := NewGeminiLiveBackend(key)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	sess, err := b.CreateSession(ctx, LiveSessionConfig{
+		Voice: "Finn",
+		SystemPrompt: `You are Antigravity's real-time spoken voice agent.
+Speak concisely, naturally, warmly in 1-2 spoken sentences.`,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	defer sess.Close()
+
+	if err := sess.SendText("Check git status for me"); err != nil {
+		t.Fatalf("SendText failed: %v", err)
+	}
+
+	var totalAudioBytes int
+	var transcript string
+	var toolCallsCount int
+
+	for {
+		ev, err := sess.Receive()
+		if err != nil {
+			t.Logf("Receive stopped with error: %v", err)
+			break
+		}
+		if len(ev.ToolCalls) > 0 {
+			toolCallsCount += len(ev.ToolCalls)
+			for _, tc := range ev.ToolCalls {
+				t.Logf("RECV ToolCall: %s (id=%s) %+v", tc.Name, tc.ID, tc.Args)
+				if tc.Name == "call_thinker_agent" {
+					t.Logf("Responding to call_thinker_agent...")
+					if err := sess.SendToolResponse(tc.ID, tc.Name, map[string]any{
+						"status": "working tree clean, on branch main",
+					}); err != nil {
+						t.Fatalf("SendToolResponse failed: %v", err)
+					}
+				}
+			}
+		}
+		if ev.VoiceTranscript != "" {
+			transcript += ev.VoiceTranscript
+			t.Logf("RECV Transcript: %q", ev.VoiceTranscript)
+		}
+		if len(ev.Audio) > 0 {
+			totalAudioBytes += len(ev.Audio)
+			t.Logf("RECV Audio chunk: %d bytes", len(ev.Audio))
+		}
+		if ev.UserSpeech != "" {
+			t.Logf("RECV UserSpeech: %q (interim=%v)", ev.UserSpeech, ev.Interim)
+		}
+		if ev.Interrupted {
+			t.Logf("RECV Interrupted: true")
+		}
+		if ev.TurnComplete {
+			t.Logf("RECV TurnComplete: true")
+			if toolCallsCount > 0 && totalAudioBytes > 0 {
+				break
+			}
+		}
+	}
+
+	t.Logf("Summary: transcript=%q, audioBytes=%d, toolCalls=%d", transcript, totalAudioBytes, toolCallsCount)
+	if totalAudioBytes == 0 {
+		t.Errorf("NO AUDIO RECEIVED! Audio bytes = 0")
+	}
+}
+
+func TestGeminiLive_BargeInBehavior(t *testing.T) {
+	key := endpoints.CurrentGeminiAPIKey()
+	if key == "" {
+		t.Skip("skipping real Gemini Live test: no GEMINI_API_KEY")
+	}
+
+	b := NewGeminiLiveBackend(key)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	sess, err := b.CreateSession(ctx, LiveSessionConfig{
+		Voice: "Finn",
+		SystemPrompt: `You are Antigravity's real-time spoken voice agent.
+Speak concisely in 2 sentences.`,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	defer sess.Close()
+
+	if err := sess.SendText("Tell me a two-sentence story."); err != nil {
+		t.Fatalf("SendText failed: %v", err)
+	}
+
+	var audioChunks int
+	var interrupted bool
+	silence := make([]byte, 3200) // 100ms of 16kHz silence
+
+	for {
+		ev, err := sess.Receive()
+		if err != nil {
+			break
+		}
+		if len(ev.Audio) > 0 {
+			audioChunks++
+			// As soon as the first audio chunk arrives, send a silence chunk into the session
+			if audioChunks == 1 {
+				t.Logf("Sending silence audio chunk to simulate continuous mic stream...")
+				_ = sess.SendAudio(silence)
+			}
+		}
+		if ev.Interrupted {
+			interrupted = true
+			t.Logf("GEMINI SENT INTERRUPTED = TRUE!")
+		}
+		if ev.TurnComplete {
+			break
+		}
+	}
+	t.Logf("Total audio chunks: %d, Interrupted: %v", audioChunks, interrupted)
+}
+
+
 
 func TestMockLiveSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

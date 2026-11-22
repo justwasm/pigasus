@@ -13,8 +13,8 @@ import (
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/clirunner"
 	"github.com/justwasm/pigasus/internal/core/registry"
-	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 )
 
 // TestRemoteControlStartup_InteractiveFlagOn verifies that starting the TUI

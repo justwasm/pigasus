@@ -162,6 +162,7 @@ func (b *bgTable) start(ws, taskID, logPath, name string, argv []string, timeout
 		cancel()
 		return nil, err
 	}
+	t.cancel = cancel
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -175,7 +176,10 @@ func (b *bgTable) start(ws, taskID, logPath, name string, argv []string, timeout
 		b.remove(t.id)
 		return nil, err
 	}
-	b.watch(t, func() error { return cmd.Wait() }, stdin)
+	b.watch(t, func() error {
+		defer cancel()
+		return cmd.Wait()
+	}, stdin)
 	return t, nil
 }
 

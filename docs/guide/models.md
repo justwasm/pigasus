@@ -11,7 +11,7 @@ There are **two real transports**, and the selected model decides which one runs
 | in the reference's catalogue (Gemini / Claude / GPT-OSS) | `backend.CloudCodeClient` | `https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` |
 | configured by the user | `backend.GatewayClient` | the configured endpoint: `<base>/chat/completions` (OpenAI) or `<base>/v1/messages` (Anthropic) |
 
-`internal/infra/backend/select`'s `PickWithLog` (called from
+`internal/infra/backend/backendselect`'s `PickWithLog` (called from
 `internal/cliapp/run.go`) does the split at startup; the TUI
 does it again on every `/model` change through `runMode.backendFor`
 (`syncBackendForModel`). An explicit `--backend gateway` /
@@ -130,10 +130,10 @@ OPENAGY_UNDOCUMENTED_MODELS=1 pigasus --model "Gemini 4 Hydrogen (Sonar)" -p "pi
 
 ---
 
-## The per-model budget (`internal/features/models/ctx`, cycle `303-cascade-model-profiles`)
+## The per-model budget (`internal/features/models/modelctx`, cycle `303-cascade-model-profiles`)
 
 Every model the clone builds a handle for carries a **window** and a
-**reserve**. `internal/features/models/ctx.For(modelID)` returns both, and it reads
+**reserve**. `internal/features/models/modelctx.For(modelID)` returns both, and it reads
 **two** sources, in this order:
 
 1. **The reference's own catalogue.** agy 1.4.8 embeds a
@@ -141,8 +141,8 @@ Every model the clone builds a handle for carries a **window** and a
    Mach-O) that carries one `CASCADE_USE_EXPERIMENT_CHECKPOINTER` payload
    per model family, the alias map folding the model ids onto those
    families, and the per-profile variant payloads. It is committed at
-   `internal/features/models/ctx/testdata/model_profiles_1.4.8.json` and mirrored by
-   `internal/features/models/ctx/profiles_1.4.8.go`.
+   `internal/features/models/modelctx/testdata/model_profiles_1.4.8.json` and mirrored by
+   `internal/features/models/modelctx/profiles_1.4.8.go`.
 2. **The server's catalogue**, as captured at 1.4.4
    (`docs/cycles/model-catalogue-argon-gate/fetchAvailableModels_1.4.4.json`)
    — the fallback for the models the embedded catalogue does not carry.
@@ -163,7 +163,7 @@ from the user's own `context_window` / `default_max_tokens`.
 The checkpoint configuration itself is mirrored too — the profile table, the
 alias map, the `claude-1m_840k` variant (an 840 000-token window for
 `MODEL_PLACEHOLDER_M400`), the validator (the reference's four messages,
-byte for byte) and the clamps — `internal/features/models/ctx/validate.go`. The
+byte for byte) and the clamps — `internal/features/models/modelctx/validate.go`. The
 **cascade runtime** (the planner/executor split, the steps, the trajectory)
 is still not implemented; see
 [`docs/guide/compaction.md`](compaction.md) and

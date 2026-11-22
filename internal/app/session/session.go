@@ -46,6 +46,7 @@ type Session struct {
 	store            *Store
 	subagentDefs     *subagenttools.Store
 	subagentRegistry *subagenttools.Registry
+	broker           *MultimodalBroker
 }
 
 // New creates and initializes a new domain Session.
@@ -66,6 +67,7 @@ func New(cfg Config) *Session {
 		subagentDefs:     subagenttools.NewStore(),
 		subagentRegistry: subagenttools.NewRegistry(cfg.ID),
 	}
+	s.broker = NewMultimodalBroker(s)
 	return s
 }
 
@@ -431,4 +433,60 @@ func (s *Session) TrajectoryFacts() convstore.Trajectory {
 		return convstore.Trajectory{}
 	}
 	return sup.TrajectoryFacts()
+}
+
+// Broker returns the MultimodalBroker managing turns for this session.
+func (s *Session) Broker() *MultimodalBroker {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.broker
+}
+
+// EnsureBroker ensures a MultimodalBroker is initialized on this session.
+func (s *Session) EnsureBroker() *MultimodalBroker {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.broker == nil {
+		s.broker = NewMultimodalBroker(s)
+	}
+	return s.broker
+}
+
+// DispatchPrompt routes an incoming prompt through the session's MultimodalBroker.
+func (s *Session) DispatchPrompt(prompt string) (bool, error) {
+	b := s.Broker()
+	if b == nil {
+		return false, nil
+	}
+	return b.DispatchPrompt(prompt)
+}
+
+// RecordVoiceTurn records a speech turn into the session domain transcript.
+func (s *Session) RecordVoiceTurn(role, text string) backend.Message {
+	b := s.Broker()
+	if b == nil {
+		return backend.Message{}
+	}
+	return b.RecordVoiceTurn(role, text)
+}
+
+// SetLiveVoiceRouter sets the active live voice session router on the session broker.
+func (s *Session) SetLiveVoiceRouter(r LiveVoiceRouter) {
+	b := s.EnsureBroker()
+	b.SetVoiceRouter(r)
+}
+
+// IsLiveVoiceActive reports whether a live voice session is active on the broker.
+func (s *Session) IsLiveVoiceActive() bool {
+	b := s.Broker()
+	return b != nil && b.IsLiveVoiceActive()
+}
+
+// DispatchVisionFrame dispatches a visual frame through the multimodal broker.
+func (s *Session) DispatchVisionFrame(mimeType string, data []byte, textSummary string) error {
+	b := s.Broker()
+	if b == nil {
+		return nil
+	}
+	return b.DispatchVisionFrame(mimeType, data, textSummary)
 }

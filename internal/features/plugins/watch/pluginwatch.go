@@ -134,6 +134,10 @@ type Watcher struct {
 	// call is a no-op rather than a panic.
 	runOnce sync.Once
 
+	// onChange, when non-nil, is invoked whenever the debounce timer fires.
+	onChangeMu sync.Mutex
+	onChange   func()
+
 	// closed flips on Close; Run observes it and exits.
 	closeMu sync.Mutex
 	closed  bool
@@ -265,10 +269,26 @@ func (w *Watcher) hasPendingTimer() bool {
 	return w.debounceTimer != nil
 }
 
+// SetOnChange registers a callback to be invoked whenever a debounced filesystem change is detected.
+func (w *Watcher) SetOnChange(f func()) {
+	if w == nil {
+		return
+	}
+	w.onChangeMu.Lock()
+	defer w.onChangeMu.Unlock()
+	w.onChange = f
+}
+
 // flipStale is the timer callback. Atomic store so concurrent
 // IsStale readers see the transition.
 func (w *Watcher) flipStale() {
 	w.stale.Store(1)
+	w.onChangeMu.Lock()
+	cb := w.onChange
+	w.onChangeMu.Unlock()
+	if cb != nil {
+		cb()
+	}
 }
 
 // IsStale reports whether at least one debounced filesystem event

@@ -69,6 +69,13 @@ type Seams struct {
 	PromptEmpty func() bool
 	// IsLiveAvailable reports whether live mode is available in this session.
 	IsLiveAvailable func() bool
+	// IsThinking reports whether the agent thinker loop is currently running.
+	IsThinking func() bool
+	// FinishDictation stops audio capture and initiates transcription.
+	// It returns a command that produces DictationDoneMsg.
+	FinishDictation func() tea.Cmd
+	// CancelDictation discards any active audio capture without transcribing.
+	CancelDictation func()
 }
 
 // Surface is the voice dictation state machine.
@@ -93,11 +100,28 @@ type Surface struct {
 	// cancel is true when the session was abandoned. A connection
 	// result that arrives after a cancel is dropped.
 	cancel bool
+	// preview holds the interim speech ticker displayed inside the live status bar.
+	preview string
 }
 
 // New builds the surface.
 func New(seams Seams) *Surface {
 	return &Surface{seams: seams}
+}
+
+// SetPreview updates the live interim speech ticker text.
+func (s *Surface) SetPreview(text string) {
+	if s != nil {
+		s.preview = text
+	}
+}
+
+// Preview returns the current interim speech ticker text.
+func (s *Surface) Preview() string {
+	if s == nil {
+		return ""
+	}
+	return s.preview
 }
 
 // Active is true while a dictation session is on.
@@ -143,6 +167,14 @@ type ConnectDoneMsg struct {
 	LiveStarted bool
 }
 
+// DictationDoneMsg reports the result of the audio transcription.
+type DictationDoneMsg struct {
+	// Text is the transcribed speech.
+	Text string
+	// Err is any transcription failure.
+	Err error
+}
+
 // TickMsg is sent periodically during active recording to update the
 // running duration timer.
 type TickMsg struct{}
@@ -170,7 +202,7 @@ func (s *Surface) Start(trigger string) tea.Cmd {
 	s.cancel = false
 
 	if trigger == "/voice live" {
-		rec, _ := NewRecorder("voice-live-"+fmt.Sprintf("%d", time.Now().UnixNano()), 0, nil)
+		rec, _ := NewRecorder("voice-live-"+fmt.Sprintf("%d", time.Now().UnixNano()), -1, nil)
 		s.rec = rec
 		if s.seams.StartLive != nil {
 			return func() tea.Msg {
@@ -217,22 +249,46 @@ func (s *Surface) connectCmd() tea.Cmd {
 	}
 }
 
+func (s *Surface) hasDraft() bool {
+	if s == nil || s.rec == nil {
+		return false
+	}
+	_, draft, _, _ := s.rec.Snapshot()
+	return draft != ""
+}
+
 // confirm inserts any drafted speech into the composer and leaves
 // voice mode.
 func (s *Surface) confirm() tea.Cmd {
 	if s == nil || !s.active {
 		return nil
 	}
-	s.active = false
-	if s.rec != nil {
-		_, draft, _, _ := s.rec.Snapshot()
-		if draft != "" {
-			s.insertDraft(draft)
+	if s.seams.FinishDictation == nil || (s.rec != nil && s.hasDraft()) {
+		s.active = false
+		if s.rec != nil {
+			_, draft, _, _ := s.rec.Snapshot()
+			if draft != "" {
+				s.insertDraft(draft)
+			}
+			_ = s.rec.Stop()
 		}
-		_ = s.rec.Stop()
+		s.phase = PhaseNone
+		if s.seams.CancelDictation != nil {
+			s.seams.CancelDictation()
+		}
+		return nil
 	}
-	s.phase = PhaseNone
-	return nil
+	cmd := s.seams.FinishDictation()
+	if cmd == nil {
+		s.active = false
+		s.phase = PhaseNone
+		if s.rec != nil {
+			_ = s.rec.Stop()
+		}
+		return nil
+	}
+	s.phase = PhaseFinishing
+	return cmd
 }
 
 // Stop aborts or finishes the active voice session.
@@ -245,9 +301,13 @@ func (s *Surface) Discard() {
 	if s == nil {
 		return
 	}
+	if s.seams.CancelDictation != nil {
+		s.seams.CancelDictation()
+	}
 	s.cancel = true
 	s.active = false
 	s.phase = PhaseNone
+	s.preview = ""
 	if s.rec != nil {
 		s.rec.Reset()
 	}
@@ -257,6 +317,9 @@ func (s *Surface) Discard() {
 func (s *Surface) cancelSession() tea.Cmd {
 	if s == nil {
 		return nil
+	}
+	if s.seams.CancelDictation != nil {
+		s.seams.CancelDictation()
 	}
 	if s.phase == PhaseLive {
 		elapsed := time.Duration(0)
@@ -273,6 +336,7 @@ func (s *Surface) cancelSession() tea.Cmd {
 	s.cancel = true
 	s.active = false
 	s.phase = PhaseNone
+	s.preview = ""
 	if s.rec != nil {
 		s.rec.Reset()
 	}
@@ -294,6 +358,8 @@ func (s *Surface) HandleKey(key tea.Key) (bool, tea.Cmd) {
 				s.seams.ToggleMute()
 			}
 			return true, nil
+		case tea.KeyF7:
+			return true, s.cancelSession()
 		case tea.KeyEsc:
 			if s.seams.PromptEmpty == nil || s.seams.PromptEmpty() {
 				return true, s.cancelSession()
@@ -302,6 +368,27 @@ func (s *Surface) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		// In Live mode, typing, Enter, arrows, etc. are passed through to the composer!
 		return false, nil
+	}
+	if s.phase == PhaseFinishing {
+		switch key.Code {
+		case tea.KeyEsc:
+			return true, s.cancelSession()
+		case tea.KeyEnter, tea.KeyF5:
+			s.active = false
+			s.phase = PhaseNone
+			if s.rec != nil {
+				_, draft, _, _ := s.rec.Snapshot()
+				if draft != "" {
+					s.insertDraft(draft)
+				}
+				_ = s.rec.Stop()
+			}
+			if s.seams.CancelDictation != nil {
+				s.seams.CancelDictation()
+			}
+			return true, nil
+		}
+		return true, nil
 	}
 	switch key.Code {
 	case tea.KeyEsc:
@@ -344,6 +431,8 @@ func (s *Surface) HandleConnectDone(msg ConnectDoneMsg) tea.Cmd {
 		s.phase = PhaseRecording
 	} else if s.trigger == "/voice live" || msg.LiveStarted {
 		s.phase = PhaseLive
+		rec, _ := NewRecorder("voice-live-"+fmt.Sprintf("%d", time.Now().UnixNano()), -1, nil)
+		s.rec = rec
 		timeStr := time.Now().Format("3:04PM")
 		s.respond(
 			fmt.Sprintf("🎤 Started voice chat · %s", timeStr),
@@ -373,8 +462,47 @@ func (s *Surface) HandleTick() tea.Cmd {
 		state, _, _, _ := s.rec.Snapshot()
 		if state == StateAutoStopped {
 			s.phase = PhaseFinishing
+			if s.seams.FinishDictation != nil {
+				if cmd := s.seams.FinishDictation(); cmd != nil {
+					return cmd
+				}
+			}
 		}
 		return tickCmd()
+	}
+	return nil
+}
+
+// HandleDictationDone processes the result of the audio transcription.
+func (s *Surface) HandleDictationDone(msg DictationDoneMsg) tea.Cmd {
+	if s == nil || !s.active {
+		return nil
+	}
+	if s.cancel {
+		return nil
+	}
+	s.active = false
+	s.phase = PhaseNone
+	if msg.Err != nil {
+		s.respond("Could not transcribe audio: " + msg.Err.Error())
+		if s.rec != nil {
+			s.rec.Reset()
+		}
+		return nil
+	}
+	if msg.Text != "" {
+		if s.rec != nil {
+			_ = s.rec.AppendDraft(msg.Text)
+		}
+		s.insertDraft(msg.Text)
+	} else if s.rec != nil {
+		_, draft, _, _ := s.rec.Snapshot()
+		if draft != "" {
+			s.insertDraft(draft)
+		}
+	}
+	if s.rec != nil {
+		_ = s.rec.Stop()
 	}
 	return nil
 }
@@ -397,7 +525,15 @@ func (s *Surface) View() string {
 		speaking = s.seams.IsSpeaking()
 	}
 	if s.phase == PhaseLive {
-		return FormatBannerLive(elapsed, s.width(), muted, speaking)
+		thinking := false
+		if s.seams.IsThinking != nil {
+			thinking = s.seams.IsThinking()
+		}
+		promptEmpty := true
+		if s.seams.PromptEmpty != nil {
+			promptEmpty = s.seams.PromptEmpty()
+		}
+		return FormatBannerLive(elapsed, s.width(), muted, speaking, thinking, s.preview, promptEmpty)
 	}
 	return FormatBannerMuted(s.phase, elapsed, s.width(), muted)
 }

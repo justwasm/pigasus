@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	textwrap "github.com/justwasm/pigasus/internal/ui/render/wrap"

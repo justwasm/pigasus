@@ -152,6 +152,9 @@ type NativeLiveSession struct {
 	historyTurns []LiveTurnRecord
 	maxHistory   int
 	compactor    *VoiceHistoryCompactor
+
+	toolCallsMu sync.Mutex
+	toolCalls   map[string]string
 }
 
 // NewNativeLiveSession creates a new terminal native live session manager.
@@ -173,6 +176,7 @@ func NewNativeLiveSession(backend LiveBackend, handler NativeLiveHandler) *Nativ
 		},
 		maxHistory: 10,
 		compactor:  NewVoiceHistoryCompactor(),
+		toolCalls:  make(map[string]string),
 	}
 	n.state.Store(int32(StateDisconnected))
 	return n
@@ -219,7 +223,8 @@ func (n *NativeLiveSession) echoGuard(pcm16k []byte) bool {
 	// 3. In half duplex (default):
 	// If agent is actively generating audio or player has queued audio, extend echoUntil and suppress mic
 	if n.speaking.Load() || playerBuffered > 0 {
-		n.echoUntil.Store(now + int64(n.echoGracePeriod))
+		bufferedDuration := time.Duration(playerBuffered) * time.Second / 48000
+		n.echoUntil.Store(now + int64(bufferedDuration+n.echoGracePeriod))
 		return true
 	}
 
@@ -482,12 +487,27 @@ func (n *NativeLiveSession) receivePump(ctx context.Context, sess LiveSession) {
 
 		if len(ev.ToolCalls) > 0 {
 			for _, tc := range ev.ToolCalls {
+				if tc.ID != "" && tc.Name != "" {
+					n.toolCallsMu.Lock()
+					n.toolCalls[tc.ID] = tc.Name
+					n.toolCallsMu.Unlock()
+				}
 				if n.handler != nil {
 					n.handler.OnToolCall(tc)
-					if tc.Name == "delegate_to_thinker" || tc.Name == "call_thinker_agent" {
+					if tc.Name == "hang_up" {
+						_ = n.HangUp()
+					} else if tc.Name == "cancel_thinker_agent" {
+						n.handler.OnThinkerHandoff(tc.ID, "cancel active task")
+					} else {
 						task, _ := tc.Args["task"].(string)
 						if task == "" {
 							task, _ = tc.Args["query"].(string)
+						}
+						if task == "" {
+							task, _ = tc.Args["command"].(string)
+						}
+						if task == "" {
+							task, _ = tc.Args["path"].(string)
 						}
 						n.handler.OnThinkerHandoff(tc.ID, task)
 					}
@@ -543,9 +563,13 @@ func (n *NativeLiveSession) receivePump(ctx context.Context, sess LiveSession) {
 			}
 			n.speaking.Store(false)
 			if n.player != nil {
+				buffered := n.player.Buffered()
+				bufferedDuration := time.Duration(buffered) * time.Second / 48000
+				n.echoUntil.Store(time.Now().Add(bufferedDuration + n.echoGracePeriod).UnixNano())
 				n.player.Flush()
+			} else {
+				n.echoUntil.Store(time.Now().Add(n.echoGracePeriod).UnixNano())
 			}
-			n.echoUntil.Store(time.Now().Add(n.echoGracePeriod).UnixNano())
 			if agentSpeechBuilder.Len() > 0 {
 				fullText := agentSpeechBuilder.String()
 				n.recordTurn("Agent", fullText)
@@ -686,6 +710,46 @@ func (n *NativeLiveSession) SendThinkerNote(note string) error {
 	return n.session.SendThinkerNote(note)
 }
 
+// SendWaitingOnUser relays a waiting-on-user prompt to the live talker.
+func (n *NativeLiveSession) SendWaitingOnUser(question string) error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if !n.active.Load() || n.session == nil {
+		return errors.New("native live: session is not active")
+	}
+	return n.session.SendWaitingOnUser(question)
+}
+
+// SendTaskStopped relays a stopped prompt to the live talker.
+func (n *NativeLiveSession) SendTaskStopped() error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if !n.active.Load() || n.session == nil {
+		return errors.New("native live: session is not active")
+	}
+	return n.session.SendTaskStopped()
+}
+
+// SendMedia sends a visual image or video frame into the live session.
+func (n *NativeLiveSession) SendMedia(mimeType string, data []byte) error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	if !n.active.Load() || n.session == nil {
+		return errors.New("native live: session is not active")
+	}
+	return n.session.SendMedia(mimeType, data)
+}
+
+// SendTerminalFrame formats and sends a terminal screen snapshot to the live talker.
+func (n *NativeLiveSession) SendTerminalFrame(text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	prompt := fmt.Sprintf("[Terminal Screen View:\n%s\n]", text)
+	return n.SendText(prompt)
+}
+
 // WireStats answers real-time telemetry metrics across the live duplex wire.
 func (n *NativeLiveSession) WireStats() WireStats {
 	if n == nil {
@@ -750,7 +814,13 @@ func (n *NativeLiveSession) SendText(text string) error {
 
 // CompleteHandoff acknowledges the tool call with an execution response.
 func (n *NativeLiveSession) CompleteHandoff(id string, result any) error {
-	return n.SendToolResponse(id, "delegate_to_thinker", result)
+	n.toolCallsMu.Lock()
+	toolName := n.toolCalls[id]
+	n.toolCallsMu.Unlock()
+	if toolName == "" {
+		toolName = "call_thinker_agent"
+	}
+	return n.SendToolResponse(id, toolName, result)
 }
 
 // Voice returns the current configured voice name.

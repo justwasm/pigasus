@@ -249,3 +249,45 @@ func TestWatcher_CloseStopsRun(t *testing.T) {
 			baseline, final, final-baseline)
 	}
 }
+
+func TestWatcher_SetOnChange(t *testing.T) {
+	root := t.TempDir()
+	gemini := filepath.Dir(root)
+	pluginsDir := filepath.Join(gemini, "config", "plugins")
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillsDir := filepath.Join(gemini, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marketDir := filepath.Join(root, "cache", "marketplaces")
+	if err := os.MkdirAll(marketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := New(root)
+	if err != nil || w == nil {
+		t.Fatalf("New: w=%v err=%v", w, err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	var changed atomic.Int32
+	w.SetOnChange(func() {
+		changed.Add(1)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go w.Run(ctx)
+
+	// Trigger a file write under plugins
+	testFile := filepath.Join(pluginsDir, "test_plugin.json")
+	if err := os.WriteFile(testFile, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !waitFor(t, 2*time.Second, func() bool { return changed.Load() > 0 }) {
+		t.Errorf("expected onChange callback to fire after file write under plugins")
+	}
+}

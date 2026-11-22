@@ -77,7 +77,11 @@ Rather than relying on brittle, frozen `.json` capture snapshots that drift with
 | `sandboxed_turn` | Sandboxed execution: `<terminal_sandbox>` tag present between `<identity>` and `<artifacts>`, `run_command` has `BypassSandbox` parameter. |
 | `subagent_turn` | Delegated subagent execution: isolated messaging prompt, restricted tools, identity alignment. |
 | `clean_no_rules` | Empty workspace without `AGENTS.md`: `<user_rules>` omitted, `<skills>` immediately precedes `<user_information>`. |
-| `compact_turn` | Post-compaction continuation turn: verifies `<CONTEXT_SUMMARY>` formatting in conversation history. |
+| `custom_user_rules` | Workspace with custom rules: `<user_rules>` rendered after `<skills>`, section order strictly verified. |
+| `planning_mode` | Turn executed in planning mode: planning artifacts guidance injected into `<artifacts>` section. |
+| `autonomous_mode` | Turn executed in autonomous execution mode: autonomous identity ("working for") and non-interactive guidance. |
+| `compaction_request` | On-demand compaction request sent to model: preserves full system instruction and 12 tools, appends 7-section continuation summary instructions + `ON-DEMAND COMPACTION:` suffix as last turn. |
+| `compaction_turn` | Resumption turn after context compaction: replaces prior history with `<CONTEXT_SUMMARY>` / `# Resuming from a compaction` envelope while preserving generic system instruction and 12 base tools. |
 
 ---
 

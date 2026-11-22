@@ -57,7 +57,7 @@ Five resolvers, each with its own copy of the convention:
 | `endpoints.Path()` | the configuration document — `$OPENAGY_CONFIG` > `$XDG_CONFIG_HOME/openagy/config.json` > `$HOME/.config/openagy/config.json` |
 | `internal/models.ProvidersPath()` | the provider registry — `$OPENAGY_PROVIDERS_CONFIG` > XDG > `$HOME/.config/openagy/providers.json` |
 | `internal/features/accounts/core.Path()` | the account registry — `$OPENAGY_ACCOUNTS_CONFIG` > XDG > `$HOME/.config/openagy/accounts.json` |
-| `internal/infra/remote/persistent.configDir()` | the installation uuid's directory — XDG > `$HOME/.config/openagy` |
+| `internal/infra/remote/persistentrc.configDir()` | the installation uuid's directory — XDG > `$HOME/.config/openagy` |
 | `internal/agyproxy` | the capture directory, the log and its own configuration file — `$HOME/.openagy/…` |
 
 The first four were XDG-shaped; the fifth was not. The proxy's log and capture
@@ -222,7 +222,7 @@ this commit.
 | `internal/agyproxy/main_test.go` | **new** — the package's scratch configuration home |
 | `internal/models/providers.go` | `ProvidersPath()` → `configdir` |
 | `internal/features/accounts/core/store.go` | `Path()` → `configdir` |
-| `internal/infra/remote/persistent/instance_id.go` | `configDir()` → `configdir` |
+| `internal/infra/remote/persistentrc/instance_id.go` | `configDir()` → `configdir` |
 | `cmd/openagy-models/main.go` | the default path in the usage text |
 | `docs/guide/endpoints.md` | the three sections, the new convention |
 | `docs/guide/proxy.md`, `internal/agyproxy/README.md`, `docs/guide/accounts.md` | the state lives in the document |

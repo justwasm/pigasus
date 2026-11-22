@@ -39,7 +39,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/models/configtest"
 	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"

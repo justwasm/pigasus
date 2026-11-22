@@ -19,7 +19,7 @@ package core
 import (
 	"testing"
 
-	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // TestStopSubagent_ClearsApprovals_Single is the integration

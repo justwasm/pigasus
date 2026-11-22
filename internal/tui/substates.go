@@ -215,3 +215,7 @@ type uiState struct {
 	// frame is painted with the selected scheme's colours.
 	colorScheme string
 }
+
+// pluginReloadMsg notifies the TUI event loop that a plugin, skill, or MCP change
+// has been detected on disk and that tool catalogs should be reloaded.
+type pluginReloadMsg struct{}

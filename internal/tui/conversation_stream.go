@@ -257,6 +257,45 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case backendChunkMsg:
 		m.updateBackendChunkMsg(msg)
 		return m, nil, true
+	case voiceUserSpeechInterimMsg:
+		m.handleVoiceUserSpeechInterim(msg.text)
+		return m, nil, true
+	case voiceUserSpeechMsg:
+		cmd := m.handleVoiceUserSpeech(msg.text)
+		return m, cmd, true
+	case voiceAgentDeltaMsg:
+		isFirstDelta := m.conversation.voiceReplyStart < 0 && msg.delta != ""
+		m.handleVoiceAgentDelta(msg.delta)
+		if isFirstDelta {
+			return m, func() tea.Msg { return m.conversation.spinner.Tick() }, true
+		}
+		return m, nil, true
+	case voiceAgentDoneMsg:
+		m.handleVoiceAgentDone(msg.text)
+		if !m.audio.thinking {
+			if nextQueued := m.dequeueNextPrompt(); nextQueued != "" {
+				if queueCmd := m.flushNextQueued(nextQueued); queueCmd != nil {
+					return m, tea.Batch(queueCmd, tea.ClearScreen), true
+				}
+			}
+		}
+		return m, nil, true
+	case voiceInterruptedMsg:
+		m.handleVoiceInterrupted()
+		return m, nil, true
+	case voiceThinkerHandoffMsg:
+		cmd := m.handleVoiceThinkerHandoff(msg.invocationID, msg.task)
+		return m, cmd, true
+	case voiceThinkerDoneMsg:
+		m.handleVoiceThinkerDone(msg)
+		if !m.conversation.streaming && !m.audio.thinking {
+			if nextQueued := m.dequeueNextPrompt(); nextQueued != "" {
+				if queueCmd := m.flushNextQueued(nextQueued); queueCmd != nil {
+					return m, tea.Batch(queueCmd, tea.ClearScreen), true
+				}
+			}
+		}
+		return m, nil, true
 	case steerAppliedMsg:
 		m.updateSteerAppliedMsg(msg)
 		return m, nil, true

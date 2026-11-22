@@ -58,14 +58,14 @@ If reconstructing the entire Antigravity TUI subsystem clean-room from upstream 
 
 ### Layer 1: AST-Driven Symbol Mapping (反编译符号直驱管线)
 
-Instead of manually discovering components across files, the reconstruction pipeline starts with an automated symbol extractor over decompiled Go symbol tables (`out/extracted-1.5.13/seeds/funcs.txt`, 191,374 functions):
+Instead of manually discovering components across files, the reconstruction pipeline starts with an automated symbol extractor over decompiled Go symbol tables (`out/extracted-1.5.14/seeds/funcs.txt`, 188,485 functions):
 
 1. **Symbol Identification Rule**:
    - Extract any type implementing `tea.Model` or defining a `View() string` / `View() tea.View` method (official models in 1.5.10: `google3/third_party/jetski/cli/model/model.*`, `onboarding`, `swarm`, `editing`).
    - Extract any function with signature `Render*(...) string` or `*Row(...) string`.
    - Map symbols to their canonical package origins (`jetski/cli/panel.*`, `jetski/cli/model.*`, `jetski/cli/swarm.*`, `jetski/cortex/step.*`).
 2. **Automated Inventory Generation**:
-   - Executable command: `go run ./cmd/tui-inventory` directly parses `internal/ui/...` AST and cross-references against `out/extracted-1.5.13/seeds/funcs.txt`.
+   - Executable command: `go run ./cmd/tui-inventory` directly parses `internal/ui/...` AST and cross-references against `out/extracted-1.5.14/seeds/funcs.txt`.
    - Emits [`docs/guide/tui_component_inventory.json`](tui_component_inventory.json) detailing component name, package, upstream symbol, input props, and child components.
    - This ensures **zero implicit component omission** (e.g., catching `FormatVisibleRows` sticky prompt headers, `RenderNoticeRow` eligibility banners, and `codesearchaction.Feedback` instant trees).
 

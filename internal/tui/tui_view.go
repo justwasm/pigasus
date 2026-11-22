@@ -174,6 +174,9 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		return false
 	}
+	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() {
+		return false
+	}
 	if m.overlays.panel.kind != panelregistry.None {
 		return false
 	}
@@ -221,6 +224,11 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 }
 
 func (m *RootModel) buildTeaView(body string, cursorX, cursorY int) tea.View {
+	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() && m.viewport.width > 0 {
+		rows := strings.Split(body, "\n")
+		rows = m.overlays.wireHUD.OverlayOnRows(rows, m.viewport.width)
+		body = strings.Join(rows, "\n")
+	}
 	v := tea.NewView(body)
 	v = m.applyTerminalSettings(v)
 	if title := m.windowTitleText(); title != "" {
@@ -244,13 +252,16 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.viewport.cachedStreaming != m.conversation.streaming || m.conversation.streaming {
 		return false
 	}
-	if m.conversation.thinking || m.session.store.BashRunning() {
+	if m.conversation.thinking || m.audio.thinking || m.session.store.BashRunning() {
 		return false
 	}
 	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		return false
+	}
+	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() {
 		return false
 	}
 	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() || m.hasBtwSelection() {
@@ -1043,7 +1054,7 @@ func attachRightIndicator(left string, ind string, width int) string {
 }
 
 func (m *RootModel) liveRows(width int) []string {
-	if !m.conversation.streaming {
+	if !m.conversation.streaming && !m.audio.thinking {
 		return nil
 	}
 	var rows []string
@@ -1054,7 +1065,7 @@ func (m *RootModel) liveRows(width int) []string {
 	}
 	if retryText, ok := m.conversation.ModelRetryStatus(); ok {
 		line += " " + retryText
-	} else if m.conversation.thinking && m.conversation.activeTool == "" {
+	} else if (m.conversation.thinking || m.audio.thinking) && m.conversation.activeTool == "" {
 		if m.conversation.liveThinkingSnippet != "" {
 			line += " " + palette.SpinnerBaseOpen + m.conversation.liveThinkingSnippet + "\x1b[m"
 		} else {

@@ -58,7 +58,7 @@ func (r Row) HasVariants() bool {
 }
 
 // Rows is the static, always-present portion of the /model picker.
-// Order is the live 1.5.13 list: Gemini 3.8 Flash, Claude Sonnet 4.6,
+// Order is the live 1.5.14 list: Gemini 3.8 Flash, Claude Sonnet 4.6,
 // Claude Opus 4.6, GPT-OSS 120B, Gemini 4 Carbon, Gemini 4 Argon,
 // Gemini 4 Hydrogen, Gemini 4 Neon.
 // Cycle model-catalog-claude-55 adds Claude Opus 5.5 / Claude Sonnet 5.5

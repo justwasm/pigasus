@@ -215,3 +215,18 @@ func TestNoteThrottler(t *testing.T) {
 		t.Errorf("expected force note to bypass throttling")
 	}
 }
+
+func TestNoteThrottler_DefaultInterval(t *testing.T) {
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "")
+	t.Setenv("GEMINI_VOICE_NOTE_INTERVAL", "")
+	throttler := NewNoteThrottler(0)
+	if throttler.minInterval != 5*time.Second {
+		t.Fatalf("expected default minInterval 5s, got %v", throttler.minInterval)
+	}
+
+	t.Setenv("OPENAGY_VOICE_NOTE_INTERVAL", "8s")
+	throttlerEnv := NewNoteThrottler(0)
+	if throttlerEnv.minInterval != 8*time.Second {
+		t.Fatalf("expected env minInterval 8s, got %v", throttlerEnv.minInterval)
+	}
+}

@@ -3,7 +3,7 @@ package catalog
 import (
 	"strings"
 
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // DefaultModel is the reference's fallback when nothing usable is configured.

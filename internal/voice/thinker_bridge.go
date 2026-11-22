@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/actor"
+	"github.com/justwasm/pigasus/endpoints"
 )
 
-// DefaultNoteInterval is the default minimum delay between non-critical progress notes.
-const DefaultNoteInterval = 2 * time.Second
+// DefaultNoteInterval is the default minimum delay between non-critical progress notes (5s).
+const DefaultNoteInterval = endpoints.DefaultVoiceNoteInterval
 
 // NoteThrottler prevents rapid-fire tool events from overwhelming the voice talker.
 type NoteThrottler struct {
@@ -26,9 +27,10 @@ type NoteThrottler struct {
 }
 
 // NewNoteThrottler creates a NoteThrottler with the given minimum interval.
+// If minInterval <= 0, it uses endpoints.CurrentVoiceNoteInterval().
 func NewNoteThrottler(minInterval time.Duration) *NoteThrottler {
 	if minInterval <= 0 {
-		minInterval = DefaultNoteInterval
+		minInterval = endpoints.CurrentVoiceNoteInterval()
 	}
 	return &NoteThrottler{
 		minInterval: minInterval,

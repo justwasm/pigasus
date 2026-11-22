@@ -79,6 +79,6 @@ make check-reproducibility
 ```
 
 该测试将：
-1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对 997 个文件与 `out/extracted-1.5.13` 的 SHA-256，断言 0 差异；
+1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对 999 个文件与 `out/extracted-1.5.14` 的 SHA-256，断言 0 差异；
 2. **`language_server` 校验**：在临时沙箱中重新解包，验证 `seeds`、`embed-fs`、`protos`、`ide-js`（共 263 个文件）与 `out/ide-language-server-2.33.0` 完全一致；
 3. **`localharness` 校验**：进行两次独立解包并比对 Run A 与 Run B，断言 7 个 `.proto` 文件与函数符号表完全重现。

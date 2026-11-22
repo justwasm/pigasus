@@ -23,12 +23,12 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/branding"
 	"github.com/justwasm/pigasus/internal/core/compaction"
-	trust "github.com/justwasm/pigasus/internal/core/policy/trust"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/policy/trust"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
-	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
+	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
@@ -1306,7 +1306,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		//   device to take over.
 		//
 		// The clone prints the account chooser wrapping that deep link
-		// (see internal/infra/remote/link): the cloud's instance rows are per
+		// (see internal/infra/remote/rclink): the cloud's instance rows are per
 		// Google account, so the bare link resolves against the
 		// browser's default account and the dashboard answers "No
 		// instance found." The chooser names the account and continues

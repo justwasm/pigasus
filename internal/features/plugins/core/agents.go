@@ -49,7 +49,7 @@ import (
 	"sort"
 	"strings"
 
-	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 )
 

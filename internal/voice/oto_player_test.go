@@ -98,3 +98,37 @@ func TestAudioBuffer_Clear(t *testing.T) {
 		}
 	}
 }
+
+func TestOtoPlayer_MultipleInit(t *testing.T) {
+	p1, err := NewOtoPlayer(24000, 1)
+	if err != nil {
+		t.Fatalf("p1 err: %v", err)
+	}
+	t.Logf("p1: disabled=%v, ready=%v", p1.disabled, p1.ready)
+	_ = p1.Close()
+
+	p2, err := NewOtoPlayer(24000, 1)
+	if err != nil {
+		t.Fatalf("p2 err: %v", err)
+	}
+	t.Logf("p2: disabled=%v, ready=%v", p2.disabled, p2.ready)
+
+	if p2.disabled {
+		t.Fatalf("BUG CONFIRMED: p2 is disabled because oto.NewContext cannot be called multiple times!")
+	}
+
+	// Verify p2 can write and buffer audio
+	pcm := make([]byte, 4800)
+	n, err := p2.Write(pcm)
+	if err != nil || n != 4800 {
+		t.Fatalf("p2.Write failed: n=%d err=%v", n, err)
+	}
+	if p2.Buffered() != 4800 {
+		t.Fatalf("expected 4800 buffered in p2, got %d", p2.Buffered())
+	}
+	_ = p2.Close()
+}
+
+
+
+

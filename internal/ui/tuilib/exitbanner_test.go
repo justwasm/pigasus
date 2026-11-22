@@ -17,12 +17,12 @@ func TestRenderExitBanner_WithMetadataAndResume(t *testing.T) {
 			"  ▄▀▀      ▀▀▄",
 		},
 		AppName: "Pigasus CLI",
-		Version: "1.4.4",
+		Version: "1.5.14",
 		Email:   "user@example.com",
 		Cwd:     "~/GitHub/openagy",
 	}
 	out := RenderExitBanner(opts)
-	if !strings.Contains(out, "Pigasus CLI 1.4.4") {
+	if !strings.Contains(out, "Pigasus CLI 1.5.14") {
 		t.Fatalf("expected title in banner, got: %s", out)
 	}
 	if !strings.Contains(out, "user@example.com") {

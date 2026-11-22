@@ -42,6 +42,8 @@ type Seams struct {
 	// CustomRows, when non-nil, overrides the static catalogue with
 	// dynamic models from the active agent engine.
 	CustomRows func() []Row
+	// IsRemoteAgent, when non-nil, reports whether the active session is a remote agent session.
+	IsRemoteAgent func() bool
 }
 
 // Panel is the /model picker.

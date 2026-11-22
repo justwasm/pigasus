@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
-	lexers "github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/lexers"
 )
 
 // TokenClass is the high-level syntax token class.

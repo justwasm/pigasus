@@ -78,7 +78,7 @@ flowchart TB
 | `internal/app/agenttools` | the seven declarations a custom `--agent` gets |
 | `internal/ui/tuilib`, `internal/ui/views/*` | the TUI widgets and the panels |
 | `internal/tui` | the interactive TUI's **host**: Elm model decomposition (`session`, `engine`, `viewport`, `composer`, `overlays`), transcript streaming, composer and slash dispatch |
-| `internal/infra/agyproxy`, `internal/infra/proxy/bin` | the CloudCode proxy and the vendor-binary resolver |
+| `internal/infra/agyproxy`, `internal/infra/proxy/agybin` | the CloudCode proxy and the vendor-binary resolver |
 | `internal/app/session/convstore` | the read-only SQLite reader for the conversation store |
 | `internal/infra/referencedrift` | the gate that notices when the reference binary moves |
 
@@ -101,7 +101,7 @@ produce the same bytes on the wire.
 | in the reference's catalogue (Gemini / Claude / GPT-OSS) | `backend.CloudCodeClient` | `https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` |
 | configured by the user | `backend.GatewayClient` | `<base>/chat/completions` (OpenAI) or `<base>/v1/messages` (Anthropic) |
 
-The split happens at start-up (`internal/infra/backend/select`'s `Pick`
+The split happens at start-up (`internal/infra/backend/backendselect`'s `Pick`
 and `PickWithLog`) and again on every `/model` change in the TUI. See
 [`models.md`](models.md).
 

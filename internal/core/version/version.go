@@ -39,8 +39,8 @@ package version
 // behavioural pin the remaining parity surfaces were re-evidenced
 // against.
 //
-// The installed binary now prints 1.5.13, and the recovered artifacts
-// under out/extracted-1.5.13/ were re-extracted from exactly that
+// The installed binary now prints 1.5.14, and the recovered artifacts
+// under out/extracted-1.5.14/ were re-extracted from exactly that
 // release (seeds, //go:embed tree, web ZIP, descriptor protos, and the
 // changelog feed).
-const Reference = "1.5.13"
+const Reference = "1.5.14"

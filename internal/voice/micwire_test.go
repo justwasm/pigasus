@@ -113,4 +113,31 @@ func TestMicwire_ServerClientRoundtrip(t *testing.T) {
 	}
 
 	player.Clear()
+
+	// Verify client wire stats
+	stats := stream.WireStats()
+	if stats.SentFrames < 1 {
+		t.Errorf("expected at least 1 sent frame, got %d", stats.SentFrames)
+	}
+	if stats.SentBytes < 1024 {
+		t.Errorf("expected at least 1024 sent bytes, got %d", stats.SentBytes)
+	}
+}
+
+func TestMicwire_WireStats(t *testing.T) {
+	stream := &RemoteAudioStream{}
+	stats := stream.WireStats()
+	if stats.SentFrames != 0 || stats.SentBytes != 0 || stats.RecvFrames != 0 || stats.RecvBytes != 0 {
+		t.Fatalf("expected initial stats 0, got %+v", stats)
+	}
+
+	stream.sentFrames.Add(5)
+	stream.sentBytes.Add(2048)
+	stream.recvFrames.Add(10)
+	stream.recvBytes.Add(4096)
+
+	stats = stream.WireStats()
+	if stats.SentFrames != 5 || stats.SentBytes != 2048 || stats.RecvFrames != 10 || stats.RecvBytes != 4096 {
+		t.Fatalf("stats mismatch, got %+v", stats)
+	}
 }

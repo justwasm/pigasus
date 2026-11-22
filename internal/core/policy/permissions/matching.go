@@ -272,6 +272,19 @@ func isDriveLetter(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
+// IsForbiddenWindowsPath reports whether path is a Windows UNC network path,
+// device path, or NT object path that must be rejected to prevent credential leaks (AGY 1.5.14).
+func IsForbiddenWindowsPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, `//`) {
+		return true
+	}
+	if strings.HasPrefix(p, `\??\`) || strings.HasPrefix(p, `/??/`) {
+		return true
+	}
+	return false
+}
+
 // joinPath appends a relative path to a base path.
 func joinPath(base, rel string) string {
 	if base == "/" {

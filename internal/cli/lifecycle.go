@@ -24,7 +24,7 @@ import (
 	selfupdate "github.com/creativeprojects/go-selfupdate"
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/internal/core/branding"
-	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/core/version"
 )
 

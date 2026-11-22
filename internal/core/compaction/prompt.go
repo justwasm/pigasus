@@ -26,7 +26,7 @@
 // rodata (file offset 0x3785081, 3 937 bytes) and repeats it verbatim in
 // the `session_summary_prompt_override` of the two profiles that
 // override it (MODEL_PLACEHOLDER_M124 and MODEL_PLACEHOLDER_M408 — see
-// internal/features/models/ctx/profiles_1.4.7.go). The 1.4.4 catalogue the clone
+// internal/features/models/modelctx/profiles_1.4.7.go). The 1.4.4 catalogue the clone
 // used to read carried the *older* revision: the same six sections with
 // shorter bullets.
 //

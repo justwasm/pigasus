@@ -14,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	"github.com/justwasm/pigasus/internal/infra/memtrim"
 )
 
 // backendProviderAdapter adapts a backend.Client into an actor.Provider.
@@ -793,6 +794,8 @@ func emitCheckpointEvent(emit func(agentlink.Frame) bool, ev checkpoint.Event) {
 	}
 	if ev.Phase == checkpoint.EventStart {
 		compact.Phase = agentlink.CompactStart
+	} else if !ev.Aborted {
+		go memtrim.Release()
 	}
 	emit(agentlink.Frame{Kind: agentlink.KindCompact, Compact: compact})
 }

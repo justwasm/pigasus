@@ -57,8 +57,36 @@ func StyleComposerCommandToken(inputView, value string) string {
 }
 
 // ComposerArgumentHint returns the argument hint the reference shows for
-// empty or sub-arguments ("/model ", "/voice ").
+// empty or sub-arguments ("/model ", "/voice ", "/swarm", "/copy").
 func ComposerArgumentHint(value string) (string, bool) {
+	const swarmPrefix = "/swarm"
+	if value == swarmPrefix {
+		return " board", true
+	}
+	if strings.HasPrefix(value, "/swarm ") {
+		rest := value[len("/swarm "):]
+		if rest == "" {
+			return "board", true
+		}
+		if strings.HasPrefix("board", rest) && rest != "board" {
+			return "board"[len(rest):], true
+		}
+		return "", false
+	}
+	const copyPrefix = "/copy"
+	if value == copyPrefix {
+		return " btw", true
+	}
+	if strings.HasPrefix(value, "/copy ") {
+		rest := value[len("/copy "):]
+		if rest == "" {
+			return "btw", true
+		}
+		if strings.HasPrefix("btw", rest) && rest != "btw" {
+			return "btw"[len(rest):], true
+		}
+		return "", false
+	}
 	const modelPrefix = "/model "
 	if strings.HasPrefix(value, modelPrefix) {
 		if strings.TrimSpace(value[len(modelPrefix):]) == "" {
