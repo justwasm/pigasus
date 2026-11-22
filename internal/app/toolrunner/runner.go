@@ -49,24 +49,19 @@ func AdvertisedToolDeclsWithSandbox(agentBody string, reg *tools.Registry, sandb
 			Parameters:  d.Parameters,
 		})
 	}
-	if reg != nil {
-		dynamicNames := reg.List()
-		sort.Strings(dynamicNames)
-		for _, n := range dynamicNames {
-			if !seen[n] {
-				if t, ok := reg.Get(n); ok {
-					seen[n] = true
-					params := t.Schema()
-					if len(params) == 0 {
-						params = json.RawMessage(`{"type":"object","properties":{}}`)
-					}
-					decls = append(decls, backend.ToolDecl{
-						Name:        n,
-						Description: tools.Describe(t),
-						Parameters:  params,
-					})
-				}
+	for _, t := range surface.DynamicPluginTools() {
+		n := t.Name()
+		if !seen[n] {
+			seen[n] = true
+			params := t.Schema()
+			if len(params) == 0 {
+				params = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
+			decls = append(decls, backend.ToolDecl{
+				Name:        n,
+				Description: tools.Describe(t),
+				Parameters:  params,
+			})
 		}
 	}
 	return decls

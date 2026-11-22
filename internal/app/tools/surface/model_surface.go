@@ -388,6 +388,17 @@ func ClearPluginTools() {
 	dynamicPluginTools = make(map[string]tools.Tool)
 }
 
+// DynamicPluginTools returns all dynamically registered plugin tools.
+func DynamicPluginTools() []tools.Tool {
+	dynamicPluginToolsMu.RLock()
+	defer dynamicPluginToolsMu.RUnlock()
+	res := make([]tools.Tool, 0, len(dynamicPluginTools))
+	for _, t := range dynamicPluginTools {
+		res = append(res, t)
+	}
+	return res
+}
+
 // RuntimeCatalog returns the runtime tool registry for ws: it holds the 60
 // advertised names plus the three 1.4.4-only reference executors
 // (ReadFile/WriteFile/EditFile), plus any dynamically registered plugin tools.

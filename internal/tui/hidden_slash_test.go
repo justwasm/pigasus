@@ -19,7 +19,7 @@ import (
 // does not list.
 func TestHiddenSlashCommands(t *testing.T) {
 	for _, name := range []string{
-		"continue", "login", "narration", "quote", "share",
+		"login", "narration", "quote", "share",
 		"terminal", "upload", "triggers",
 	} {
 		if _, ok := slashHandlers[name]; !ok {
@@ -52,7 +52,7 @@ func TestHiddenSlashCommandsAreNotTheCatalog(t *testing.T) {
 	}
 	sort.Strings(hidden)
 	want := []string{
-		"continue", "login", "narration", "quote", "share",
+		"login", "narration", "quote", "share",
 		"terminal", "triggers", "upload",
 	}
 	if len(hidden) != len(want) {
