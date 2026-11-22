@@ -213,7 +213,7 @@ func (s *seasonalBannerStory) View() string {
 		Email:   "gear@example.com",
 		Tier:    "Google AI Pro",
 		Model:   "Gemini 3.8 Flash (High)",
-		Cwd:     "~/GitHub/openagy",
+		Cwd:     "~/workspace/openagy",
 		CLIName: "Pigasus CLI",
 		Version: "1.5.14",
 	}
