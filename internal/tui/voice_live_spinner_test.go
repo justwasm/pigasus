@@ -441,3 +441,95 @@ func TestVoiceLive_DeltaStartsSpinnerTick(t *testing.T) {
 		t.Fatalf("expected second delta to return nil cmd to avoid duplicate tick loops, got %v", cmd2)
 	}
 }
+
+func TestVoiceLive_ProgramSpinnerContinuousAnimation(t *testing.T) {
+	be := &slowFakeClient{delay: 50 * time.Millisecond}
+	m := newRootModel(be, "u@t", "m", "t", "/", true)
+
+	// Start voice live
+	m.audio.Surface.Start("/voice live")
+	m.audio.Surface.HandleConnectDone(voiceviews.ConnectDoneMsg{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	prog := tea.NewProgram(m, tea.WithoutRenderer(), tea.WithContext(ctx))
+	m.turn.prog = prog
+
+	go func() {
+		_, _ = prog.Run()
+	}()
+
+	// Wait for program to start
+	time.Sleep(50 * time.Millisecond)
+
+	prog.Send(voiceviews.ConnectDoneMsg{})
+	prog.Send(voiceUserSpeechMsg{text: "Please search the web"})
+
+	// Give it 350ms to tick (spinner FPS is 100ms, should tick 3+ times)
+	time.Sleep(350 * time.Millisecond)
+
+	frameA := m.conversation.spinFrame
+	viewA := m.conversation.spinner.View()
+	t.Logf("After 350ms user speech: spinFrame=%d, view=%q", frameA, viewA)
+
+	if frameA < 2 {
+		t.Fatalf("expected spinFrame >= 2 after 350ms, got %d (spinner is STATIC!)", frameA)
+	}
+
+	// Now send delta
+	prog.Send(voiceAgentDeltaMsg{delta: "Searching..."})
+	time.Sleep(350 * time.Millisecond)
+
+	frameB := m.conversation.spinFrame
+	viewB := m.conversation.spinner.View()
+	t.Logf("After 350ms delta: spinFrame=%d, view=%q", frameB, viewB)
+
+	if frameB <= frameA {
+		t.Fatalf("expected spinFrame to advance further from %d, got %d (spinner froze during deltas!)", frameA, frameB)
+	}
+
+	// Trigger Thinker handoff
+	prog.Send(voiceThinkerHandoffMsg{invocationID: "inv-99", task: "reading codebase"})
+	time.Sleep(350 * time.Millisecond)
+
+	frameC := m.conversation.spinFrame
+	viewC := m.conversation.spinner.View()
+	t.Logf("After 350ms thinker handoff: spinFrame=%d, view=%q", frameC, viewC)
+
+	if frameC <= frameB {
+		t.Fatalf("expected spinFrame to advance further from %d during thinker handoff, got %d", frameB, frameC)
+	}
+
+	// Thinker finishes
+	prog.Send(voiceThinkerDoneMsg{invocationID: "inv-99", answer: "found results"})
+	time.Sleep(100 * time.Millisecond)
+
+	frameD := m.conversation.spinFrame
+	viewD := m.conversation.spinner.View()
+	t.Logf("After thinker done: spinFrame=%d, view=%q", frameD, viewD)
+
+	// Agent resumes streaming spoken response
+	prog.Send(voiceAgentDeltaMsg{delta: "I found the results in the codebase"})
+	time.Sleep(350 * time.Millisecond)
+
+	frameE := m.conversation.spinFrame
+	viewE := m.conversation.spinner.View()
+	t.Logf("After 350ms agent resumption delta: spinFrame=%d, view=%q", frameE, viewE)
+
+	if frameE <= frameD {
+		t.Fatalf("expected spinFrame to advance further from %d during agent resumption delta, got %d", frameD, frameE)
+	}
+
+	// Turn finishes
+	prog.Send(voiceAgentDoneMsg{text: "I found the results in the codebase"})
+	time.Sleep(100 * time.Millisecond)
+
+	if m.conversation.streaming {
+		t.Fatalf("expected streaming=false after voiceAgentDoneMsg, got true")
+	}
+	if live := m.liveRows(80); len(live) > 0 {
+		t.Fatalf("expected liveRows=nil after voiceAgentDoneMsg, got %v", live)
+	}
+}
+

@@ -20,7 +20,7 @@ var templateDigests = map[string]string{
 	"step_strings/send_command_input.tmpl":                   "704a1b6454a8b3d988ea62f0ac5aae50e0b5dc11b6e652d81844dea2880379b9",
 	"system_prompts/artifacts.tmpl":                          "515f4acac086242608c40b753b5161ec0825f2c21bb782b68e12fea283fc51a6",
 	"system_prompts/communication_style.tmpl":                "96e2f45838771003bbfb05206623bb6be4b64187eaa97a4e4d1f2d9e9de86c8f",
-	"system_prompts/conversation_transcript.tmpl":            "9c977fd7da47dde426c3f0f09b52ca4e62feea5cd621e99fcaa40c5a6470d7a4",
+	"system_prompts/conversation_transcript.tmpl":            "a68ec5d8d16d460fded5160c30a22f9dc4297535ad4e674610d0eefe9e9c8bcd",
 	"system_prompts/ephemeral_message.tmpl":                  "d4ced5dc63c1faad5adf01169cb1e52fd986d39fa2649f1e8a854b016eaa0ec4",
 	"system_prompts/function_call.tmpl":                      "959cde80246a35b7042b42ddc2cfa55616aa7d60bf9bb8d6d2b3b7b26810ce58",
 	"system_prompts/guidelines.tmpl":                         "f4ede326caaa79f7454af6dac251cf0436ab8375c1b06eade975bcaf85a7c439",

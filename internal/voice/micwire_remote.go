@@ -41,11 +41,13 @@ func DialRemoteAudio(addr string, onAudio func([]byte)) (*RemoteAudioStream, err
 		return nil, fmt.Errorf("micwire: dial remote audio server at %s: %w", addr, err)
 	}
 
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	// Handshake: declare 24kHz speaker stream
 	if err := SpeakerHello(conn, 24000); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("micwire: handshake failed with %s: %w", addr, err)
 	}
+	_ = conn.SetDeadline(time.Time{})
 
 	stream := &RemoteAudioStream{
 		conn:    conn,

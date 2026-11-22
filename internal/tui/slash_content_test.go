@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,6 +34,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	micvoice "github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -1267,16 +1267,23 @@ func TestVoice_AntigravityMicSSHRemote(t *testing.T) {
 		t.Fatalf("expected cannot reach mic server error, got: %v", err)
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	server, err := micvoice.NewMicServer("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer server.Close()
+	go func() {
+		_ = server.Serve()
+	}()
 
-	t.Setenv("ANTIGRAVITY_MIC", ln.Addr().String())
+	t.Setenv("ANTIGRAVITY_MIC", server.Addr().String())
 	if err := m.connectVoice(); err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
+			t.Skipf("sandbox network restricted: %v", err)
+		}
 		t.Fatalf("expected nil error after reaching mic server, got: %v", err)
 	}
+	defer m.audio.cancelDictationCapture()
 }
 
 func TestVoice_LiveRecordingFlow(t *testing.T) {

@@ -73,19 +73,26 @@ func (m *RootModel) handleVoiceUserSpeech(text string) tea.Cmd {
 	})
 	m.appendUserTurn(text)
 	m.saveSession()
+	wasWorking := m.conversation.streaming || m.audio.thinking
 	m.conversation.streaming = true
-	m.conversation.spinFrame = 0
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	if wasWorking {
+		return nil
+	}
+	m.conversation.spinFrame = 0
 	return func() tea.Msg { return m.conversation.spinner.Tick() }
 }
 
-func (m *RootModel) handleVoiceAgentDelta(delta string) {
+func (m *RootModel) handleVoiceAgentDelta(delta string) tea.Cmd {
 	if delta == "" {
-		return
+		return nil
 	}
-	if !m.conversation.streaming {
-		m.conversation.streaming = true
+	wasWorking := m.conversation.streaming || m.audio.thinking
+	m.conversation.streaming = true
+	var tickCmd tea.Cmd
+	if !wasWorking {
+		tickCmd = func() tea.Msg { return m.conversation.spinner.Tick() }
 	}
 	if m.conversation.voiceReplyStart < 0 {
 		m.conversation.response = transcript.BlankBefore(m.conversation.response)
@@ -100,6 +107,7 @@ func (m *RootModel) handleVoiceAgentDelta(delta string) {
 	m.conversation.voiceTextLines = len(lines)
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	return tickCmd
 }
 
 func (m *RootModel) handleVoiceAgentDone(text string) {
@@ -163,9 +171,9 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 	if task == "" {
 		return nil
 	}
+	wasWorking := m.conversation.streaming || m.audio.thinking
 	m.audio.thinking = true
 	m.conversation.streaming = true
-	m.conversation.spinFrame = 0
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
 
@@ -207,14 +215,15 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 		}
 	}()
 
+	if wasWorking {
+		return nil
+	}
 	return func() tea.Msg { return m.conversation.spinner.Tick() }
 }
 
 func (m *RootModel) handleVoiceThinkerDone(msg voiceThinkerDoneMsg) {
 	m.audio.thinking = false
-	if m.audio.liveSession == nil || !m.audio.liveSession.Speaking() {
-		m.conversation.streaming = false
-	}
+	m.conversation.streaming = false
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
 }

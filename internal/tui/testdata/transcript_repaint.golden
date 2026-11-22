@@ -223,118 +223,126 @@ liveStart=0 replyStart=-1 liveThoughtRunIdx=-1 liveTextLines=0 liveBatch=1 batch
 === live-batch-join ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 2 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=3 kind=0 batch=1
-run 1 start=2 lines=3 kind=0 batch=1
+run 0 start=2 lines=4 kind=0 batch=1
+run 1 start=2 lines=4 kind=0 batch=1
 liveStart=0 replyStart=-1 liveThoughtRunIdx=-1 liveTextLines=0 liveBatch=1 batchBreak=false
 === live-batch-thought ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 5 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
-row 6 "\x1b[38;2;189;193;198m  the model reasons between the calls\x1b[39m"
+row 2 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 6 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
+row 7 "\x1b[38;2;189;193;198m  the model reasons between the calls\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=3 kind=0 batch=1
-run 1 start=2 lines=3 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
+run 0 start=2 lines=4 kind=0 batch=1
+run 1 start=2 lines=4 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
 liveStart=0 replyStart=-1 liveThoughtRunIdx=2 liveTextLines=0 liveBatch=1 batchBreak=false
 === live-batch-thought-done ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 5 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
-row 6 "\x1b[38;2;189;193;198m  the model reasons between the calls\x1b[39m"
+row 2 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 6 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
+row 7 "\x1b[38;2;189;193;198m  the model reasons between the calls\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=3 kind=0 batch=1
-run 1 start=2 lines=3 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
+run 0 start=2 lines=4 kind=0 batch=1
+run 1 start=2 lines=4 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
 liveStart=0 replyStart=-1 liveThoughtRunIdx=2 liveTextLines=0 liveBatch=1 batchBreak=false
 === live-batch-thought-join ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
-row 5 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 2 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 6 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=4 kind=0 batch=1
-run 1 start=2 lines=4 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
-run 3 start=2 lines=4 kind=0 batch=1
+run 0 start=2 lines=5 kind=0 batch=1
+run 1 start=2 lines=5 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
+run 3 start=2 lines=5 kind=0 batch=1
 liveStart=0 replyStart=-1 liveThoughtRunIdx=2 liveTextLines=0 liveBatch=1 batchBreak=false
 === live-batch-finish-two ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
-row 5 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
-row 6 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 6 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 7 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=5 kind=0 batch=1
-run 1 start=2 lines=5 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
-run 3 start=2 lines=5 kind=0 batch=1
+run 0 start=2 lines=6 kind=0 batch=1
+run 1 start=2 lines=6 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
+run 3 start=2 lines=6 kind=0 batch=1
 liveStart=0 replyStart=-1 liveThoughtRunIdx=2 liveTextLines=0 liveBatch=1 batchBreak=false
 === live-batch-break ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
-row 5 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
-row 6 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 7 ""
-row 8 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
+row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 6 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 7 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 8 ""
+row 9 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
 user 0 start=0 lines=1
-run 0 start=2 lines=5 kind=0 batch=1
-run 1 start=2 lines=5 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
-run 3 start=2 lines=5 kind=0 batch=1
-liveStart=0 replyStart=8 liveThoughtRunIdx=2 liveTextLines=1 liveBatch=1 batchBreak=true
+run 0 start=2 lines=6 kind=0 batch=1
+run 1 start=2 lines=6 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
+run 3 start=2 lines=6 kind=0 batch=1
+liveStart=0 replyStart=9 liveThoughtRunIdx=2 liveTextLines=1 liveBatch=1 batchBreak=true
 === live-batch-new ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
-row 5 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
-row 6 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 7 ""
-row 8 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
-row 9 ""
-row 10 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo four)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 6 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 7 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 8 ""
+row 9 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
+row 10 ""
+row 11 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo four)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=5 kind=0 batch=1
-run 1 start=2 lines=5 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
-run 3 start=2 lines=5 kind=0 batch=1
-run 4 start=10 lines=1 kind=0 batch=2
-liveStart=0 replyStart=8 liveThoughtRunIdx=2 liveTextLines=1 liveBatch=2 batchBreak=false
+run 0 start=2 lines=6 kind=0 batch=1
+run 1 start=2 lines=6 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
+run 3 start=2 lines=6 kind=0 batch=1
+run 4 start=11 lines=1 kind=0 batch=2
+liveStart=0 replyStart=9 liveThoughtRunIdx=2 liveTextLines=1 liveBatch=2 batchBreak=false
 === live-batch-finish-three ===
 row 0 "\x1b[38;2;138;180;248;1m> run the two checks\x1b[0m"
 row 1 ""
-row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
-row 3 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
-row 4 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
-row 5 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
-row 6 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 7 ""
-row 8 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
-row 9 ""
-row 10 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo four)\x1b[39m"
-row 11 "\x1b[38;2;189;193;198m  ⎿  \x1b[mfour \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 2 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 3 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo one)\x1b[39m"
+row 4 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
+row 5 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m"
+row 6 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo three)\x1b[39m"
+row 7 "\x1b[38;2;154;160;166m│ \x1b[39m\x1b[38;2;189;193;198m  ⎿  \x1b[mthree \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 8 ""
+row 9 "  \x1b[38;2;232;234;237mthe model answers between the batches                              \x1b[m"
+row 10 ""
+row 11 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo four)\x1b[39m"
+row 12 "\x1b[38;2;189;193;198m  ⎿  \x1b[mfour \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
-run 0 start=2 lines=5 kind=0 batch=1
-run 1 start=2 lines=5 kind=0 batch=1
-run 2 start=5 lines=2 kind=1 batch=0
-run 3 start=2 lines=5 kind=0 batch=1
-run 4 start=10 lines=2 kind=0 batch=2
+run 0 start=2 lines=6 kind=0 batch=1
+run 1 start=2 lines=6 kind=0 batch=1
+run 2 start=6 lines=2 kind=1 batch=0
+run 3 start=2 lines=6 kind=0 batch=1
+run 4 start=11 lines=2 kind=0 batch=2
 liveStart=0 replyStart=-1 liveThoughtRunIdx=2 liveTextLines=0 liveBatch=2 batchBreak=false

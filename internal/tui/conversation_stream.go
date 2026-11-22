@@ -264,12 +264,8 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		cmd := m.handleVoiceUserSpeech(msg.text)
 		return m, cmd, true
 	case voiceAgentDeltaMsg:
-		isFirstDelta := m.conversation.voiceReplyStart < 0 && msg.delta != ""
-		m.handleVoiceAgentDelta(msg.delta)
-		if isFirstDelta {
-			return m, func() tea.Msg { return m.conversation.spinner.Tick() }, true
-		}
-		return m, nil, true
+		cmd := m.handleVoiceAgentDelta(msg.delta)
+		return m, cmd, true
 	case voiceAgentDoneMsg:
 		m.handleVoiceAgentDone(msg.text)
 		if !m.audio.thinking {
