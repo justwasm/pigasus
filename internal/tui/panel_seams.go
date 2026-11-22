@@ -1669,6 +1669,9 @@ func (m *RootModel) compactState() *statusrow.Compact {
 	if m.session.store.CompactStart.IsZero() {
 		return nil
 	}
+	if !m.session.store.CompactEnd.IsZero() && time.Since(m.session.store.CompactEnd) >= compactNoticeTTL {
+		return nil
+	}
 	return &statusrow.Compact{
 		Start:        m.session.store.CompactStart,
 		End:          m.session.store.CompactEnd,

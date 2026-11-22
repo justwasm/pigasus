@@ -344,9 +344,9 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 	)
 	if customInstructions = strings.TrimSpace(customInstructions); customInstructions != "" {
 		m.session.appendMessage(backend.Message{Role: "user", Content: customInstructions})
-		return m.streamPrompt(customInstructions)
+		return tea.Batch(m.streamPrompt(customInstructions), compactExpireCmd())
 	}
-	return nil
+	return compactExpireCmd()
 }
 
 func (m *RootModel) cleanCompactingNotice() {

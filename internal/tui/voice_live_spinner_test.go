@@ -453,7 +453,7 @@ func TestVoiceLive_ProgramSpinnerContinuousAnimation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	prog := tea.NewProgram(m, tea.WithoutRenderer(), tea.WithContext(ctx))
+	prog := tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(strings.NewReader("")), tea.WithContext(ctx))
 	m.turn.prog = prog
 
 	go func() {

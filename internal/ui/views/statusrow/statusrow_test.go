@@ -195,6 +195,26 @@ func TestLeftSegment_Compact(t *testing.T) {
 	}
 }
 
+func TestLeftSegment_CompactBufferNonEmpty(t *testing.T) {
+	start := time.Now().Add(-12 * time.Second)
+	s := base()
+	s.BufferEmpty = false
+
+	// Finished compaction yields when buffer is not empty (user is typing)
+	s.Compact = &Compact{Start: start, End: start.Add(time.Second), TokensBefore: 184000, TokensAfter: 1200000}
+	_, leftPlain := leftSegment(s)
+	if leftPlain != "" {
+		t.Errorf("leftPlain = %q, want empty when user is typing in buffer", leftPlain)
+	}
+
+	// But running compaction still shows even if buffer has text
+	s.Compact = &Compact{Start: start}
+	_, leftPlain = leftSegment(s)
+	if !strings.Contains(leftPlain, "Compacting context…") {
+		t.Errorf("leftPlain = %q, want running compaction label even if buffer has text", leftPlain)
+	}
+}
+
 // TestCompactLabel — the three shapes of the compaction label.
 func TestCompactLabel(t *testing.T) {
 	start := time.Date(2026, 11, 2, 15, 4, 5, 0, time.UTC)

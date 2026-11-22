@@ -235,9 +235,11 @@ func leftSegment(s State) (string, string) {
 		left = palette.DimGrayOpen + leftPlain + palette.DimGrayClose
 	}
 	if s.Compact != nil {
-		label := compactLabel(*s.Compact)
-		leftPlain = label
-		left = palette.DimGrayOpen + label + palette.DimGrayClose
+		if s.Compact.End.IsZero() || s.BufferEmpty {
+			label := compactLabel(*s.Compact)
+			leftPlain = label
+			left = palette.DimGrayOpen + label + palette.DimGrayClose
+		}
 	}
 	return left, leftPlain
 }

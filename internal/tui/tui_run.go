@@ -849,6 +849,17 @@ func compactSpinnerTick() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return compactSpinnerTickMsg{} })
 }
 
+// compactNoticeTTL is how long a finished compaction notice lingers on the status row before auto-clearing.
+const compactNoticeTTL = 6 * time.Second
+
+// compactExpiredMsg fires when the finished compaction notice in the status row expires.
+type compactExpiredMsg struct{}
+
+// compactExpireCmd arms the timer that auto-clears the finished compaction notice.
+func compactExpireCmd() tea.Cmd {
+	return tea.Tick(compactNoticeTTL, func(time.Time) tea.Msg { return compactExpiredMsg{} })
+}
+
 // ---- tui_help.go ----
 
 // Cycle 381: the /help overlay's rendering, its tab list and its

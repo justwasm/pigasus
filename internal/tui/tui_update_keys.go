@@ -2057,7 +2057,7 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 		m.viewport.rowsCacheDirty = true
 	}
 
-	return m, nil
+	return m, compactExpireCmd()
 }
 
 func (m *RootModel) updateCompactSpinnerTickMsg() (tea.Model, tea.Cmd) {
@@ -2125,6 +2125,10 @@ func (m *RootModel) updateCompactEvents(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 	case compactSpinnerTickMsg:
 		mod, cmd := m.updateCompactSpinnerTickMsg()
 		return mod, cmd, true
+	case compactExpiredMsg:
+		m.session.store.ClearCompactStatusNotice()
+		m.viewport.rowsCacheDirty = true
+		return m, nil, true
 	}
 	return m, nil, false
 }

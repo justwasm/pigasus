@@ -25,3 +25,10 @@ func (s *Store) ResetCompaction() {
 	s.CompactReason = ""
 	s.CompactJustHappened = false
 }
+
+// ClearCompactStatusNotice clears only the transient status row notice telemetry.
+func (s *Store) ClearCompactStatusNotice() {
+	s.CompactStart = time.Time{}
+	s.CompactEnd = time.Time{}
+	s.CompactSpinnerFrame = 0
+}
