@@ -172,7 +172,15 @@ func (c *Client) Request(turn Turn) GenerateContentRequest {
 // from an expired sign-in). A transport failure is returned raw, for the
 // same reason.
 func (c *Client) Open(ctx context.Context, turn Turn) (*http.Response, error) {
-	url := strings.TrimRight(c.cfg.Endpoint, "/") + StreamPath
+	return c.OpenAt(ctx, turn, c.cfg.Endpoint)
+}
+
+// OpenAt performs the request against a specific endpoint base URL and returns the live response.
+func (c *Client) OpenAt(ctx context.Context, turn Turn, endpoint string) (*http.Response, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = c.cfg.Endpoint
+	}
+	url := strings.TrimRight(endpoint, "/") + StreamPath
 	body, err := json.Marshal(c.Request(turn))
 	if err != nil {
 		return nil, fmt.Errorf("geminicode: marshal: %w", err)

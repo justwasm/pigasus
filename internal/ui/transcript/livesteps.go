@@ -153,11 +153,25 @@ func (d *Document) AppendRunningStep(step *toolsteps.Step, batch int, batchBreak
 // predecessor is not a replacement — the caller appends it instead.
 func (d *Document) FinishLiveStep(step *toolsteps.Step, opts Options) bool {
 	n := len(d.Runs)
-	if n == 0 || !d.Runs[n-1].Step.Running {
+	if n == 0 {
 		return false
 	}
-	step.Batch = d.Runs[n-1].Step.Batch
-	d.Runs[n-1].Step = *step
+	targetIdx := -1
+	for i := n - 1; i >= 0; i-- {
+		if d.Runs[i].Step.Kind != toolsteps.KindThought && d.Runs[i].Step.Running {
+			if d.Runs[i].Step.Name == step.Name || targetIdx < 0 {
+				targetIdx = i
+				if d.Runs[i].Step.Name == step.Name {
+					break
+				}
+			}
+		}
+	}
+	if targetIdx < 0 {
+		return false
+	}
+	step.Batch = d.Runs[targetIdx].Step.Batch
+	d.Runs[targetIdx].Step = *step
 	first, batchSteps := d.batchRuns(step.Batch)
 	if first < 0 {
 		return false

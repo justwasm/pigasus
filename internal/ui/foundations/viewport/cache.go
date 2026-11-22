@@ -41,13 +41,36 @@ func (s *WrapSlot) Rebuild(resp []string, width int) bool {
 	counts := s.ScratchCounts[:0]
 	spans := make([]WrapSpan, len(resp))
 
+	pLen := 0
+	sLen := 0
+	if reuse {
+		for pLen < len(resp) && pLen < len(oldSrc) && resp[pLen] == oldSrc[pLen] {
+			pLen++
+		}
+		for sLen < len(resp)-pLen && sLen < len(oldSrc)-pLen && resp[len(resp)-1-sLen] == oldSrc[len(oldSrc)-1-sLen] {
+			sLen++
+		}
+	}
+
+	suffixStart := len(resp) - sLen
+
 	for i, line := range resp {
-		if reuse && i < len(oldSrc) && oldSrc[i] == line {
-			sp := oldSpans[i]
-			spans[i] = WrapSpan{Off: len(rows), N: sp.N}
-			rows = append(rows, oldRows[sp.Off:sp.Off+sp.N]...)
-			counts = append(counts, oldCounts[sp.Off:sp.Off+sp.N]...)
-			continue
+		if reuse {
+			if i < pLen {
+				sp := oldSpans[i]
+				spans[i] = WrapSpan{Off: len(rows), N: sp.N}
+				rows = append(rows, oldRows[sp.Off:sp.Off+sp.N]...)
+				counts = append(counts, oldCounts[sp.Off:sp.Off+sp.N]...)
+				continue
+			}
+			if i >= suffixStart {
+				oldIdx := len(oldSrc) - (len(resp) - i)
+				sp := oldSpans[oldIdx]
+				spans[i] = WrapSpan{Off: len(rows), N: sp.N}
+				rows = append(rows, oldRows[sp.Off:sp.Off+sp.N]...)
+				counts = append(counts, oldCounts[sp.Off:sp.Off+sp.N]...)
+				continue
+			}
 		}
 		var rs []string
 		if stripped := strings.TrimSpace(ansi.Strip(line)); len(stripped) > 0 && strings.Trim(stripped, "─") == "" {

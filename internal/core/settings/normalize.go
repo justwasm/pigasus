@@ -128,6 +128,7 @@ func NormalizeOnStartup() error {
 	if err := os.WriteFile(path, out, 0600); err != nil {
 		return err
 	}
+	InvalidateCache()
 	// WriteFile applies the mode only when it creates the file; a file
 	// that was already there keeps its old mode, and the reference makes
 	// the file readable by its owner only.

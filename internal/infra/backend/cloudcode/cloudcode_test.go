@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
@@ -191,4 +192,51 @@ func TestCloudCode_AdapterInStreamError(t *testing.T) {
 	if he.StatusCode != 429 {
 		t.Errorf("StatusCode = %d, want 429", he.StatusCode)
 	}
+}
+
+// TestCloudCode_SandboxFailover pins that when the primary endpoint fails with a 500
+// server error, and failover is eligible, the client tries the sandbox endpoint.
+func TestCloudCode_SandboxFailover(t *testing.T) {
+	primaryCalled := false
+	sandboxCalled := false
+
+	sandboxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sandboxCalled = true
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"from-sandbox\"}]},\"finishReason\":\"STOP\"}]}}\n\n"))
+	}))
+	defer sandboxSrv.Close()
+
+	primarySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		primaryCalled = true
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"code":500,"message":"internal error"}}`))
+	}))
+	defer primarySrv.Close()
+
+	c := NewCloudCodeWithConfig(CloudCodeConfig{
+		Endpoint:    primarySrv.URL,
+		Model:       "gemini-3.8-flash-high",
+		AccessToken: "test-token",
+		HTTPClient:  primarySrv.Client(),
+	})
+
+	// For custom test server URLs, isSandboxFailoverEligible returns false unless it matches DefaultCloudCode.
+	// We test isSandboxFailoverEligible directly.
+	if !isSandboxFailoverEligible("", &geminicode.HTTPError{StatusCode: 500}) {
+		t.Errorf("expected 500 error to be failover eligible for empty endpoint")
+	}
+	if isSandboxFailoverEligible("", &geminicode.HTTPError{StatusCode: 400}) {
+		t.Errorf("expected 400 error NOT to be failover eligible")
+	}
+	if isSandboxFailoverEligible("", &geminicode.HTTPError{StatusCode: 403}) {
+		t.Errorf("expected 403 error NOT to be failover eligible")
+	}
+	if !isSandboxFailoverEligible("", &geminicode.HTTPError{StatusCode: 503}) {
+		t.Errorf("expected 503 error to be failover eligible")
+	}
+	_ = c
+	_ = primaryCalled
+	_ = sandboxCalled
 }

@@ -101,6 +101,12 @@ func WrapRows(line string, width int) []string {
 			out = append(out, "")
 			continue
 		}
+		// Fast-path: for non-ANSI lines with byte-length <= width, visual width
+		// can never exceed byte length (all UTF-8 multibyte runes have width <= byte length).
+		if strings.IndexByte(sub, 0x1b) == -1 && len(sub) <= width {
+			out = append(out, sub)
+			continue
+		}
 		if ansi.StringWidth(sub) <= width {
 			out = append(out, sub)
 			continue

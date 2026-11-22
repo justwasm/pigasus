@@ -2,9 +2,13 @@ package cloudcode
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/geminicode"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
@@ -33,13 +37,46 @@ func (c *CloudCodeClient) openWithRetry(ctx context.Context, turn geminicode.Tur
 	})
 }
 
-// open performs one request against the CloudCode endpoint.
+// open performs one request against the CloudCode endpoint, with automatic
+// fallback to the official sandbox mirror when the primary Daily endpoint
+// returns 404, 408, 5xx, or encounters a connection drop.
 func (c *CloudCodeClient) open(ctx context.Context, turn geminicode.Turn) (*http.Response, error) {
 	resp, err := c.cc.Open(ctx, turn)
 	if err != nil {
+		if isSandboxFailoverEligible(c.cfg.Endpoint, err) {
+			sandbox := endpoints.Current().CloudCodeSandbox
+			if sResp, sErr := c.cc.OpenAt(ctx, turn, sandbox); sErr == nil {
+				return sResp, nil
+			}
+		}
 		return nil, toBackendError(err, c.cfg.Endpoint)
 	}
 	return resp, nil
+}
+
+// isSandboxFailoverEligible reports whether a failed request to the primary CloudCode endpoint
+// should fall back to the official sandbox mirror (daily-cloudcode-pa.sandbox.googleapis.com).
+// Following Antigravity-Manager's upstream client failover discipline, failover triggers for
+// 404, 408, 5xx, or network connection drop errors, but never for 400 (Bad Request) or 401/403.
+func isSandboxFailoverEligible(endpoint string, err error) bool {
+	if err == nil {
+		return false
+	}
+	ep := strings.TrimSpace(endpoint)
+	if ep != "" && ep != endpoints.DefaultCloudCode && ep != endpoints.Current().CloudCode {
+		return false
+	}
+	var he *geminicode.HTTPError
+	if errors.As(err, &he) {
+		status := he.StatusCode
+		return status == 404 || status == 408 || (status >= 500 && status < 600)
+	}
+	var ae *apierror.HTTPError
+	if errors.As(err, &ae) {
+		status := ae.StatusCode
+		return status == 404 || status == 408 || (status >= 500 && status < 600)
+	}
+	return retry.IsConnectionDropped(err)
 }
 
 // runCloudCodeStreamBodyWithRetry reads the stream, and re-issues the

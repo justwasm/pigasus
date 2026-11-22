@@ -203,6 +203,8 @@ var catalogue = map[string]catalogueEntry{
 	"gemini-3.8-flash-tiered": {enum: "MODEL_PLACEHOLDER_M322", inputLimit: 1_048_576, outputCap: 65_536, ckptLimit: 256_000, ckptOutput: 16_384},
 	// MODEL_PLACEHOLDER_M421 — checkpoint limit 256000.
 	"gemini-4-argon-disabled": {enum: "MODEL_PLACEHOLDER_M421", inputLimit: 1_048_576, outputCap: 65_536, ckptLimit: 256_000, ckptOutput: 16_384},
+	// MODEL_PLACEHOLDER_M4_HYDROGEN_SONAR — inputLimit 1048576, outputCap 65536.
+	"gemini-4-hydrogen-sonar": {enum: "MODEL_PLACEHOLDER_M4_HYDROGEN_SONAR", inputLimit: 1_048_576, outputCap: 65_536, ckptLimit: 256_000, ckptOutput: 16_384},
 
 	// --- models with no checkpoint experiment: the window is the model's
 	// own input limit and the reserve its own output cap ---

@@ -366,7 +366,7 @@ func TestNamesCoversEveryEndpoint(t *testing.T) {
 		seen[n.Key] = true
 	}
 	for _, key := range []string{
-		CloudCode, CloudCodeProd, OAuth2Token, OAuth2Auth, OAuth2Device,
+		CloudCode, CloudCodeSandbox, CloudCodeProd, OAuth2Token, OAuth2Auth, OAuth2Device,
 		OAuthRedirect, UserInfo, WebChannel, GenerativeLanguage,
 		CompanionOrigin, OriginPatterns, Terms, Privacy, Marketplace,
 		AutoUpdater, PollSignaling, SendSignaling, Voice, VoiceAICode,

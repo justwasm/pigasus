@@ -59,8 +59,17 @@ func CanonicalModelLabel(name string) string {
 			return m.Label
 		}
 	}
-	if name == "gemini-3.8-flash" || name == "Gemini 3.8 Flash" {
+	switch strings.ToLower(name) {
+	case "gemini-3.8-flash", "gemini 3.8 flash":
 		return "Gemini 3.8 Flash (High)"
+	case "gemini-4-hydrogen-sonar", "gemini 4 hydrogen sonar", "gemini-4-sonar", "hydrogen-sonar":
+		return "Gemini 4 Hydrogen (Sonar)"
+	case "claude-opus-4-6", "claude opus 4.6":
+		return "Claude Opus 4.6 (Thinking)"
+	case "claude-sonnet-4-6-thinking", "claude sonnet 4.6 thinking":
+		return "Claude Sonnet 4.6 (Thinking)"
+	case "gpt-oss-120b", "gpt oss 120b":
+		return "GPT-OSS 120B (Medium)"
 	}
 	// The bare id of a configured model that declares reasoning tiers is
 	// not a catalogue row of its own — the catalogue lists one row per

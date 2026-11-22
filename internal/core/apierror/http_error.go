@@ -31,6 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -440,8 +441,38 @@ var accountDisabledKeywords = []string{
 	"service has been disabled",
 	"account has been disabled",
 	"account_disabled",
+	"account is suspended",
+	"account has been suspended",
+	"account_suspended",
+	"account_banned",
+	"user_disabled",
 	"terms of service",
+	"terms_of_service_violation",
+	"violation of terms of service",
+	"violation of the terms of service",
 	"tos_violation",
+	"policy_violation",
+	"abuse_detected",
+}
+
+var reAppealURL = regexp.MustCompile(`https?://[^\s"'<>]+appeal[^\s"'<>]*|https?://support\.google\.com/[^\s"'<>]+`)
+
+// AppealURL extracts an account appeal URL from the upstream error body, if present.
+func AppealURL(err error) string {
+	if err == nil {
+		return ""
+	}
+	var he *HTTPError
+	var body string
+	if errors.As(err, &he) {
+		body = string(he.Body)
+	} else {
+		body = err.Error()
+	}
+	url := reAppealURL.FindString(body)
+	url = strings.ReplaceAll(url, `\u0026`, "&")
+	url = strings.TrimRight(url, `.,;\)`)
+	return url
 }
 
 // IsAccountDisabled reports whether this HTTPError represents an account

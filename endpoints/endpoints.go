@@ -53,6 +53,9 @@ const (
 	// the spawned reference binary is given.
 	CloudCode = "cloudcode"
 
+	// CloudCodeSandbox is the sandbox mirror of the Code Assist host.
+	CloudCodeSandbox = "cloudcode_sandbox"
+
 	// CloudCodeProd is the production CloudCode host — the first of the
 	// two the Mendel flag call tries.
 	CloudCodeProd = "cloudcode_prod"
@@ -140,6 +143,7 @@ const (
 // code that documents a default can name it.
 const (
 	DefaultCloudCode          = "https://daily-cloudcode-pa.googleapis.com"
+	DefaultCloudCodeSandbox   = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 	DefaultCloudCodeProd      = "https://cloudcode-pa.googleapis.com"
 	DefaultOAuth2Token        = "https://oauth2.googleapis.com/token"
 	DefaultOAuth2Auth         = "https://accounts.google.com/o/oauth2/auth"
@@ -189,6 +193,7 @@ type Name struct {
 func Names() []Name {
 	return []Name{
 		{CloudCode, DefaultCloudCode},
+		{CloudCodeSandbox, DefaultCloudCodeSandbox},
 		{CloudCodeProd, DefaultCloudCodeProd},
 		{OAuth2Token, DefaultOAuth2Token},
 		{OAuth2Auth, DefaultOAuth2Auth},
@@ -221,6 +226,8 @@ func Names() []Name {
 type Set struct {
 	// CloudCode is the Code Assist host.
 	CloudCode string
+	// CloudCodeSandbox is the sandbox mirror of the Code Assist host.
+	CloudCodeSandbox string
 	// CloudCodeProd is the production Code Assist host.
 	CloudCodeProd string
 	// OAuth2Token is the OAuth2 token endpoint.
@@ -277,6 +284,7 @@ func Current() Set {
 	o := currentOverrides()
 	return Set{
 		CloudCode:          cloudCode(o),
+		CloudCodeSandbox:   pick(o, CloudCodeSandbox, DefaultCloudCodeSandbox),
 		CloudCodeProd:      pick(o, CloudCodeProd, DefaultCloudCodeProd),
 		OAuth2Token:        pick(o, OAuth2Token, DefaultOAuth2Token),
 		OAuth2Auth:         pick(o, OAuth2Auth, DefaultOAuth2Auth),

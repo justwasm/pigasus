@@ -50,6 +50,14 @@ func TestIsAccountDisabledErr(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "HTTPError with policy violation and appeal URL",
+			err: &HTTPError{
+				StatusCode: http.StatusForbidden,
+				Body:       []byte(`{"error":{"code":403,"message":"Account suspended for policy_violation. Please submit an appeal at https://support.google.com/accounts/contact/disabled2"}}`),
+			},
+			want: true,
+		},
+		{
 			name: "HTTPError with quota error",
 			err: &HTTPError{
 				StatusCode: http.StatusTooManyRequests,
@@ -72,6 +80,22 @@ func TestIsAccountDisabledErr(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAppealURL(t *testing.T) {
+	err := &HTTPError{
+		StatusCode: http.StatusForbidden,
+		Body:       []byte(`{"error":{"code":403,"message":"Violation of terms of service. Appeal at https://support.google.com/accounts/appeal?id=123"}}`),
+	}
+	got := AppealURL(err)
+	want := "https://support.google.com/accounts/appeal?id=123"
+	if got != want {
+		t.Errorf("AppealURL() = %q, want %q", got, want)
+	}
+
+	if AppealURL(nil) != "" {
+		t.Errorf("AppealURL(nil) must be empty")
 	}
 }
 

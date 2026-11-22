@@ -106,6 +106,18 @@ type TurnImage struct {
 func BuildRequest(t Turn) GenerateContentRequest {
 	contents, system := buildContents(t.Messages, t.SystemPrompt, t.Signatures)
 	contents = HardenContents(contents)
+	if system != "" {
+		system = SanitizePromptText(system)
+	}
+	for i := range contents {
+		if contents[i].Role == "user" {
+			for j := range contents[i].Parts {
+				if contents[i].Parts[j].Text != "" {
+					contents[i].Parts[j].Text = SanitizePromptText(contents[i].Parts[j].Text)
+				}
+			}
+		}
+	}
 	inner := GenerateContentRequest{Contents: contents}
 	if system != "" {
 		inner.SystemInstruction = &SystemInstruction{Role: "user", Parts: []Part{{Text: system}}}
@@ -615,14 +627,38 @@ func ModelLabels(model string) map[string]string {
 
 // Limits returns the output-token and thinking budgets for a model.
 //
-// The Claude budgets are the reference's own; a non-zero override wins over
-// both.
+// Defaults reflect official model specifications from agy / Antigravity reference captures;
+// explicit overrides win over both.
 func Limits(model string, maxOutputTokens, thinkingBudget int) (maxOut, budget int) {
-	if IsClaudeModel(model) {
+	norm := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(norm, "claude-opus-5-5-high") || strings.Contains(norm, "claude-sonnet-5-5-high"):
+		maxOut, budget = 128000, 16000
+	case strings.Contains(norm, "claude-opus-5-5-medium") || strings.Contains(norm, "claude-sonnet-5-5-medium"):
+		maxOut, budget = 128000, 4096
+	case strings.Contains(norm, "claude-opus-5-5-low") || strings.Contains(norm, "claude-sonnet-5-5-low"):
+		maxOut, budget = 128000, 1024
+	case strings.Contains(norm, "claude-opus-5-5") || strings.Contains(norm, "claude-sonnet-5-5"):
+		maxOut, budget = 128000, 4096
+	case IsClaudeModel(norm):
 		maxOut, budget = 64000, 1024
-	} else if GeminiGeneration(model) >= 3 {
+	case strings.Contains(norm, "gemini-4-argon"):
+		maxOut, budget = 65536, 10001
+	case strings.Contains(norm, "gemini-4-hydrogen-sonar"):
 		maxOut, budget = 65536, -1
-	} else {
+	case strings.Contains(norm, "gemini-3.1-pro-high"):
+		maxOut, budget = 65536, 10001
+	case strings.Contains(norm, "gemini-3.1-pro-low"):
+		maxOut, budget = 65536, 1001
+	case strings.Contains(norm, "gpt-oss-120b"):
+		maxOut, budget = 32768, 8192
+	case strings.Contains(norm, "gemini-3.8-flash"):
+		maxOut, budget = 65536, 4000
+	case strings.Contains(norm, "gemini-3.5-flash-lite"):
+		maxOut, budget = 65535, 128
+	case GeminiGeneration(norm) >= 3:
+		maxOut, budget = 65536, -1
+	default:
 		maxOut, budget = 65536, 1000
 	}
 	if maxOutputTokens > 0 {

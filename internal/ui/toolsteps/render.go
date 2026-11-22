@@ -230,7 +230,7 @@ func CollapsedLowVerbosityGroup(steps []Step, metrics TokenMetrics, width int) [
 // stepLines renders one call. Collapsed is the reference's one-line summary
 // ("Ran (echo one)"), expanded is the call form plus its detail rows.
 func stepLines(s Step, expanded bool, width int) []string {
-	if s.Running || !expanded {
+	if !expanded {
 		// Collapsed, the reference names the call itself — `● Bash(echo
 		// one)`, `● ReadFile()` — not the past-tense summary form.
 		line := styledStepBullet(s, false) + " " + styledCallTitle(s)

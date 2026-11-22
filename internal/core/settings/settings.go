@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
@@ -89,7 +90,30 @@ var ValidKeys = map[string]bool{
 var (
 	sessionSettingsMu      sync.RWMutex
 	sessionSettingsOverlay map[string]any
+
+	settingsCacheMu   sync.RWMutex
+	cachedPath        string
+	cachedModTime     time.Time
+	cachedSize        int64
+	cachedMergedBytes []byte
+	cachedCheckTime   time.Time
+	cachedOverlayGen  int64
+	cachedErr         error
+	overlayGen        int64
 )
+
+// InvalidateCache invalidates the in-memory cache for settings.json.
+func InvalidateCache() {
+	settingsCacheMu.Lock()
+	cachedPath = ""
+	cachedModTime = time.Time{}
+	cachedSize = -1
+	cachedMergedBytes = nil
+	cachedCheckTime = time.Time{}
+	cachedErr = nil
+	overlayGen++
+	settingsCacheMu.Unlock()
+}
 
 // Path is the settings.json file's own path.
 func Path() string {
@@ -137,8 +161,9 @@ func ParseAndValidateFlag(raw string) (map[string]any, error) {
 // These settings override settings.json for the active session and are never persisted to disk.
 func SetSessionOverlay(overlay map[string]any) {
 	sessionSettingsMu.Lock()
-	defer sessionSettingsMu.Unlock()
 	sessionSettingsOverlay = overlay
+	sessionSettingsMu.Unlock()
+	InvalidateCache()
 }
 
 func formatSettingsJSON(data []byte) []byte {
@@ -146,23 +171,70 @@ func formatSettingsJSON(data []byte) []byte {
 }
 
 func readSettingsBytes() ([]byte, error) {
-	data, err := os.ReadFile(Path())
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+	p := Path()
+	now := time.Now()
+
+	settingsCacheMu.RLock()
+	if cachedPath == p && (len(cachedMergedBytes) > 0 || cachedErr != nil) {
+		if now.Sub(cachedCheckTime) < 50*time.Millisecond && cachedOverlayGen == overlayGen {
+			b := cachedMergedBytes
+			err := cachedErr
+			settingsCacheMu.RUnlock()
+			return b, err
+		}
 	}
-	if err != nil && os.IsNotExist(err) {
-		data = []byte("{}")
+	settingsCacheMu.RUnlock()
+
+	settingsCacheMu.Lock()
+	defer settingsCacheMu.Unlock()
+
+	if cachedPath == p && (len(cachedMergedBytes) > 0 || cachedErr != nil) && now.Sub(cachedCheckTime) < 50*time.Millisecond && cachedOverlayGen == overlayGen {
+		return cachedMergedBytes, cachedErr
+	}
+
+	fi, statErr := os.Stat(p)
+	if statErr == nil && cachedPath == p && fi.ModTime().Equal(cachedModTime) && fi.Size() == cachedSize && cachedOverlayGen == overlayGen {
+		cachedCheckTime = now
+		return cachedMergedBytes, cachedErr
+	}
+
+	var data []byte
+	var readErr error
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			data = []byte("{}")
+			readErr = nil
+		} else {
+			return nil, statErr
+		}
 	} else {
+		data, readErr = os.ReadFile(p)
+		if readErr != nil {
+			return nil, readErr
+		}
 		data = confhome.StripBOM(data)
 	}
 
 	sessionSettingsMu.RLock()
 	overlay := sessionSettingsOverlay
+	curOverlayGen := overlayGen
 	sessionSettingsMu.RUnlock()
 
 	if len(overlay) == 0 {
-		if err != nil {
-			return nil, err
+		cachedPath = p
+		if statErr == nil {
+			cachedModTime = fi.ModTime()
+			cachedSize = fi.Size()
+		} else {
+			cachedModTime = time.Time{}
+			cachedSize = 0
+		}
+		cachedMergedBytes = data
+		cachedCheckTime = now
+		cachedOverlayGen = curOverlayGen
+		cachedErr = statErr
+		if statErr != nil {
+			return nil, statErr
 		}
 		return data, nil
 	}
@@ -177,14 +249,29 @@ func readSettingsBytes() ([]byte, error) {
 	for k, v := range overlay {
 		base[k] = v
 	}
-	merged, mErr := json.Marshal(base)
-	if mErr != nil {
-		return data, nil
+	merged := data
+	if mBytes, mErr := json.Marshal(base); mErr == nil {
+		merged = mBytes
 	}
+
+	cachedPath = p
+	if statErr == nil {
+		cachedModTime = fi.ModTime()
+		cachedSize = fi.Size()
+	} else {
+		cachedModTime = time.Time{}
+		cachedSize = 0
+	}
+	cachedMergedBytes = merged
+	cachedCheckTime = now
+	cachedOverlayGen = curOverlayGen
+	cachedErr = nil
+
 	return merged, nil
 }
 
 func modifySettings(createIfMissing, resetIfCorrupt bool, mutate func(data []byte) ([]byte, error)) error {
+	defer InvalidateCache()
 	dir := confhome.Antigravity()
 	if createIfMissing {
 		if err := os.MkdirAll(dir, 0700); err != nil {

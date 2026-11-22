@@ -1224,6 +1224,9 @@ func (m *RootModel) viewportHeight() int {
 	if m.viewport.height <= 0 {
 		return 0
 	}
+	if m.viewport.extraRowsValid && m.viewport.cachedExtraW == m.viewport.width && m.viewport.cachedExtraH == m.viewport.height {
+		return m.viewport.cachedExtraRows
+	}
 	savedIndY := m.viewport.scrollIndScreenY
 	savedIndBody := m.viewport.scrollIndBodyStart
 	savedIndStartX := m.viewport.scrollIndStartX
@@ -1251,6 +1254,10 @@ func (m *RootModel) viewportHeight() int {
 	if avail < 1 {
 		avail = 1
 	}
+	m.viewport.cachedExtraRows = avail
+	m.viewport.cachedExtraW = m.viewport.width
+	m.viewport.cachedExtraH = m.viewport.height
+	m.viewport.extraRowsValid = true
 	return avail
 }
 

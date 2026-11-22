@@ -30,6 +30,11 @@ func HasEffortTiers(name string) bool {
 	if name == "" {
 		return true
 	}
+	for _, m := range catalog.ReferenceModels() {
+		if m.ID == name || m.Label == name {
+			return true
+		}
+	}
 	id := ResolveCatalogueID(name)
 	if id == "" {
 		return true
