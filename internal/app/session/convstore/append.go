@@ -185,17 +185,26 @@ func bumpConversationSummary(id string, count int64) {
 	if _, err := os.Stat(path); err != nil {
 		return
 	}
-	sdb, err := sql.Open("sqlite3", "file:"+path+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + path + "?mode=rwc")
 	if err != nil {
 		return
 	}
 	defer sdb.Close()
+	now := time.Now()
 	_, _ = sdb.Exec(
 		`UPDATE conversation_summaries
 		    SET step_count = ?,
 		        last_modified_time = ?
 		  WHERE conversation_id = ?`,
-		count, summaryTime(time.Now()), id)
+		count, summaryTime(now), id)
+	nowNanoStr := fmt.Sprintf("%d", now.UnixNano())
+	_, _ = sdb.Exec(
+		`UPDATE conversations_fts
+		    SET step_count = ?,
+		        last_modified_time = ?,
+		        last_step_created_at = ?
+		  WHERE conversation_id = ? AND chunk_index = -1`,
+		count, nowNanoStr, nowNanoStr, id)
 }
 
 // summaryTime renders a timestamp in the reference's own shape for the
@@ -257,7 +266,7 @@ func WriteSummaryRow(row SummaryRow) error {
 	if _, err := os.Stat(path); err != nil {
 		return nil
 	}
-	sdb, err := sql.Open("sqlite3", "file:"+path+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + path + "?mode=rwc")
 	if err != nil {
 		return fmt.Errorf("convstore: summary %s: %w", row.ConversationID, err)
 	}
@@ -311,5 +320,19 @@ func upsertSummaryRow(sdb *sql.DB, row SummaryRow) error {
 		summaryTime(lastInput)); err != nil {
 		return fmt.Errorf("convstore: summary %s: %w", row.ConversationID, err)
 	}
+
+	nowNanoStr := fmt.Sprintf("%d", modified.UnixNano())
+	wsName := ""
+	if len(row.WorkspaceURIs) > 0 {
+		wsName = projectFromURIs(row.WorkspaceURIs[0])
+	}
+	_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, row.ConversationID)
+	_, _ = sdb.Exec(`INSERT INTO conversations_fts (
+		conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+		last_modified_time, step_count, last_step_created_at, archived,
+		user_step_byte_offsets, agent_step_byte_offsets,
+		title, workspace, project, user_body, agent_body
+	) VALUES (?, -1, 0, 0, ?, ?, ?, 0, '', '', ?, ?, 'CLI Project', '', '')`,
+		row.ConversationID, nowNanoStr, row.StepCount, nowNanoStr, row.Title, wsName)
 	return nil
 }

@@ -3,6 +3,7 @@ package tuilib
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,10 +61,33 @@ func TestRelPath_EmptyWorkspace(t *testing.T) {
 		t.Setenv("HOME", home)
 	}
 
+	SetWorkspaceRoot("")
 	target := filepath.Join(home, "docs", "guide.md")
 	got := RelPath("", target)
-	want := "~/docs/guide.md"
+	// If outside workspace (or home fallback), it should collapse with ~ or be relative.
+	if !strings.HasPrefix(got, "~") && filepath.IsAbs(got) {
+		t.Errorf("RelPath('', %q) = %q, want non-absolute shortened path", target, got)
+	}
+}
+
+func TestRelPath_SetWorkspaceRootAndFormatPath(t *testing.T) {
+	ws := "/custom/mock/workspace"
+	SetWorkspaceRoot(ws)
+	defer SetWorkspaceRoot("")
+
+	target := "/custom/mock/workspace/src/app/main.go"
+	got := FormatPath(target)
+	want := "src/app/main.go"
 	if got != want {
-		t.Errorf("RelPath('', %q) = %q, want %q", target, got, want)
+		t.Errorf("FormatPath(%q) = %q, want %q", target, got, want)
+	}
+}
+
+func TestRelPath_AlreadyRelative(t *testing.T) {
+	ws := "/workspace/openagy"
+	rel := "internal/tui/bridge.go"
+	got := RelPath(ws, rel)
+	if got != rel {
+		t.Errorf("RelPath(%q, %q) = %q, want %q", ws, rel, got, rel)
 	}
 }

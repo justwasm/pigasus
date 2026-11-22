@@ -31,6 +31,7 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // EscReleaseWindow is the maximum delay between a bare Esc and
@@ -79,12 +80,11 @@ func TermNeedsOptionMeta() bool {
 //
 // Tests override via Load.
 func DefaultPath() string {
-	home, _ := os.UserHomeDir()
-	cfg := filepath.Join(home, ".gemini", "config", "keybindings.json")
+	cfg := filepath.Join(confhome.Gemini(), "keybindings.json")
 	if _, err := os.Stat(cfg); err == nil {
 		return cfg
 	}
-	return filepath.Join(home, ".gemini", "antigravity-cli", "keybindings.json")
+	return filepath.Join(confhome.Antigravity(), "keybindings.json")
 }
 
 // Keybindings is a parsed keybindings.json. The file is a JSON

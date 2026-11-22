@@ -1,7 +1,6 @@
 package convstore
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -125,7 +124,7 @@ func writeUpdateIndexSummaries(storeDir, convID string, c *Conversation, workspa
 	if _, err := os.Stat(indexPath); err != nil {
 		return nil
 	}
-	sdb, err := sql.Open("sqlite3", "file:"+indexPath+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + indexPath + "?mode=rwc")
 	if err != nil {
 		return err
 	}
@@ -135,12 +134,20 @@ func writeUpdateIndexSummaries(storeDir, convID string, c *Conversation, workspa
 	if workspace != "" {
 		workspaceURIs = "[\"file://" + workspace + "\"]"
 	}
-	lastModified := time.Now().UTC().Format("2006-01-02 15:04:05.999999-07:00")
+	now := time.Now()
+	lastModified := now.UTC().Format("2006-01-02 15:04:05.999999-07:00")
 	// Match the existing cycle-167 row shape.
 	if _, err := sdb.Exec(`UPDATE conversation_summaries SET title=?, preview=?, step_count=?, last_modified_time=?, workspace_uris=? WHERE conversation_id=?`,
 		title, preview, len(c.Steps), lastModified, workspaceURIs, convID); err != nil {
 		return err
 	}
+	nowNanoStr := fmt.Sprintf("%d", now.UnixNano())
+	wsName := ""
+	if workspace != "" {
+		wsName = filepath.Base(filepath.Clean(workspace))
+	}
+	_, _ = sdb.Exec(`UPDATE conversations_fts SET title=?, workspace=?, step_count=?, last_modified_time=?, last_step_created_at=? WHERE conversation_id=? AND chunk_index = -1`,
+		title, wsName, len(c.Steps), nowNanoStr, nowNanoStr, convID)
 	return nil
 }
 
@@ -196,12 +203,14 @@ func removeConversationFromIndex(indexPath, convID string) {
 	if _, err := os.Stat(indexPath); err != nil {
 		return
 	}
-	sdb, err := sql.Open("sqlite3", "file:"+indexPath+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + indexPath + "?mode=rwc")
 	if err != nil {
 		return
 	}
 	defer sdb.Close()
 	_, _ = sdb.Exec(`DELETE FROM conversation_summaries WHERE conversation_id = ?`, convID)
+	_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ?`, convID)
+	_, _ = sdb.Exec(`DELETE FROM conversation_parents WHERE conversation_id = ?`, convID)
 }
 
 // conversationWorkspaceMatches checks whether the workspace

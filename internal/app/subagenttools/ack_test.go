@@ -30,7 +30,7 @@ import (
 func TestAcknowledgementTextIsTheCapturedBytes(t *testing.T) {
 	ack := Acknowledgement{
 		ConversationID: "73ab3617-5a99-4e26-b1f1-c88e712efe39",
-		LogAbsoluteURI: "file:///Users/gear/.gemini/antigravity-cli/brain/73ab3617-5a99-4e26-b1f1-c88e712efe39/.system_generated/logs/transcript.jsonl",
+		LogAbsoluteURI: "file:///workspace/.gemini/antigravity-cli/brain/73ab3617-5a99-4e26-b1f1-c88e712efe39/.system_generated/logs/transcript.jsonl",
 		WorkspaceURIs:  []string{"file:///private/var/folders/j1/q183lx7n5qz1p1kct589g6040000gn/T/opencode"},
 		At:             time.Date(2026, 10, 22, 11, 24, 33, 0, time.FixedZone("", 8*60*60)),
 	}
@@ -40,7 +40,7 @@ func TestAcknowledgementTextIsTheCapturedBytes(t *testing.T) {
 		"Created the following subagent:",
 		"{",
 		"  \"conversationId\":  \"73ab3617-5a99-4e26-b1f1-c88e712efe39\",",
-		"  \"logAbsoluteUri\":  \"file:///Users/gear/.gemini/antigravity-cli/brain/73ab3617-5a99-4e26-b1f1-c88e712efe39/.system_generated/logs/transcript.jsonl\",",
+		"  \"logAbsoluteUri\":  \"file:///workspace/.gemini/antigravity-cli/brain/73ab3617-5a99-4e26-b1f1-c88e712efe39/.system_generated/logs/transcript.jsonl\",",
 		"  \"workspaceUris\":  [",
 		"    \"file:///private/var/folders/j1/q183lx7n5qz1p1kct589g6040000gn/T/opencode\"",
 		"  ]",
@@ -88,8 +88,8 @@ func TestNewConversationIDIsAVersion4UUID(t *testing.T) {
 // carries: "file://" plus the absolute path, which is three slashes for a
 // path under the root.
 func TestFileURIIsTheReferencesShape(t *testing.T) {
-	if got := fileURI("/Users/gear/x.jsonl"); got != "file:///Users/gear/x.jsonl" {
-		t.Fatalf("fileURI = %q, want %q", got, "file:///Users/gear/x.jsonl")
+	if got := fileURI("/workspace/x.jsonl"); got != "file:///workspace/x.jsonl" {
+		t.Fatalf("fileURI = %q, want %q", got, "file:///workspace/x.jsonl")
 	}
 	if got := fileURI(""); got != "" {
 		t.Fatalf("fileURI(\"\") = %q, want the empty string", got)

@@ -19,7 +19,6 @@ package convstore
 // to override.
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,13 +62,14 @@ func WriteSummariesTitle(id, title string) error {
 		// file.
 		return nil
 	}
-	sdb, err := sql.Open("sqlite3", "file:"+indexPath+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + indexPath + "?mode=rwc")
 	if err != nil {
 		return err
 	}
 	defer sdb.Close()
 	_, err = sdb.Exec(`UPDATE conversation_summaries SET title=?, preview=? WHERE conversation_id=?`,
 		title, title, id)
+	_, _ = sdb.Exec(`UPDATE conversations_fts SET title=? WHERE conversation_id=?`, title, id)
 	return err
 }
 

@@ -99,6 +99,15 @@ func GlobalConfigPath() string {
 	if h := strings.TrimSpace(os.Getenv("GEMINI_CONFIG_HOME")); h != "" {
 		return filepath.Join(h, "mcp_config.json")
 	}
+	if h := strings.TrimSpace(os.Getenv("OPENAGY_DATA_DIR")); h != "" {
+		return filepath.Join(filepath.Dir(h), "config", "mcp_config.json")
+	}
+	if h := strings.TrimSpace(os.Getenv("ANTIGRAVITY_DATA_DIR")); h != "" {
+		return filepath.Join(filepath.Dir(h), "config", "mcp_config.json")
+	}
+	if h := strings.TrimSpace(os.Getenv("ANTIGRAVITY_HOME")); h != "" {
+		return filepath.Join(filepath.Dir(h), "config", "mcp_config.json")
+	}
 	home := strings.TrimSpace(os.Getenv("HOME"))
 	if home == "" {
 		return ""

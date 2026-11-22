@@ -510,7 +510,7 @@ func itoa10(n int) string {
 // blank line before "Log:" is the result's own trailing newline.
 func TestTaskNotificationText(t *testing.T) {
 	const taskID = "45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-56"
-	const log = "/Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log"
+	const log = "/workspace/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log"
 	got := TaskNotificationText(taskID, "finished", "Command exited with code 0.\n", log)
 	want := "Task id \"" + taskID + "\" finished with result:\n" +
 		"Command exited with code 0.\n" +

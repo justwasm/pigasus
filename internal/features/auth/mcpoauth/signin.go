@@ -35,6 +35,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // Signin is one saved OAuth grant for one remote MCP server. Tokens
@@ -115,16 +117,10 @@ func NewStoreAt(path string) (*Store, error) {
 }
 
 // StorePath returns the canonical absolute path of the saved-sign-in
-// file. Honours $ANTIGRAVITY_HOME (internal/auth/compat.go) and
+// file. Honours $OPENAGY_DATA_DIR, $ANTIGRAVITY_DATA_DIR, $ANTIGRAVITY_HOME and
 // $HOME, matching the rest of the auth package.
 func StorePath() string {
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
-		return filepath.Join(h, "mcp-oauth-signins.json")
-	}
-	if h := os.Getenv("HOME"); h != "" {
-		return filepath.Join(h, ".gemini", "antigravity-cli", "mcp-oauth-signins.json")
-	}
-	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli", "mcp-oauth-signins.json")
+	return filepath.Join(confhome.Antigravity(), "mcp-oauth-signins.json")
 }
 
 // Get returns the saved sign-in for serverURL, or (nil, false) when

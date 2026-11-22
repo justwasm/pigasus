@@ -15,7 +15,27 @@
 // own write path keeps working on such a store.
 package convstore
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/ncruces/go-sqlite3"
+	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3/ext/fts5"
+)
+
+func init() {
+	sqlite3.AutoExtension(fts5.Register)
+}
+
+// openSummariesDB opens an SQLite database with FTS5 virtual table support enabled,
+// ensuring compatibility with agy 1.5.14 conversationsearch.
+func openSummariesDB(dsn string) (*sql.DB, error) {
+	return sql.Open("sqlite3", dsn)
+}
 
 // summariesTableDDL is the reference's own CREATE TABLE for the
 // summaries index.
@@ -110,4 +130,147 @@ func summariesColumnNames(sdb *sql.DB) (map[string]bool, bool) {
 		have[name] = true
 	}
 	return have, true
+}
+
+// ensureSearchSchema ensures that search_schema_version, conversation_parents,
+// and conversations_fts (FTS5 virtual table) exist in conversation_summaries.db.
+// This matches the schema used by agy 1.5.14 conversationsearch for /resume.
+func ensureSearchSchema(sdb *sql.DB) {
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS search_schema_version (version INTEGER PRIMARY KEY)`)
+	_, _ = sdb.Exec(`INSERT OR IGNORE INTO search_schema_version (version) VALUES (1)`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS conversation_parents (
+		conversation_id TEXT PRIMARY KEY,
+		parent_id TEXT NOT NULL
+	) WITHOUT ROWID`)
+	_, _ = sdb.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+		conversation_id UNINDEXED,
+		chunk_index UNINDEXED,
+		chunk_first_step UNINDEXED,
+		chunk_last_step UNINDEXED,
+		last_modified_time UNINDEXED,
+		step_count UNINDEXED,
+		last_step_created_at UNINDEXED,
+		archived UNINDEXED,
+		user_step_byte_offsets UNINDEXED,
+		agent_step_byte_offsets UNINDEXED,
+		title,
+		workspace,
+		project,
+		user_body,
+		agent_body,
+		tokenize = 'unicode61 remove_diacritics 2',
+		prefix = '1 2 3'
+	)`)
+}
+
+// updateConversationsFTS indexes the conversation into conversations_fts so that
+// agy 1.5.14's /resume picker (which queries chunk_index = -1 ordered by last_modified_time DESC)
+// and full-text keyword search immediately discover this conversation.
+func updateConversationsFTS(sdb *sql.DB, id, title, workspace string, steps []Step) {
+	ensureSearchSchema(sdb)
+
+	nowNanoStr := fmt.Sprintf("%d", time.Now().UnixNano())
+	wsName := ""
+	if workspace != "" {
+		wsName = filepath.Base(filepath.Clean(workspace))
+	}
+
+	// 1. Delete old chunk -1 for this conversation and insert the header chunk
+	_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, id)
+	_, _ = sdb.Exec(`INSERT INTO conversations_fts (
+		conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+		last_modified_time, step_count, last_step_created_at, archived,
+		user_step_byte_offsets, agent_step_byte_offsets,
+		title, workspace, project, user_body, agent_body
+	) VALUES (?, -1, 0, 0, ?, ?, ?, 0, '', '', ?, ?, 'CLI Project', '', '')`,
+		id, nowNanoStr, len(steps), nowNanoStr, title, wsName)
+
+	// 2. Index user prompts and agent responses into chunk 0 for keyword search in /resume
+	var userBody strings.Builder
+	var agentBody strings.Builder
+	for _, s := range steps {
+		switch s.Type {
+		case StepUserInput:
+			if s.Text != "" {
+				userBody.WriteString(s.Text)
+				userBody.WriteString("\n")
+			}
+		case StepModelResponse:
+			if s.Text != "" {
+				agentBody.WriteString(s.Text)
+				agentBody.WriteString("\n")
+			}
+		}
+	}
+	if userBody.Len() > 0 || agentBody.Len() > 0 {
+		_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = 0`, id)
+		_, _ = sdb.Exec(`INSERT INTO conversations_fts (
+			conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+			last_modified_time, step_count, last_step_created_at, archived,
+			user_step_byte_offsets, agent_step_byte_offsets,
+			title, workspace, project, user_body, agent_body
+		) VALUES (?, 0, 0, ?, 0, 0, 0, 0, '', '', ?, ?, 'CLI Project', ?, ?)`,
+			id, len(steps)-1, title, wsName, userBody.String(), agentBody.String())
+	}
+}
+
+// repairRecentFTSHeaders repairs missing or zero-timestamp chunk_index = -1 rows
+// in conversations_fts for recent conversations, ensuring historical pigasus sessions
+// show up in agy /resume in correct chronological order.
+func repairRecentFTSHeaders(sdb *sql.DB) {
+	rows, err := sdb.Query(`
+		SELECT conversation_id, title, workspace_uris, step_count, last_modified_time
+		FROM conversation_summaries
+		WHERE step_count > 0
+		ORDER BY rowid DESC
+		LIMIT 100`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type item struct {
+		id, title, uris string
+		stepCount       int
+		lmt             string
+	}
+	var items []item
+	for rows.Next() {
+		var it item
+		if err := rows.Scan(&it.id, &it.title, &it.uris, &it.stepCount, &it.lmt); err == nil {
+			items = append(items, it)
+		}
+	}
+
+	for _, it := range items {
+		var ftsLMT string
+		err := sdb.QueryRow(`SELECT last_modified_time FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, it.id).Scan(&ftsLMT)
+		if err == sql.ErrNoRows || ftsLMT == "" || ftsLMT == "0" {
+			t := parseSummaryTime(it.lmt)
+			if t.IsZero() || t.Year() <= 1 {
+				convPath := filepath.Join(StoreDir(), "conversations", it.id+".db")
+				if fi, err := os.Stat(convPath); err == nil {
+					t = fi.ModTime()
+				}
+			}
+			var nanoStr string
+			if t.IsZero() || t.Year() <= 1 {
+				nanoStr = fmt.Sprintf("%d", time.Now().UnixNano())
+			} else {
+				nanoStr = fmt.Sprintf("%d", t.UnixNano())
+			}
+			ws := ""
+			if uris := parseWorkspaceURIs(it.uris); len(uris) > 0 {
+				ws = projectFromURIs(uris[0])
+			}
+			_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, it.id)
+			_, _ = sdb.Exec(`INSERT INTO conversations_fts (
+				conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+				last_modified_time, step_count, last_step_created_at, archived,
+				user_step_byte_offsets, agent_step_byte_offsets,
+				title, workspace, project, user_body, agent_body
+			) VALUES (?, -1, 0, 0, ?, ?, ?, 0, '', '', ?, ?, 'CLI Project', '', '')`,
+				it.id, nanoStr, it.stepCount, nanoStr, it.title, ws)
+		}
+	}
 }

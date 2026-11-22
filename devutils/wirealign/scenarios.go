@@ -129,12 +129,12 @@ var AllScenarios = []ScenarioSpec{
 			o.Skills = []agyprompt.Skill{
 				{
 					Name:        "swarm",
-					Path:        "/Users/gear/.gemini/antigravity-cli/builtin/skills/native_swarm/SKILL.md",
+					Path:        "/tmp/appdata/builtin/skills/native_swarm/SKILL.md",
 					Description: "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board. Use when the work splits into pieces that can be done at the same time, or when a second pair of eyes should check the first pair's work.",
 				},
 				{
 					Name:        "swarm_monitor",
-					Path:        "/Users/gear/.gemini/antigravity-cli/builtin/skills/swarm_monitor/SKILL.md",
+					Path:        "/tmp/appdata/builtin/skills/swarm_monitor/SKILL.md",
 					Description: "ONLY for the native-swarm worker whose brief says it is the monitor. On a timer, it checks whether the whole swarm has stalled and calls on the one member who can unstick it. Coordinators and other workers: do not load this.",
 				},
 			}

@@ -201,8 +201,16 @@ func TestParity_WriteConversationEmitsRenderInfoAndField140(t *testing.T) {
 	}
 }
 
+func defaultAgyBin() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".local", "bin", "agy")
+}
+
 func TestParity_AgyResumesPigasusDB(t *testing.T) {
-	agyBin := "/Users/gear/.local/bin/agy"
+	agyBin := defaultAgyBin()
 	if _, err := os.Stat(agyBin); err != nil {
 		t.Skip("official agy binary not found, skipping live TUI test")
 	}
@@ -298,7 +306,7 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 }
 
 func TestParity_AgyResumesMultiTurnPigasusDB(t *testing.T) {
-	agyBin := "/Users/gear/.local/bin/agy"
+	agyBin := defaultAgyBin()
 	if _, err := os.Stat(agyBin); err != nil {
 		t.Skip("official agy binary not found, skipping live TUI test")
 	}
@@ -392,7 +400,7 @@ func findRepoRoot(t *testing.T) string {
 }
 
 func TestParity_BidirectionalInteractiveResume(t *testing.T) {
-	agyBin := "/Users/gear/.local/bin/agy"
+	agyBin := defaultAgyBin()
 	if _, err := os.Stat(agyBin); err != nil {
 		t.Skip("official agy binary not found, skipping live TUI test")
 	}

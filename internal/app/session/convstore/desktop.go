@@ -40,6 +40,12 @@ func DesktopStoreRoot() string {
 	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
 		return filepath.Join(h, "antigravity")
 	}
+	if h := os.Getenv("OPENAGY_DATA_DIR"); h != "" {
+		return filepath.Join(filepath.Dir(h), "antigravity")
+	}
+	if h := os.Getenv("ANTIGRAVITY_DATA_DIR"); h != "" {
+		return filepath.Join(filepath.Dir(h), "antigravity")
+	}
 	if h := os.Getenv("HOME"); h != "" {
 		return filepath.Join(h, ".gemini", "antigravity")
 	}

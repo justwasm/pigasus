@@ -22,21 +22,31 @@ package confhome
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Antigravity returns the canonical home for the antigravity-cli config.
+// Antigravity returns the canonical home for the antigravity-cli config and runtime data.
 //
-// Honours $ANTIGRAVITY_HOME, then $HOME.
+// Honours $OPENAGY_DATA_DIR, then $ANTIGRAVITY_DATA_DIR, then $ANTIGRAVITY_HOME, then $HOME/.gemini/antigravity-cli.
 //
 // 【一手】 the v1.3.5 binary's own config tree (cycle 42 实证) — the
 // settings.json, mcp.json and jetbox_state.json the reference writes all
 // live under it.
 func Antigravity() string {
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
+	if h := strings.TrimSpace(os.Getenv("OPENAGY_DATA_DIR")); h != "" {
 		return h
 	}
-	if h := os.Getenv("HOME"); h != "" {
+	if h := strings.TrimSpace(os.Getenv("ANTIGRAVITY_DATA_DIR")); h != "" {
+		return h
+	}
+	if h := strings.TrimSpace(os.Getenv("ANTIGRAVITY_HOME")); h != "" {
+		return h
+	}
+	if h := strings.TrimSpace(os.Getenv("HOME")); h != "" {
 		return filepath.Join(h, ".gemini", "antigravity-cli")
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, ".gemini", "antigravity-cli")
 	}
 	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli")
 }
@@ -44,11 +54,33 @@ func Antigravity() string {
 // Gemini returns ~/.gemini/config — the tree the reference keeps plugin
 // installation state in, sibling to ~/.gemini/antigravity-cli.
 //
-// Derived from Antigravity() so $ANTIGRAVITY_HOME/$HOME move both trees
-// together (a test that points ANTIGRAVITY_HOME at
-// <root>/.gemini/antigravity-cli isolates this tree too).
+// Honours $GEMINI_CONFIG_HOME, else derived from Antigravity() so
+// moving the data root moves both trees together.
 func Gemini() string {
+	if h := strings.TrimSpace(os.Getenv("GEMINI_CONFIG_HOME")); h != "" {
+		return h
+	}
 	return filepath.Join(filepath.Dir(Antigravity()), "config")
+}
+
+// SkillsDir returns the directory where installed skills live under Antigravity().
+func SkillsDir() string {
+	return filepath.Join(Antigravity(), "skills")
+}
+
+// SharedSkillsDir returns the shared skills directory (sibling to Antigravity()).
+func SharedSkillsDir() string {
+	return filepath.Join(filepath.Dir(Antigravity()), "skills")
+}
+
+// BrainDir returns the brain directory for a conversation ID.
+func BrainDir(conversationID string) string {
+	return filepath.Join(Antigravity(), "brain", conversationID)
+}
+
+// ConversationsDir returns the directory holding conversation SQLite databases.
+func ConversationsDir() string {
+	return filepath.Join(Antigravity(), "conversations")
 }
 
 // CLILogPath is the path of the CLI's own log file.

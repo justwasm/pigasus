@@ -226,15 +226,19 @@ func formatInt(n int) string {
 // TestProbe218_DumpAll captures rendered viewer output for SKILL.md files.
 func TestProbe218_DumpAll(t *testing.T) {
 	out := os.TempDir()
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/home/user"
+	}
 	targets := []struct {
 		slug string
 		path string
 	}{
-		{"agents-sdk", "/Users/gear/.gemini/skills/agents-sdk/SKILL.md"},
-		{"agy-customizations", "/Users/gear/.gemini/antigravity-cli/builtin/skills/agy-customizations/SKILL.md"},
-		{"antigravity-guide", "/Users/gear/.gemini/antigravity-cli/builtin/skills/antigravity_guide/SKILL.md"},
-		{"a11y-debugging", "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/a11y-debugging/SKILL.md"},
-		{"uv", "/Users/gear/.gemini/config/plugins/science/skills/uv/SKILL.md"},
+		{"agents-sdk", filepath.Join(home, ".gemini", "skills", "agents-sdk", "SKILL.md")},
+		{"agy-customizations", filepath.Join(home, ".gemini", "antigravity-cli", "builtin", "skills", "agy-customizations", "SKILL.md")},
+		{"antigravity-guide", filepath.Join(home, ".gemini", "antigravity-cli", "builtin", "skills", "antigravity_guide", "SKILL.md")},
+		{"a11y-debugging", filepath.Join(home, ".gemini", "config", "plugins", "chrome-devtools-plugin", "skills", "a11y-debugging", "SKILL.md")},
+		{"uv", filepath.Join(home, ".gemini", "config", "plugins", "science", "skills", "uv", "SKILL.md")},
 	}
 	for _, tgt := range targets {
 		tgt := tgt

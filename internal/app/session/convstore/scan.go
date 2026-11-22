@@ -83,17 +83,22 @@ func parseSummaryRow(dir string, r *Row, hidden map[string]bool) (ConversationMe
 		return ConversationMeta{}, "", false
 	}
 	p := filepath.Join(dir, id+".db")
-	if _, err := os.Stat(p); err != nil {
+	fi, err := os.Stat(p)
+	if err != nil {
 		return ConversationMeta{}, "", false
 	}
 	preview := r.Text("preview")
+	modTime := parseSummaryTime(r.Text("last_modified_time"))
+	if modTime.IsZero() || modTime.Year() <= 1 {
+		modTime = fi.ModTime()
+	}
 	return ConversationMeta{
 		ID:        id,
 		Path:      p,
 		Title:     conversationLabel(r.Text("title"), preview, id),
 		StepCount: steps,
 		Project:   projectFromURIs(r.Text("workspace_uris")),
-		ModTime:   parseSummaryTime(r.Text("last_modified_time")),
+		ModTime:   modTime,
 	}, preview, true
 }
 

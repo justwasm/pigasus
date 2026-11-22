@@ -254,3 +254,97 @@ func splitLines(s string) []string {
 	}
 	return out
 }
+
+func TestConversationsFTS_InteropWithAgyResume(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tempHome)
+
+	convID := "test-conv-fts-interop"
+	ws := "/workspace/openagy"
+	steps := []Step{
+		{Idx: 0, Type: StepUserInput, Status: 3, Text: "How do I configure MCP servers in pigasus?"},
+		{Idx: 1, Type: StepModelResponse, Status: 3, Text: "You can configure MCP servers in ~/.gemini/config/mcp.json or via /mcp command."},
+	}
+
+	if err := SaveConversation(convID, ws, steps); err != nil {
+		t.Fatalf("SaveConversation: %v", err)
+	}
+
+	sumDBPath := filepath.Join(tempHome, "conversation_summaries.db")
+	db, err := openSummariesDB("file:" + sumDBPath + "?mode=ro")
+	if err != nil {
+		t.Fatalf("Open conversation_summaries.db: %v", err)
+	}
+	defer db.Close()
+
+	// 1. Verify agy 1.5.14 searchRecency query finds the conversation at the top of the list
+	query := `SELECT conversation_id, title, workspace, last_modified_time, archived
+		FROM conversations_fts
+		WHERE chunk_index = -1 AND step_count > 0
+		  AND NOT EXISTS (SELECT 1 FROM conversation_parents p WHERE p.conversation_id = conversations_fts.conversation_id)
+		ORDER BY archived ASC, last_modified_time DESC
+		LIMIT 10`
+	rows, err := db.Query(query)
+	if err != nil {
+		t.Fatalf("agy searchRecency query failed: %v", err)
+	}
+	defer rows.Close()
+
+	var foundHeader bool
+	for rows.Next() {
+		var id, title, workspace, lmt string
+		var archived int
+		if err := rows.Scan(&id, &title, &workspace, &lmt, &archived); err != nil {
+			t.Fatalf("Scan: %v", err)
+		}
+		if id == convID {
+			foundHeader = true
+			if title != "How do I configure MCP servers in pigasus?" {
+				t.Errorf("title = %q, want user prompt", title)
+			}
+			if workspace != "openagy" {
+				t.Errorf("workspace = %q, want 'openagy'", workspace)
+			}
+			if lmt == "" || lmt == "0" {
+				t.Errorf("last_modified_time = %q, want non-zero nanoseconds", lmt)
+			}
+			if archived != 0 {
+				t.Errorf("archived = %d, want 0", archived)
+			}
+		}
+	}
+	if !foundHeader {
+		t.Fatalf("conversation %q not returned by agy searchRecency query", convID)
+	}
+
+	// 2. Verify agy 1.5.14 full-text search query matches content
+	var searchID string
+	err = db.QueryRow(`SELECT conversation_id FROM conversations_fts WHERE conversations_fts MATCH ? AND chunk_index = 0`, "configure").Scan(&searchID)
+	if err != nil {
+		t.Fatalf("FTS MATCH 'configure' failed: %v", err)
+	}
+	if searchID != convID {
+		t.Errorf("searchID = %q, want %q", searchID, convID)
+	}
+
+	// 3. Verify WriteSummariesTitle updates title in conversations_fts
+	if err := WriteSummariesTitle(convID, "Custom Renamed Title"); err != nil {
+		t.Fatalf("WriteSummariesTitle: %v", err)
+	}
+	var ftsTitle string
+	err = db.QueryRow(`SELECT title FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, convID).Scan(&ftsTitle)
+	if err != nil {
+		t.Fatalf("Query updated title: %v", err)
+	}
+	if ftsTitle != "Custom Renamed Title" {
+		t.Errorf("ftsTitle = %q, want 'Custom Renamed Title'", ftsTitle)
+	}
+
+	// 4. Verify removeConversationFromIndex cleans up conversations_fts
+	removeConversationFromIndex(sumDBPath, convID)
+	var count int
+	_ = db.QueryRow(`SELECT count(*) FROM conversations_fts WHERE conversation_id = ?`, convID).Scan(&count)
+	if count != 0 {
+		t.Errorf("conversations_fts count after remove = %d, want 0", count)
+	}
+}

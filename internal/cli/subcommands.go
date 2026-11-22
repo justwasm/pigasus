@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
 	"github.com/justwasm/pigasus/internal/voice"
@@ -840,6 +841,7 @@ func legacySignedIn() bool {
 	candidates := []string{
 		filepath.Join(home, ".config", "antigravity", "oauth-token"),
 		filepath.Join(home, ".config", "antigravity", "antigravity-auth.json"),
+		filepath.Join(confhome.Antigravity(), "antigravity-oauth-token"),
 		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
 	}
 	for _, p := range candidates {

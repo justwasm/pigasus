@@ -221,7 +221,7 @@ func updateConversationMetadata(path, id, workspace string, steps []Step) {
 }
 
 func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
-	sdb, err := sql.Open("sqlite3", "file:"+path+"?mode=rwc")
+	sdb, err := openSummariesDB("file:" + path + "?mode=rwc")
 	if err != nil {
 		return
 	}
@@ -303,6 +303,11 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE' WHERE status = ''`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = replace(replace(last_modified_time, 'T', ' '), 'Z', '+00:00') WHERE last_modified_time LIKE '%T%'`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = replace(replace(last_user_input_time, 'T', ' '), 'Z', '+00:00') WHERE last_user_input_time LIKE '%T%'`)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = ? WHERE conversation_id = ? AND last_modified_time LIKE '0001%'`, nowStr, id)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = ? WHERE conversation_id = ? AND last_user_input_time LIKE '0001%'`, nowStr, id)
+
+	updateConversationsFTS(sdb, id, title, workspace, steps)
+	repairRecentFTSHeaders(sdb)
 }
 
 // WriteConversation creates a fresh SQLite database at path with the

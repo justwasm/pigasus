@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/plugins/marketplace"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -112,14 +114,16 @@ func WorkspaceSkillsPath() string {
 
 // HeaderLines renders the header block of the skills panel.
 func HeaderLines(skillsCount int) []string {
+	globalSkills := tuilib.DisplayPath("", filepath.Join(confhome.SkillsDir(), "{skill_name}", "SKILL.md"))
+	sharedSkills := tuilib.DisplayPath("", filepath.Join(confhome.SharedSkillsDir(), "{skill_name}", "SKILL.md"))
 	return []string{
 		"\x1b[1m\x1b[39mSkills\x1b[0m",
 		palette.DimGrayOpen + fmt.Sprintf("%d skills", skillsCount) + palette.DimGrayClose,
 		"",
 		"\x1b[1mCreate new skills\x1b[0m",
 		"  " + palette.DimGrayOpen + "Workspace: " + WorkspaceSkillsPath() + palette.DimGrayClose,
-		"  " + palette.DimGrayOpen + "Global:    ~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md" + palette.DimGrayClose,
-		"  " + palette.DimGrayOpen + "Shared:    ~/.gemini/skills/{skill_name}/SKILL.md" + palette.DimGrayClose,
+		"  " + palette.DimGrayOpen + "Global:    " + globalSkills + palette.DimGrayClose,
+		"  " + palette.DimGrayOpen + "Shared:    " + sharedSkills + palette.DimGrayClose,
 		"",
 	}
 }

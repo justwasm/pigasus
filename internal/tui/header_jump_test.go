@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,8 +12,16 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/transcript"
 )
 
+func testConversationDB() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "b5c4f82a-2fae-4545-adba-005448568f7d.db")
+}
+
 func TestHeaderJumpConversation(t *testing.T) {
-	c, err := convstore.LoadConversation("/Users/gear/.gemini/antigravity-cli/conversations/b5c4f82a-2fae-4545-adba-005448568f7d.db")
+	c, err := convstore.LoadConversation(testConversationDB())
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
@@ -37,7 +47,7 @@ func TestHeaderJumpConversation(t *testing.T) {
 }
 
 func TestHeaderClickJump_ExactOneBlankLineAtTop(t *testing.T) {
-	c, err := convstore.LoadConversation("/Users/gear/.gemini/antigravity-cli/conversations/b5c4f82a-2fae-4545-adba-005448568f7d.db")
+	c, err := convstore.LoadConversation(testConversationDB())
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
@@ -82,7 +92,7 @@ func TestHeaderClickJump_ExactOneBlankLineAtTop(t *testing.T) {
 }
 
 func TestEveryPromptHeaderClickJump(t *testing.T) {
-	c, err := convstore.LoadConversation("/Users/gear/.gemini/antigravity-cli/conversations/b5c4f82a-2fae-4545-adba-005448568f7d.db")
+	c, err := convstore.LoadConversation(testConversationDB())
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
@@ -214,7 +224,7 @@ func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
 }
 
 func TestBottomScrollDown_ZeroAllocs(t *testing.T) {
-	c, err := convstore.LoadConversation("/Users/gear/.gemini/antigravity-cli/conversations/b5c4f82a-2fae-4545-adba-005448568f7d.db")
+	c, err := convstore.LoadConversation(testConversationDB())
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
@@ -245,7 +255,7 @@ func TestBottomScrollDown_ZeroAllocs(t *testing.T) {
 }
 
 func BenchmarkBottomScrollDown(b *testing.B) {
-	c, err := convstore.LoadConversation("/Users/gear/.gemini/antigravity-cli/conversations/b5c4f82a-2fae-4545-adba-005448568f7d.db")
+	c, err := convstore.LoadConversation(testConversationDB())
 	if err != nil {
 		b.Skip("db not found: ", err)
 	}

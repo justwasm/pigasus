@@ -8,6 +8,7 @@ import (
 
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/justwasm/pigasus/diffsyntax"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	diffrow "github.com/justwasm/pigasus/internal/ui/views/diff/row"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -93,7 +94,7 @@ func EditDiffFor(args json.RawMessage) *EditDiff {
 	}
 	d := BuildEditDiff(oldText, newText)
 	if d != nil {
-		d.Path = path
+		d.Path = tuilib.FormatPath(path)
 	}
 	return d
 }
@@ -107,7 +108,7 @@ func CreateDiffFor(args json.RawMessage) *EditDiff {
 	}
 	d := BuildEditDiff("", content)
 	if d != nil {
-		d.Path = path
+		d.Path = tuilib.FormatPath(path)
 	}
 	return d
 }

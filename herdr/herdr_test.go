@@ -280,7 +280,7 @@ func TestHerdr_MouseClickInteraction(t *testing.T) {
 	}
 
 	// 4. Click workspace card in sidebar to switch project workspace
-	m.Manager.AddWorkspace("herdr", "/Users/gear/GitHub/herdr")
+	m.Manager.AddWorkspace("herdr", "/workspace/herdr")
 	_, _ = m.SpawnMockPane("cargo build", "compiling...")
 	_ = m.ViewString()
 	hits = m.Manager.Hits()
@@ -546,7 +546,7 @@ func TestHerdr_WorkspaceGitAndMultiLineCards(t *testing.T) {
 	p1.SetAgentState("agy", "working", "Refactoring cmd/herdr")
 
 	// Setup Workspace 2: herdr (feat/sidebar)
-	ws2 := m.Manager.AddWorkspace("herdr", "/Users/gear/GitHub/herdr")
+	ws2 := m.Manager.AddWorkspace("herdr", "/workspace/herdr")
 	ws2.Branch = "feat/sidebar"
 	ws2.Ahead = 1
 	p2, _ := m.SpawnMockPane("cargo build", "compiling...\r\n")

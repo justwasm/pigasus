@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agystep "github.com/justwasm/pigasus/internal/app/prompt/step"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -16,13 +17,17 @@ import (
 func ToolStepTitleFile(name string, args json.RawMessage) string {
 	switch strings.ToLower(name) {
 	case "view_file", "read_file", "read", "readfile", "view":
-		return "Read(" + ArgStr(args, "AbsolutePath", "Path", "path", "file_path", "filePath", "absolute_path", "file") + ")"
+		p := ArgStr(args, "AbsolutePath", "Path", "path", "file_path", "filePath", "absolute_path", "file")
+		return "Read(" + tuilib.FormatPath(p) + ")"
 	case "write_to_file", "write_file", "create_file", "write", "writefile":
-		return "Create(" + ArgStr(args, "TargetFile", "Path", "AbsolutePath", "path", "file_path", "filePath", "absolute_path", "target_file", "file") + ")"
+		p := ArgStr(args, "TargetFile", "Path", "AbsolutePath", "path", "file_path", "filePath", "absolute_path", "target_file", "file")
+		return "Create(" + tuilib.FormatPath(p) + ")"
 	case "replace_file_content", "edit_file", "multi_replace_file_content", "sed_file", "edit", "editfile", "str_replace_editor", "patch":
-		return "Edit(" + ArgStr(args, "TargetFile", "Path", "AbsolutePath", "path", "file_path", "filePath", "target_file", "file") + ")"
+		p := ArgStr(args, "TargetFile", "Path", "AbsolutePath", "path", "file_path", "filePath", "target_file", "file")
+		return "Edit(" + tuilib.FormatPath(p) + ")"
 	case "list_dir", "listdir", "ls":
-		return "Listed " + Clip(ArgStr(args, "DirectoryPath", "path", "directory", "dir"), 60)
+		p := ArgStr(args, "DirectoryPath", "path", "directory", "dir")
+		return "Listed " + Clip(tuilib.FormatPath(p), 60)
 	}
 	return ""
 }
@@ -55,7 +60,7 @@ func ToolStepTitleSearch(name string, args json.RawMessage) string {
 	case "grep_search", "grep":
 		return "Searched " + Clip(ArgStr(args, "Query", "query", "pattern", "search_term"), 60)
 	case "find_by_name", "find", "glob":
-		return "Explored " + Clip(ArgStr(args, "SearchPath", "path", "pattern", "query", "glob"), 60)
+		return "Explored " + Clip(tuilib.FormatPath(ArgStr(args, "SearchPath", "path", "pattern", "query", "glob")), 60)
 	case "codebase_search":
 		return "Searched codebase for " + Clip(ArgStr(args, "Query", "query", "search_term"), 60)
 	case "read_url_content", "fetch", "browse":

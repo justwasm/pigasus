@@ -11,8 +11,9 @@ package tools
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 var (
@@ -45,11 +46,5 @@ func ScheduleHome(override string) string {
 	if override != "" {
 		return override
 	}
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
-		return h
-	}
-	if h := os.Getenv("HOME"); h != "" {
-		return filepath.Join(h, ".gemini", "antigravity-cli")
-	}
-	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli")
+	return confhome.Antigravity()
 }

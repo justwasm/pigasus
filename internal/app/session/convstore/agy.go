@@ -12,6 +12,7 @@ import (
 
 	agystep "github.com/justwasm/pigasus/internal/app/prompt/step"
 	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // Step type ids, recovered from the reference's own conversation databases.
@@ -657,15 +658,9 @@ func (c *Conversation) LastChatTurnsBudget(n, maxChars int) []ChatTurn {
 }
 
 // StoreDir returns the reference's config directory, honouring
-// $ANTIGRAVITY_HOME and $HOME the same way the rest of the clone does.
+// $OPENAGY_DATA_DIR, $ANTIGRAVITY_DATA_DIR, $ANTIGRAVITY_HOME, and $HOME.
 func StoreDir() string {
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
-		return h
-	}
-	if h := os.Getenv("HOME"); h != "" {
-		return filepath.Join(h, ".gemini", "antigravity-cli")
-	}
-	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli")
+	return confhome.Antigravity()
 }
 
 // ConversationPath returns the database path for a conversation id.

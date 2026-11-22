@@ -43,6 +43,7 @@ import (
 
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // AntigravityToken is the on-disk format used by the v4 binary.
@@ -141,17 +142,9 @@ type AntigravityAccessToken struct {
 }
 
 // AntigravityHome returns the directory where the v4 binary stores
-// its OAuth token + related state. Respects ANTIGRAVITY_HOME env.
+// its OAuth token + related state. Respects $OPENAGY_DATA_DIR / $ANTIGRAVITY_DATA_DIR / $ANTIGRAVITY_HOME env.
 func AntigravityHome() string {
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
-		return h
-	}
-	// v4 binary default: $HOME/.gemini/antigravity-cli
-	if h := os.Getenv("HOME"); h != "" {
-		return filepath.Join(h, ".gemini", "antigravity-cli")
-	}
-	// fallback
-	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli")
+	return confhome.Antigravity()
 }
 
 // DefaultAntigravityTokenPath is the canonical v4-binary token path.

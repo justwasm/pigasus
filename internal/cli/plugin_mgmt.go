@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	"github.com/justwasm/pigasus/internal/features/plugins/marketinstall"
 	"github.com/justwasm/pigasus/internal/features/plugins/pluginimport"
@@ -55,14 +56,7 @@ func runPluginHelp(j *JetskiCLI, args []string) error {
 }
 
 func legacyPluginsDir() string {
-	if h := strings.TrimSpace(os.Getenv("GEMINI_CONFIG_HOME")); h != "" {
-		return filepath.Join(h, "plugins")
-	}
-	home := strings.TrimSpace(os.Getenv("HOME"))
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".gemini", "config", "plugins")
+	return filepath.Join(confhome.Gemini(), "plugins")
 }
 
 // legacyPlugin is the shape of plugin.json we care about.
@@ -714,16 +708,7 @@ func installedPluginVersion(name string) string {
 // Falls back to the legacyPluginsDir parent when the env vars are
 // empty so a sandbox with no $HOME still resolves sensibly.
 func antigravityHomeFromLegacy() string {
-	if h := strings.TrimSpace(os.Getenv("ANTIGRAVITY_HOME")); h != "" {
-		return h
-	}
-	if h := strings.TrimSpace(os.Getenv("HOME")); h != "" {
-		return filepath.Join(h, ".gemini", "antigravity-cli")
-	}
-	if dir := legacyPluginsDir(); dir != "" {
-		return filepath.Join(filepath.Dir(dir), "antigravity-cli")
-	}
-	return ""
+	return confhome.Antigravity()
 }
 
 // PluginKillResult summarises a KillPluginProcessesForInstall run:

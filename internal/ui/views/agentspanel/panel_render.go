@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/lifecycle"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
@@ -60,7 +61,6 @@ func (p *Panel) Lines() []string {
 		return p.detailLines()
 	}
 	wd, _ := os.Getwd()
-	home, _ := os.UserHomeDir()
 	title := "Create New Agents"
 	if p.prepared {
 		if p.hasSession() {
@@ -74,7 +74,7 @@ func (p *Panel) Lines() []string {
 		"  " + palette.SubtleOpen + "Workspace: " +
 			filepath.Join(wd, ".agents", "agents", "{agent_name}", "agent.md") + panelGray238C,
 		"  " + palette.SubtleOpen + "Global: " +
-			filepath.Join(home, ".gemini", "config", "agents", "{agent_name}", "agent.md") + panelGray238C,
+			filepath.Join(confhome.Gemini(), "agents", "{agent_name}", "agent.md") + panelGray238C,
 		"",
 	}
 

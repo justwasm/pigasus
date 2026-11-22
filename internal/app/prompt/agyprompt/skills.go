@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 )
 
@@ -178,13 +179,7 @@ func isDir(path string) bool {
 }
 
 // DefaultAgentHome is the reference's config directory:
-// $ANTIGRAVITY_HOME, else $HOME/.gemini/antigravity-cli.
+// $OPENAGY_DATA_DIR, $ANTIGRAVITY_DATA_DIR, $ANTIGRAVITY_HOME, else $HOME/.gemini/antigravity-cli.
 func DefaultAgentHome() string {
-	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
-		return h
-	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".gemini", "antigravity-cli")
-	}
-	return filepath.Join(os.TempDir(), ".gemini", "antigravity-cli")
+	return confhome.Antigravity()
 }

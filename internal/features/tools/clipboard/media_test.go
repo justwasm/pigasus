@@ -211,8 +211,8 @@ func TestSplitPastedPaths(t *testing.T) {
 		t.Errorf("SplitPastedPaths quoted = %v, %v", paths, ok)
 	}
 
-	paths, ok = SplitPastedPaths(`/Users/gear/My\ Documents/shot.png`, "darwin")
-	if !ok || len(paths) != 1 || paths[0] != "/Users/gear/My Documents/shot.png" {
+	paths, ok = SplitPastedPaths(`/Users/tester/My\ Documents/shot.png`, "darwin")
+	if !ok || len(paths) != 1 || paths[0] != "/Users/tester/My Documents/shot.png" {
 		t.Errorf("SplitPastedPaths escaped space = %v, %v", paths, ok)
 	}
 

@@ -1194,6 +1194,7 @@ func resolveRootModelDefaults(b backend.Client, email, model, tier, cwd string) 
 }
 
 func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScreen bool) *RootModel {
+	tuilib.SetWorkspaceRoot(cwd)
 	initConvID := newConversationID()
 	initialMode := setup.DefaultMode()
 	domainSess := session.New(session.Config{
@@ -2028,7 +2029,14 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 	// current one.
 	syncCmd := m.syncAccountIdentity()
 	if cmdName, cmdArgs := slashparse.Split(buf); m.openSlashPanelArgs(cmdName, cmdArgs) {
-		m.prompt.input.Reset()
+		// Retain slash command with trailing space in composer for panel view parity with AGY 1.5.14
+		text := "/" + cmdName + " "
+		if cmdArgs != "" {
+			text = "/" + cmdName + " " + cmdArgs + " "
+		}
+		m.prompt.input.SetValue(text)
+		m.prompt.SetInputCursorOffset(len(text))
+		m.prompt.input.CursorEnd()
 		if m.prompt.undoMgr != nil {
 			m.prompt.undoMgr.Clear()
 		}
@@ -2037,7 +2045,7 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
 		if m.prompt.vimEng != nil {
-			m.prompt.vimEng.SetText("")
+			m.prompt.vimEng.SetTextKeepingPending(text)
 		}
 		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
 			m.display.quotaFrame = 0
@@ -2696,7 +2704,7 @@ func (m *RootModel) isEngineSlashCommand(cmd string) bool {
 			return true
 		}
 	}
-	return m.turn.engine != nil
+	return false
 }
 
 func (m *RootModel) slashQueuesWhileStreaming(buf string) bool {

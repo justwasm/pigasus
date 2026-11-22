@@ -3,6 +3,8 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // GlobalPath is the global hooks document: ~/.gemini/config/hooks.json.
@@ -16,11 +18,7 @@ import (
 // home (which is ~/.openagy), so it is resolved here and not through
 // configdir: the two are different trees.
 func GlobalPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".gemini", "config", "hooks.json")
+	return filepath.Join(confhome.Gemini(), "hooks.json")
 }
 
 // WorkspacePath is the workspace hooks document:
@@ -67,28 +65,25 @@ func Load(workspace string) *Registry {
 	}
 
 	// Also load hooks from enabled/installed plugins in ~/.gemini/config/plugins.
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		pluginsDir := filepath.Join(home, ".gemini", "config", "plugins")
-		if entries, err := os.ReadDir(pluginsDir); err == nil {
-			for _, e := range entries {
-				pluginDir := filepath.Join(pluginsDir, e.Name())
-				hookPath := filepath.Join(pluginDir, "hooks.json")
-				raw, err := os.ReadFile(hookPath)
-				if err != nil {
-					continue
-				}
-				reg.Sources = append(reg.Sources, hookPath)
-				parsedEntries, problems := Parse(raw)
-				pluginDataDir := filepath.Join(home, ".gemini", "antigravity-cli", "plugin_data", e.Name())
-				for i := range parsedEntries {
-					parsedEntries[i].PluginRoot = pluginDir
-					parsedEntries[i].PluginData = pluginDataDir
-				}
-				reg.Entries = append(reg.Entries, parsedEntries...)
-				for _, reason := range problems {
-					reg.Problems = append(reg.Problems, Problem{Path: hookPath, Reason: reason})
-				}
+	pluginsDir := filepath.Join(confhome.Gemini(), "plugins")
+	if entries, err := os.ReadDir(pluginsDir); err == nil {
+		for _, e := range entries {
+			pluginDir := filepath.Join(pluginsDir, e.Name())
+			hookPath := filepath.Join(pluginDir, "hooks.json")
+			raw, err := os.ReadFile(hookPath)
+			if err != nil {
+				continue
+			}
+			reg.Sources = append(reg.Sources, hookPath)
+			parsedEntries, problems := Parse(raw)
+			pluginDataDir := filepath.Join(confhome.Antigravity(), "plugin_data", e.Name())
+			for i := range parsedEntries {
+				parsedEntries[i].PluginRoot = pluginDir
+				parsedEntries[i].PluginData = pluginDataDir
+			}
+			reg.Entries = append(reg.Entries, parsedEntries...)
+			for _, reason := range problems {
+				reg.Problems = append(reg.Problems, Problem{Path: hookPath, Reason: reason})
 			}
 		}
 	}
