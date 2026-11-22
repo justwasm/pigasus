@@ -18,6 +18,7 @@ package convstore
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
