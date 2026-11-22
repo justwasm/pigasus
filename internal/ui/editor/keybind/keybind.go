@@ -81,10 +81,27 @@ func TermNeedsOptionMeta() bool {
 // Tests override via Load.
 func DefaultPath() string {
 	cfg := filepath.Join(confhome.Gemini(), "keybindings.json")
-	if _, err := os.Stat(cfg); err == nil {
+	if fi, err := os.Stat(cfg); err == nil && !fi.IsDir() {
 		return cfg
 	}
+	if home, _ := os.UserHomeDir(); home != "" {
+		hCfg := filepath.Join(home, ".gemini", "config", "keybindings.json")
+		if fi, err := os.Stat(hCfg); err == nil && !fi.IsDir() {
+			return hCfg
+		}
+	}
+	if cfg := filepath.Join(confhome.Antigravity(), "keybindings.json"); fileExists(cfg) {
+		return cfg
+	}
+	if home, _ := os.UserHomeDir(); home != "" {
+		return filepath.Join(home, ".gemini", "antigravity-cli", "keybindings.json")
+	}
 	return filepath.Join(confhome.Antigravity(), "keybindings.json")
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }
 
 // Keybindings is a parsed keybindings.json. The file is a JSON

@@ -1459,6 +1459,11 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 
 	cleanCmd, cmdArgs := slashparse.Split(strings.TrimSpace(completedText))
 	if m.openSlashPanelArgs(cleanCmd, cmdArgs) {
+		if m.prompt.vimEng != nil {
+			m.prompt.input.Reset()
+			m.prompt.vimEng.SetText("")
+			m.syncVimInput()
+		}
 		syncCmd := m.syncAccountIdentity()
 		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
 			m.display.quotaFrame = 0

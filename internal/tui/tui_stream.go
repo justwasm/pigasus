@@ -2029,14 +2029,19 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 	// current one.
 	syncCmd := m.syncAccountIdentity()
 	if cmdName, cmdArgs := slashparse.Split(buf); m.openSlashPanelArgs(cmdName, cmdArgs) {
-		// Retain slash command with trailing space in composer for panel view parity with AGY 1.5.14
-		text := "/" + cmdName + " "
-		if cmdArgs != "" {
-			text = "/" + cmdName + " " + cmdArgs + " "
+		if m.prompt.vimEng != nil {
+			m.prompt.input.Reset()
+			m.prompt.vimEng.SetText("")
+		} else {
+			// Retain slash command with trailing space in composer for panel view parity with AGY 1.5.14
+			text := "/" + cmdName + " "
+			if cmdArgs != "" {
+				text = "/" + cmdName + " " + cmdArgs + " "
+			}
+			m.prompt.input.SetValue(text)
+			m.prompt.SetInputCursorOffset(len(text))
+			m.prompt.input.CursorEnd()
 		}
-		m.prompt.input.SetValue(text)
-		m.prompt.SetInputCursorOffset(len(text))
-		m.prompt.input.CursorEnd()
 		if m.prompt.undoMgr != nil {
 			m.prompt.undoMgr.Clear()
 		}
@@ -2044,9 +2049,6 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 		m.prompt.promptHistory.Reset()
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
-		if m.prompt.vimEng != nil {
-			m.prompt.vimEng.SetTextKeepingPending(text)
-		}
 		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
 			m.display.quotaFrame = 0
 			return true, tea.Batch(syncCmd, usagepanel.QuotaTick(), m.fetchQuotaSummaryCmd())
@@ -2704,7 +2706,7 @@ func (m *RootModel) isEngineSlashCommand(cmd string) bool {
 			return true
 		}
 	}
-	return false
+	return m.turn.engine != nil
 }
 
 func (m *RootModel) slashQueuesWhileStreaming(buf string) bool {
