@@ -133,13 +133,13 @@ func TestAreaRows_Disabled(t *testing.T) {
 func TestErrorRows_Bytes(t *testing.T) {
 	rows := statusline.ErrorRows(
 		errors.New("command failed: exit status 3 (stderr: boom)"),
-		"/Users/gear/.gemini/antigravity-cli/log/cli-20261025_210717.log",
+		"/var/log/cli-20261025_210717.log",
 	)
 	want := []string{
 		"\x1b[38;2;203;75;22m⚠ Statusline Error\x1b[39m",
 		"  \x1b[38;2;38;139;210;1m⎿  \x1b[0m\x1b[38;2;88;110;117;22mStatusline error:\x1b[39m",
 		"     \x1b[38;2;88;110;117;22mcommand failed: exit status 3 (stderr: boom)\x1b[39m",
-		"     \x1b[38;2;88;110;117;22mFull logs at: /Users/gear/.gemini/antigravity-cli/log/cli-20261025_210717.log\x1b[39m",
+		"     \x1b[38;2;88;110;117;22mFull logs at: /var/log/cli-20261025_210717.log\x1b[39m",
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %q, want %q", rows, want)

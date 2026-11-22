@@ -208,20 +208,15 @@ func TestModeBanner(t *testing.T) {
 	}
 }
 
-// TestNextMode pins the Shift+Tab order (cycle 254: Build → Default →
-// Auto → Plan → Build). accept-edits is the cycle's Build alias;
-// the empty string is Default. The hint text names three modes
-// (default, accept-edits, plan) and was not updated when Auto shipped
-// in 1.3.5; the cycle keeps the 1.3.5 changelog's "Shift+Tab to
-// cycle modes" as the authority for the order, with this cycle's
-// choice documented in the cycle-254 deliverable's 硬约束 section.
+// TestNextMode pins the Shift+Tab order (AGY 1.5.14 decompilation: Default →
+// AcceptEdits → Auto → Plan → Default).
 func TestNextMode(t *testing.T) {
 	want := map[string]string{
-		"":               ModeAuto,
-		ModeAcceptEdits:  "",
+		"":               ModeAcceptEdits,
+		ModeAcceptEdits:  ModeAuto,
 		ModeAuto:         ModePlan,
-		ModePlan:         ModeAcceptEdits,
-		"something-else": ModeAcceptEdits,
+		ModePlan:         "",
+		"something-else": "",
 	}
 	for cur, next := range want {
 		if got := NextMode(cur); got != next {

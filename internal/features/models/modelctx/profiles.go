@@ -1,4 +1,4 @@
-// profiles_1.4.8.go — the reference's own cascade catalogue.
+// profiles.go — the reference's own cascade catalogue.
 //
 // 【一手】 agy 1.4.8 embeds a JSON document — model_profiles.json, 57 984
 // bytes at file offset 0x9ab160a of the Mach-O — that carries the
@@ -11,9 +11,9 @@
 //     CLI inherits.
 //
 // The document is committed verbatim at
-// testdata/model_profiles_1.4.8.json, and profiles_1.4.8_test.go checks
+// testdata/model_profiles_1.4.8.json, and profiles_test.go checks
 // every number below against it. The 1.4.7 document stays on disk as the
-// previous release's evidence; profiles_1.4.8_test.go pins what moved
+// previous release's evidence; profiles_test.go pins what moved
 // between the two.
 //
 // # Why this replaces the 1.4.4 server capture

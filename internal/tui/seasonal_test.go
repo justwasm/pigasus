@@ -48,7 +48,7 @@ func TestSeasonalBanner(t *testing.T) {
 	}
 	var b strings.Builder
 	renderBannerWithTheme(&b, ev, "user@example.com", "Gemini 3.8 Flash (High)",
-		"Google AI Pro", "/home/pigasus/Documents/GitHub/openagy")
+		"Google AI Pro", "/home/pigasus/workspace/openagy")
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 	if len(lines) != 8 {
 		t.Fatalf("the banner has %d lines, want 8 (7 art rows and the sentence)", len(lines))
@@ -69,7 +69,7 @@ func TestSeasonalBanner(t *testing.T) {
 	if !strings.Contains(col(1), "user@example.com (Google AI Pro)") {
 		t.Errorf("the account row is %q", col(1))
 	}
-	if !strings.Contains(col(3), "~/Documents/GitHub/openagy") {
+	if !strings.Contains(col(3), "~/workspace/openagy") {
 		t.Errorf("the cwd row is %q", col(3))
 	}
 	if !strings.HasPrefix(plain[7], "  ") {

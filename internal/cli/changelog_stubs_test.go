@@ -1,4 +1,4 @@
-// changelog_cycle_235_test.go — regression tests for cycle 235.
+// changelog_stubs_test.go — regression tests for cycle 235.
 //
 // Cycle 235 prepends a `1.4.2:` placeholder block ahead of the
 // captured AGY 1.4.2 binary's `changelog` output (which itself only

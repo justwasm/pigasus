@@ -1195,9 +1195,11 @@ func resolveRootModelDefaults(b backend.Client, email, model, tier, cwd string) 
 
 func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScreen bool) *RootModel {
 	initConvID := newConversationID()
+	initialMode := setup.DefaultMode()
 	domainSess := session.New(session.Config{
 		ID:    initConvID,
 		Model: model,
+		Mode:  initialMode,
 		CWD:   cwd,
 	})
 	m := &RootModel{
@@ -1214,6 +1216,8 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 			narrationStart:        time.Now(),
 			wireSettingsPending:   true,
 			hooks:                 hooks.NewManager(),
+			mode:                  initialMode,
+			startMode:             initialMode,
 		},
 		turn: TurnService{
 			backend: b,
@@ -1283,7 +1287,7 @@ func initRootModelInput(m *RootModel) {
 		}
 		return "  "
 	})
-	m.prompt.input.Placeholder = ""
+	m.prompt.input.Placeholder = m.promptPlaceholder(m.session.mode)
 	m.prompt.input.ShowLineNumbers = false
 	m.prompt.input.SetWidth(inputWidth)
 	m.prompt.input.SetHeight(1)

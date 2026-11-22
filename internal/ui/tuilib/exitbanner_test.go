@@ -19,7 +19,7 @@ func TestRenderExitBanner_WithMetadataAndResume(t *testing.T) {
 		AppName: "Pigasus CLI",
 		Version: "1.5.14",
 		Email:   "user@example.com",
-		Cwd:     "~/GitHub/openagy",
+		Cwd:     "~/workspace/openagy",
 	}
 	out := RenderExitBanner(opts)
 	if !strings.Contains(out, "Pigasus CLI 1.5.14") {
@@ -28,7 +28,7 @@ func TestRenderExitBanner_WithMetadataAndResume(t *testing.T) {
 	if !strings.Contains(out, "user@example.com") {
 		t.Fatalf("expected email in banner, got: %s", out)
 	}
-	if !strings.Contains(out, "~/GitHub/openagy") {
+	if !strings.Contains(out, "~/workspace/openagy") {
 		t.Fatalf("expected cwd in banner, got: %s", out)
 	}
 	if !strings.Contains(out, "Resume with -c (or command below):") {

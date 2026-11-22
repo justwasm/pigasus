@@ -25,6 +25,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/app/session/slashactions"
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
@@ -2486,6 +2487,9 @@ func (m *RootModel) reloadConfigSettings() {
 	if cliflags.StringValue(m.session.flags, "mode") == "" {
 		if raw, err := settings.Field("agentMode"); err == nil {
 			mode := configpanel.RawString(raw)
+			if mode == "" && !settings.Has("agentMode") {
+				mode = setup.DefaultMode()
+			}
 			m.session.mode = mode
 			if m.session.policy != nil {
 				m.session.policy.Mode = mode

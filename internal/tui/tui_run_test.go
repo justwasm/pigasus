@@ -794,7 +794,7 @@ func Test_SlashNonSlashFallsThrough(t *testing.T) {
 // bold prefix + true-colour blue keys + dim gray labels.
 func Test_HelpGeneralPanelStyling(t *testing.T) {
 	var b strings.Builder
-	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/GitHub/openagy", "user@example.com", "test-uuid-0000-0000-0000-000000000000")
+	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/workspace/openagy", "user@example.com", "test-uuid-0000-0000-0000-000000000000")
 	out := b.String()
 
 	// Description block must be wrapped in dim gray.
@@ -807,7 +807,7 @@ func Test_HelpGeneralPanelStyling(t *testing.T) {
 	// Metadata rows.
 	wantRows := []string{
 		"\x1b[38;2;101;123;131mVersion " + cliVersion + "\x1b[39m",
-		"\x1b[38;2;101;123;131mWorkspace:      ~/GitHub/openagy\x1b[39m",
+		"\x1b[38;2;101;123;131mWorkspace:      ~/workspace/openagy\x1b[39m",
 		"\x1b[38;2;101;123;131mProject Config: ~/.gemini/config/projects/default-cli-project.json\x1b[39m",
 		"\x1b[38;2;101;123;131mLog File:       ~/.gemini/antigravity-cli/log/cli-",
 	}
@@ -1383,54 +1383,49 @@ func shiftTabKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
 }
 
-// TestShiftTabCyclesBuildToDefault: starting at "build" (accept-edits),
-// Shift+Tab → "default" (""). The cycle's first hop is the one the
-// 1.3.5 changelog implicitly endorses by naming accept-edits as the
-// "file edits auto-approved" mode — the user must be able to escape
-// Build without burning two presses.
-func TestShiftTabCyclesBuildToDefault(t *testing.T) {
-	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.session.policy = &policy
-	m.session.mode = policy.Mode
-
-	m.Update(shiftTabKey())
-	if m.session.mode != "" {
-		t.Errorf("Shift+Tab from Build: m.session.mode = %q, want %q (default)", m.session.mode, "")
-	}
-	if policy.Mode != "" {
-		t.Errorf("Shift+Tab from Build: policy.Mode = %q, want %q (default)", policy.Mode, "")
-	}
-	// Cycle 283: the cue is the input placeholder, not a transcript line.
-	if got := m.prompt.input.Placeholder; got != "" {
-		t.Errorf("Build→Default placeholder = %q, want empty", got)
-	}
-	if len(m.conversation.response) != 0 {
-		t.Errorf("Build→Default wrote %d transcript lines, want 0", len(m.conversation.response))
-	}
-}
-
-// TestShiftTabCyclesDefaultToAuto: starting at "default" (""), Shift+Tab
-// → "auto". Cycle 254's reorder makes this the first hop from a fresh
-// session's mode (was accept-edits in cycle 104). Documented in 硬約束.
-func TestShiftTabCyclesDefaultToAuto(t *testing.T) {
+// TestShiftTabCyclesDefaultToBuild: starting at "default" (""),
+// Shift+Tab → "build" (accept-edits) per AGY 1.5.14 decompilation.
+func TestShiftTabCyclesDefaultToBuild(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
 	m.Update(shiftTabKey())
-	if m.session.mode != permissions.ModeAuto {
-		t.Errorf("Shift+Tab from Default: m.session.mode = %q, want %q", m.session.mode, permissions.ModeAuto)
+	if m.session.mode != permissions.ModeAcceptEdits {
+		t.Errorf("Shift+Tab from Default: m.session.mode = %q, want %q", m.session.mode, permissions.ModeAcceptEdits)
 	}
-	if policy.Mode != permissions.ModeAuto {
-		t.Errorf("Shift+Tab from Default: policy.Mode = %q, want %q", policy.Mode, permissions.ModeAuto)
+	if policy.Mode != permissions.ModeAcceptEdits {
+		t.Errorf("Shift+Tab from Default: policy.Mode = %q, want %q", policy.Mode, permissions.ModeAcceptEdits)
 	}
-	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
-		t.Errorf("Default→Auto placeholder = %q, want AutoBanner %q", got, permissions.AutoBanner)
+	if got := m.prompt.input.Placeholder; got != permissions.AcceptEditsBanner {
+		t.Errorf("Default→Build placeholder = %q, want AcceptEditsBanner %q", got, permissions.AcceptEditsBanner)
 	}
 	if len(m.conversation.response) != 0 {
-		t.Errorf("Default→Auto wrote %d transcript lines, want 0", len(m.conversation.response))
+		t.Errorf("Default→Build wrote %d transcript lines, want 0", len(m.conversation.response))
+	}
+}
+
+// TestShiftTabCyclesBuildToAuto: starting at "build" (accept-edits), Shift+Tab
+// → "auto".
+func TestShiftTabCyclesBuildToAuto(t *testing.T) {
+	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.session.policy = &policy
+	m.session.mode = policy.Mode
+
+	m.Update(shiftTabKey())
+	if m.session.mode != permissions.ModeAuto {
+		t.Errorf("Shift+Tab from Build: m.session.mode = %q, want %q", m.session.mode, permissions.ModeAuto)
+	}
+	if policy.Mode != permissions.ModeAuto {
+		t.Errorf("Shift+Tab from Build: policy.Mode = %q, want %q", policy.Mode, permissions.ModeAuto)
+	}
+	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
+		t.Errorf("Build→Auto placeholder = %q, want AutoBanner %q", got, permissions.AutoBanner)
+	}
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Build→Auto wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1456,28 +1451,25 @@ func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 	}
 }
 
-// TestShiftTabCyclesPlanToBuild: starting at "plan", Shift+Tab → "build"
-// (accept-edits). This is the cycle's wrap; the cycle reaches back to
-// Build so the user can re-enter the file-edits mode without a
-// second lap.
-func TestShiftTabCyclesPlanToBuild(t *testing.T) {
+// TestShiftTabCyclesPlanToDefault: starting at "plan", Shift+Tab → "default" ("").
+func TestShiftTabCyclesPlanToDefault(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModePlan}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
 	m.Update(shiftTabKey())
-	if m.session.mode != permissions.ModeAcceptEdits {
-		t.Errorf("Shift+Tab from Plan (wrap): m.session.mode = %q, want %q", m.session.mode, permissions.ModeAcceptEdits)
+	if m.session.mode != "" {
+		t.Errorf("Shift+Tab from Plan (wrap): m.session.mode = %q, want %q (default)", m.session.mode, "")
 	}
-	if policy.Mode != permissions.ModeAcceptEdits {
-		t.Errorf("Shift+Tab from Plan (wrap): policy.Mode = %q, want %q", policy.Mode, permissions.ModeAcceptEdits)
+	if policy.Mode != "" {
+		t.Errorf("Shift+Tab from Plan (wrap): policy.Mode = %q, want %q (default)", policy.Mode, "")
 	}
-	if got := m.prompt.input.Placeholder; got != permissions.AcceptEditsBanner {
-		t.Errorf("Plan→Build placeholder = %q, want AcceptEditsBanner %q", got, permissions.AcceptEditsBanner)
+	if got := m.prompt.input.Placeholder; got != "" {
+		t.Errorf("Plan→Default placeholder = %q, want empty", got)
 	}
 	if len(m.conversation.response) != 0 {
-		t.Errorf("Plan→Build wrote %d transcript lines, want 0", len(m.conversation.response))
+		t.Errorf("Plan→Default wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1520,26 +1512,23 @@ func TestShiftTab_NotInConfigMenu(t *testing.T) {
 // ("auto · MiniMax M3"). Shift+Tab never writes a transcript line — the
 // pre-283 clone did, which stacked stale banners in the conversation.
 func TestShiftTab_StatusLineReflects(t *testing.T) {
-	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
+	policy := permissions.Policy{Mode: ""}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 	m.session.statusModel = "MiniMax M3"
 
-	m.Update(shiftTabKey()) // Build → Default
-	if got := m.prompt.input.Placeholder; got != "" {
-		t.Errorf("Build→Default placeholder = %q, want empty", got)
-	}
-	if row := plainRow(m.statusRow()); strings.Contains(row, "accept-edits · ") || strings.Contains(row, " · MiniMax M3") {
-		t.Errorf("Build→Default status row still carries a mode prefix: %q", row)
+	m.Update(shiftTabKey()) // Default → Build
+	if got := m.prompt.input.Placeholder; got != permissions.AcceptEditsBanner {
+		t.Errorf("Default→Build placeholder = %q, want AcceptEditsBanner", got)
 	}
 
-	m.Update(shiftTabKey()) // Default → Auto
+	m.Update(shiftTabKey()) // Build → Auto
 	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
-		t.Errorf("Default→Auto placeholder = %q, want AutoBanner", got)
+		t.Errorf("Build→Auto placeholder = %q, want AutoBanner", got)
 	}
 	if row := plainRow(m.statusRow()); !strings.Contains(row, "auto · MiniMax M3") {
-		t.Errorf("Default→Auto status row = %q, want it to contain %q", row, "auto · MiniMax M3")
+		t.Errorf("Build→Auto status row = %q, want it to contain %q", row, "auto · MiniMax M3")
 	}
 
 	m.Update(shiftTabKey()) // Auto → Plan
@@ -1548,6 +1537,14 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 	}
 	if row := plainRow(m.statusRow()); !strings.Contains(row, "plan · MiniMax M3") {
 		t.Errorf("Auto→Plan status row = %q, want it to contain %q", row, "plan · MiniMax M3")
+	}
+
+	m.Update(shiftTabKey()) // Plan → Default
+	if got := m.prompt.input.Placeholder; got != "" {
+		t.Errorf("Plan→Default placeholder = %q, want empty", got)
+	}
+	if row := plainRow(m.statusRow()); strings.Contains(row, "plan · ") {
+		t.Errorf("Plan→Default status row still carries a mode prefix: %q", row)
 	}
 
 	if len(m.conversation.response) != 0 {
@@ -1606,16 +1603,16 @@ func TestModeHintHidesAfterEdit(t *testing.T) {
 }
 
 func TestShiftTabCyclesMode(t *testing.T) {
-	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
+	policy := permissions.Policy{Mode: ""}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
 	for _, want := range []struct{ mode, placeholder string }{
-		{"", ""},
+		{permissions.ModeAcceptEdits, permissions.AcceptEditsBanner},
 		{permissions.ModeAuto, permissions.AutoBanner},
 		{permissions.ModePlan, permissions.PlanBanner},
-		{permissions.ModeAcceptEdits, permissions.AcceptEditsBanner},
+		{"", ""},
 	} {
 		m.Update(shiftTabKey())
 		if m.session.mode != want.mode {
@@ -5914,7 +5911,15 @@ func Test_SelectionMouseDownMotionRelease(t *testing.T) {
 // slice; a multi-row drag joins rows with \n.
 func Test_SelectionCopyText(t *testing.T) {
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = []string{
+		"line 0: hello world this is line zero",
+		"line 1: this is line one of the transcript",
+		"line 2: this is line two of the transcript",
+		"line 3: this is line three of the transcript",
+		"line 4: this is line four of the transcript",
+	}
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_ = m.View()
 
 	// Single row.
 	m.Update(mouseClick(2, 1, tea.MouseLeft))
@@ -6007,6 +6012,130 @@ func Test_SelectionClickWithoutDrag(t *testing.T) {
 	}
 	if strings.Contains(m.View().Content, selHighlightOpen) {
 		t.Errorf("click-without-drag should leave no highlight")
+	}
+}
+
+// Test_SelectionDragAutoScrollDown verifies that dragging below the viewport boundary
+// auto-scrolls downward and updates document-anchored selection endpoints.
+func Test_SelectionDragAutoScrollDown(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d: content of transcript row", i)
+	}
+	m.conversation.response = lines
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_ = m.View()
+
+	// Initial scroll is 0.
+	m.viewport.scroll = 0
+	m.viewport.autoScroll = false
+
+	avail := m.viewportHeight()
+	// Start dragging at row 2.
+	m.Update(mouseClick(5, 2, tea.MouseLeft))
+	if !m.viewport.SelDragging {
+		t.Fatalf("expected SelDragging = true")
+	}
+
+	// Drag below viewport (ev.Y >= avail).
+	m.Update(mouseMotion(20, avail+5))
+
+	if m.viewport.scroll <= 0 {
+		t.Errorf("expected viewport scroll > 0 after downward auto-scroll, got %d", m.viewport.scroll)
+	}
+	if m.viewport.selEndDocRow <= m.viewport.selStartDocRow {
+		t.Errorf("expected selEndDocRow > selStartDocRow, got start=%d, end=%d",
+			m.viewport.selStartDocRow, m.viewport.selEndDocRow)
+	}
+
+	// Invariant 13: Ground-truth UI render assertion against ANSI reverse-video escape sequences.
+	view := m.View().Content
+	if !strings.Contains(view, selHighlightOpen) {
+		t.Errorf("expected rendered ANSI highlight in View() during downward drag")
+	}
+}
+
+// Test_SelectionDragAutoScrollUp verifies that dragging above the viewport boundary
+// auto-scrolls upward and updates document-anchored selection endpoints.
+func Test_SelectionDragAutoScrollUp(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d: content of transcript row", i)
+	}
+	m.conversation.response = lines
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_ = m.View()
+
+	// Park viewport at scroll offset 15.
+	m.viewport.scroll = 15
+	m.viewport.autoScroll = false
+
+	// Start dragging at row 10.
+	m.Update(mouseClick(20, 10, tea.MouseLeft))
+	if !m.viewport.SelDragging {
+		t.Fatalf("expected SelDragging = true")
+	}
+
+	// Drag above viewport (ev.Y < 0).
+	m.Update(mouseMotion(5, -2))
+
+	if m.viewport.scroll >= 15 {
+		t.Errorf("expected viewport scroll < 15 after upward auto-scroll, got %d", m.viewport.scroll)
+	}
+
+	// Invariant 13: Ground-truth UI render assertion against ANSI reverse-video escape sequences.
+	view := m.View().Content
+	if !strings.Contains(view, selHighlightOpen) {
+		t.Errorf("expected rendered ANSI highlight in View() during upward drag")
+	}
+}
+
+// Test_SelectionMultiScreenClipboardCopy verifies that a drag across scrolled boundaries
+// extracts the complete text across multiple screens upon mouse release.
+func Test_SelectionMultiScreenClipboardCopy(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d: unique content", i)
+	}
+	m.conversation.response = lines
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_ = m.View()
+
+	m.viewport.scroll = 0
+	m.viewport.autoScroll = false
+
+	avail := m.viewportHeight()
+	// Start drag at row 1.
+	m.Update(mouseClick(0, 1, tea.MouseLeft))
+
+	// Drag down multiple times to auto-scroll multiple screens.
+	for i := 0; i < 20; i++ {
+		m.Update(mouseMotion(30, avail+2))
+	}
+
+	if m.viewport.scroll < 10 {
+		t.Fatalf("expected scroll >= 10, got %d", m.viewport.scroll)
+	}
+
+	// Extract text before release to verify multi-screen range.
+	extracted := m.selectionText()
+	if !strings.Contains(extracted, "line 01: unique content") {
+		t.Errorf("extracted text missing start line: %q", extracted)
+	}
+	if !strings.Contains(extracted, "line 15: unique content") {
+		t.Errorf("extracted text missing scrolled-off line 15: %q", extracted)
+	}
+
+	// Release mouse.
+	_, cmd := m.Update(mouseRelease(30, avail-1, tea.MouseLeft))
+	if cmd == nil {
+		t.Errorf("expected copy cmd on mouse release")
+	}
+	if m.viewport.SelDragging {
+		t.Errorf("expected SelDragging = false after release")
 	}
 }
 
@@ -7343,7 +7472,7 @@ func TestCycle124_ClipToScreenRows(t *testing.T) {
 }
 
 func TestCycle124_BannerPreservedAtTop(t *testing.T) {
-	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/workspace/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = "MiniMax-M3"
 	m.session.fallbackTo = "Gemini 3.8 Flash (High)"
@@ -7392,7 +7521,7 @@ func containsBannerLine(content, marker string) bool {
 }
 
 func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
-	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/workspace/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = ""
 	m.session.fallbackTo = ""
@@ -7432,7 +7561,7 @@ func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
 }
 
 func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
-	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/workspace/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = ""
 	m.session.fallbackTo = ""
@@ -7739,9 +7868,9 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 func renderBannerForTest(t *testing.T) string {
 	t.Helper()
 	var b bytes.Buffer
-	cwd := "/Users/gear/Documents/GitHub/openagy"
+	cwd := "/workspace/openagy"
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		cwd = home + "/Documents/GitHub/openagy"
+		cwd = home + "/workspace/openagy"
 	}
 	renderBanner(&b, "u@example.com", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", cwd)
 	return b.String()
@@ -7948,8 +8077,8 @@ func TestBanner_VersionAndAccountStillShown(t *testing.T) {
 	}
 	// Cwd row (banner row 4): the working directory. The
 	// shortenCwd helper converts the leading $HOME to "~", so the
-	// visible text is "~/Documents/GitHub/openagy".
-	if !bannerHasText(got, "~/Documents/GitHub/openagy") {
+	// visible text is "~/workspace/openagy".
+	if !bannerHasText(got, "~/workspace/openagy") {
 		t.Errorf("AGY_CLI_HIDE_LOGO=1: cwd row missing, banner = %q", got)
 	}
 }

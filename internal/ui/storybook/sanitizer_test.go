@@ -6,15 +6,15 @@ import (
 
 func TestSanitizer_Paths(t *testing.T) {
 	s := newDefaultSanitizer()
-	s.repoRoot = "/Users/gear/GitHub/openagy"
-	s.userHome = "/Users/gear"
+	s.repoRoot = "/mock/user/workspace/openagy"
+	s.userHome = "/mock/user"
 
 	tests := []struct {
 		input string
 		want  string
 	}{
 		{
-			input: "Read(/Users/gear/GitHub/openagy/internal/ui/storybook/types.go)",
+			input: "Read(/mock/user/workspace/openagy/internal/ui/storybook/types.go)",
 			want:  "Read(/workspace/openagy/internal/ui/storybook/types.go)",
 		},
 		{
@@ -26,7 +26,7 @@ func TestSanitizer_Paths(t *testing.T) {
 			want:  "Path: /workspace/work/openagy/test.go",
 		},
 		{
-			input: "Workspace: ~/GitHub/openagy/internal/ui/storybook/.agents/skills/{skill_name}/SKILL.md",
+			input: "Workspace: ~/workspace/openagy/internal/ui/storybook/.agents/skills/{skill_name}/SKILL.md",
 			want:  "Workspace: ~/workspace/openagy/internal/ui/storybook/.agents/skills/{skill_name}/SKILL.md",
 		},
 	}

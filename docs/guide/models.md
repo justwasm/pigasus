@@ -142,7 +142,7 @@ Every model the clone builds a handle for carries a **window** and a
    per model family, the alias map folding the model ids onto those
    families, and the per-profile variant payloads. It is committed at
    `internal/features/models/modelctx/testdata/model_profiles_1.4.8.json` and mirrored by
-   `internal/features/models/modelctx/profiles_1.4.8.go`.
+   `internal/features/models/modelctx/profiles.go`.
 2. **The server's catalogue**, as captured at 1.4.4
    (`docs/cycles/model-catalogue-argon-gate/fetchAvailableModels_1.4.4.json`)
    — the fallback for the models the embedded catalogue does not carry.

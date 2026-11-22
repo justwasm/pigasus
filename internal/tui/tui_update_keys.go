@@ -1627,13 +1627,26 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	m.ResetInputSelection()
 	m.ResetBtwSelection()
 	m.ResetPanelSelection()
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
+	avail := m.viewportHeight()
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, avail, m.viewport.width)
 	if !ok {
 		return m, nil
+	}
+	m.viewport.autoScroll = false
+	stickyOffset := 0
+	if m.viewport.pinnedPromptText != "" || m.viewport.stickyBarRow != "" {
+		stickyOffset = 2
+	}
+	docRow := m.viewport.scroll + row - stickyOffset
+	if docRow < 0 {
+		docRow = 0
 	}
 	m.viewport.SelDragging = true
 	m.viewport.SelStartRow, m.viewport.SelStartCol = row, col
 	m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+	m.viewport.selStartDocRow = docRow
+	m.viewport.selEndDocRow = docRow
+	m.viewport.viewCacheValid = false
 	return m, nil
 }
 
@@ -1678,12 +1691,42 @@ func (m *RootModel) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if !m.viewport.SelDragging || !m.viewport.altScreen {
 		return m, nil
 	}
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
-	if !ok {
+	avail := m.viewportHeight()
+	stickyOffset := 0
+	if m.viewport.pinnedPromptText != "" || m.viewport.stickyBarRow != "" {
+		stickyOffset = 2
+	}
+	if ev.Y < 0 {
+		m.viewport.autoScroll = false
+		m.scrollBy(-1)
+		col := tuilib.ClampInt(ev.X, 0, m.viewport.width-1)
+		m.viewport.SelEndRow = 0
+		m.viewport.SelEndCol = col
+		m.viewport.selEndDocRow = m.viewport.scroll
+		m.viewport.viewCacheValid = false
 		return m, nil
 	}
-	if row != m.viewport.SelEndRow || col != m.viewport.SelEndCol {
-		m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+	if ev.Y >= avail {
+		m.viewport.autoScroll = false
+		m.scrollBy(1)
+		col := tuilib.ClampInt(ev.X, 0, m.viewport.width-1)
+		m.viewport.SelEndRow = avail - 1
+		m.viewport.SelEndCol = col
+		m.viewport.selEndDocRow = m.viewport.scroll + avail - 1 - stickyOffset
+		m.viewport.viewCacheValid = false
+		return m, nil
+	}
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, avail, m.viewport.width)
+	if ok {
+		docRow := m.viewport.scroll + row - stickyOffset
+		if docRow < 0 {
+			docRow = 0
+		}
+		if row != m.viewport.SelEndRow || col != m.viewport.SelEndCol || docRow != m.viewport.selEndDocRow {
+			m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+			m.viewport.selEndDocRow = docRow
+			m.viewport.viewCacheValid = false
+		}
 	}
 	return m, nil
 }
@@ -1775,9 +1818,29 @@ func (m *RootModel) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		m.ResetSelection()
 		return m, nil
 	}
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
-	if ok {
-		m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+	avail := m.viewportHeight()
+	stickyOffset := 0
+	if m.viewport.pinnedPromptText != "" || m.viewport.stickyBarRow != "" {
+		stickyOffset = 2
+	}
+	if ev.Y < 0 {
+		m.viewport.SelEndRow = 0
+		m.viewport.SelEndCol = tuilib.ClampInt(ev.X, 0, m.viewport.width-1)
+		m.viewport.selEndDocRow = m.viewport.scroll
+	} else if ev.Y >= avail {
+		m.viewport.SelEndRow = avail - 1
+		m.viewport.SelEndCol = tuilib.ClampInt(ev.X, 0, m.viewport.width-1)
+		m.viewport.selEndDocRow = m.viewport.scroll + avail - 1 - stickyOffset
+	} else {
+		row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, avail, m.viewport.width)
+		if ok {
+			docRow := m.viewport.scroll + row - stickyOffset
+			if docRow < 0 {
+				docRow = 0
+			}
+			m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+			m.viewport.selEndDocRow = docRow
+		}
 	}
 	text := m.selectionText()
 	m.ResetSelection()

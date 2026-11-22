@@ -89,7 +89,7 @@ func treeStore(t *testing.T) string {
 		{ID: "aaaa0000-0000-4000-8000-000000000002", Title: "Probe Two", Preview: "probe two",
 			Steps: 5, Modified: base.Add(-time.Hour), Workspace: "file:///tmp/agyprobe"},
 		{ID: "bbbb0000-0000-4000-8000-000000000003", Title: "Repo Work", Preview: "repo work",
-			Steps: 61, Modified: base.Add(-2 * time.Hour), Workspace: "file:///Users/gear/GitHub/openagy"},
+			Steps: 61, Modified: base.Add(-2 * time.Hour), Workspace: "file:///workspace/openagy"},
 		{ID: "cccc0000-0000-4000-8000-000000000004", Title: "No Workspace", Preview: "no workspace",
 			Steps: 2, Modified: base.Add(-3 * time.Hour)},
 	})

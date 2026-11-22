@@ -165,7 +165,6 @@ func (s *Sanitizer) Sanitize(text string) string {
 			res = strings.ReplaceAll(res, tildeRepo, "~/workspace/openagy")
 		}
 	}
-	res = strings.ReplaceAll(res, "~/GitHub/openagy", "~/workspace/openagy")
 
 	// Replace user home if set
 	if s.userHome != "" {

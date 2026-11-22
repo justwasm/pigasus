@@ -19,6 +19,7 @@ import (
 	schemav1 "github.com/ironpark/acp-go/schema/v1"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/confhome"
@@ -151,9 +152,13 @@ func NewACPV1Agent(srv *Server, client acp1.Client) *ACPV1Agent {
 			} else {
 				cmds = defaultV1Commands()
 			}
+			initMode := setup.DefaultMode()
+			if initMode == "" {
+				initMode = "default"
+			}
 			return sessID, &acpV1Session{
 				cwd:      cwd,
-				mode:     "default",
+				mode:     initMode,
 				session:  sess,
 				commands: cmds,
 			}, nil
@@ -437,9 +442,13 @@ func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRe
 		} else {
 			cmds = defaultV1Commands()
 		}
+		initMode := setup.DefaultMode()
+		if initMode == "" {
+			initMode = "default"
+		}
 		s = &acpV1Session{
 			cwd:      cwd,
-			mode:     "default",
+			mode:     initMode,
 			session:  sess,
 			history:  recoveredHist,
 			commands: cmds,
@@ -520,9 +529,13 @@ func (a *ACPV1Agent) ResumeSession(ctx context.Context, params *acp1.ResumeSessi
 		} else {
 			cmds = defaultV1Commands()
 		}
+		initMode := setup.DefaultMode()
+		if initMode == "" {
+			initMode = "default"
+		}
 		s = &acpV1Session{
 			cwd:      cwd,
-			mode:     "default",
+			mode:     initMode,
 			session:  sess,
 			history:  recoveredHist,
 			commands: cmds,

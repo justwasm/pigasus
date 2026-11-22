@@ -160,7 +160,7 @@ func Test_BuildCommandRowCursorStyling(t *testing.T) {
 func Test_RenderHelpGeneralTierSuffix(t *testing.T) {
 	var b strings.Builder
 	RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota",
-		"~/GitHub/openagy", "user@example.com", "uuid")
+		"~/workspace/openagy", "user@example.com", "uuid")
 	out := b.String()
 	if !strings.Contains(out, HelpDimGrayOpen+"user@example.com (Antigravity Starter Quota)"+HelpDimGrayClose) {
 		t.Errorf("email row missing tier suffix: %q", out)

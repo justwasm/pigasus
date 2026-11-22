@@ -9,7 +9,7 @@ func TestScreenBuffer_CaptureAndRoundtrip(t *testing.T) {
 	// Sample ANSI view with color, bold, reverse, and plain text
 	view := "\x1b[1;34mHeader Title\x1b[0m\n" +
 		"\x1b[7mHighlighted Action\x1b[0m plain text\n" +
-		"\x1b[4mUnderlined Path: /Users/gear/GitHub/openagy\x1b[0m (0.01s)\n"
+		"\x1b[4mUnderlined Path: /Users/developer/projects/openagy\x1b[0m (0.01s)\n"
 
 	sb := CaptureScreen(view, 60, 5)
 

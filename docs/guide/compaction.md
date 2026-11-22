@@ -351,7 +351,7 @@ resume block itself, so a rebuilt actor cannot mistake it for a request.
   constraints and open questions.
 - `docs/cycles/cycle-303-cascade-model-profiles/deliverable.md` — the 1.4.8
   catalogue, clamps and model profiles.
-- `internal/features/models/modelctx/profiles_1.4.8.go` + `testdata/` — the shipped
+- `internal/features/models/modelctx/profiles.go` + `testdata/` — the shipped
   per-model checkpoint payloads.
 - `docs/cycles/auto-compact-parity/evidence-1.5.3.md` — the 1.5.3 profile
   extraction, the Go 1.28 pclntab offset, `shouldCheckpoint` and the default

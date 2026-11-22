@@ -926,27 +926,21 @@ const (
 // cycle 104 deliverable for the full reasoning.
 const CycleHint = "Press shift+tab to cycle modes (default, accept-edits, plan)."
 
-// CycleModes is the Shift+Tab order. Cycle 254 reordered the cycle to
-// start from accept-edits (Build) — Build → Default → Auto → Plan →
-// Build. The previous cycle (104) had default first, which made a
-// fresh session's first Shift+Tab jump straight to accept-edits. The
-// 254 reorder keeps accept-edits reachable in two presses from
-// default (default → auto → plan → accept-edits wraps) but is the
-// choice documented in cmd/wagyu/shift_tab_test.go and pinned by
-// TestShiftTabCyclesBuildToDefault et al. — see 硬约束 in
-// docs/cycles/cycle-254-shift-tab/deliverable.md.
-var CycleModes = []string{ModeAcceptEdits, "", ModeAuto, ModePlan}
+// CycleModes is the Shift+Tab order. Decompilation of AGY 1.5.14
+// (ConversationModel.handleCycleMode at 0x103272280 and UserVisibleModes at 0x1030dca60)
+// establishes the exact cycle sequence:
+// Default ("") -> accept-edits -> auto -> plan -> Default ("").
+var CycleModes = []string{"", ModeAcceptEdits, ModeAuto, ModePlan}
 
 // NextMode returns the mode that follows cur in the Shift+Tab cycle.
-// An unknown value (including the empty default) advances to
-// accept-edits (the first element of CycleModes — Build).
+// Default ("") advances to accept-edits; unknown values reset to Default ("").
 func NextMode(cur string) string {
 	for i, m := range CycleModes {
 		if m == cur {
 			return CycleModes[(i+1)%len(CycleModes)]
 		}
 	}
-	return CycleModes[0]
+	return ""
 }
 
 // RemoteCycleModes lists the modes Shift+Tab cycles through when connected to a remote agent (AGY 1.5.14).

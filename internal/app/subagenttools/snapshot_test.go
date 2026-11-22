@@ -13,7 +13,7 @@ import (
 func TestSnapshotSection_MatchesTheReferenceEntry(t *testing.T) {
 	reg := NewRegistry("parent-conv")
 	child := NewChild("b1923c8b-d44e-4b8a-a368-29b54434bee4", "DeepCoder",
-		"Subagent & Task TUI Alignment Engineer", "/Users/gear/GitHub/openagy", nil)
+		"Subagent & Task TUI Alignment Engineer", "/workspace/openagy", nil)
 	child.LogAbsoluteURI = "file:///brain/b1923c8b/.system_generated/logs/transcript.jsonl"
 	child.SpawnStepIndex = 7363
 	child.StartedAt = time.Date(2026, 11, 3, 4, 5, 44, 0, time.UTC)
@@ -39,7 +39,7 @@ func TestSnapshotSection_MatchesTheReferenceEntry(t *testing.T) {
 	if ref.LogAbsoluteURI != "file:///brain/b1923c8b/.system_generated/logs/transcript.jsonl" {
 		t.Errorf("logAbsoluteUri = %q", ref.LogAbsoluteURI)
 	}
-	if len(ref.WorkspaceURIs) != 1 || ref.WorkspaceURIs[0] != "file:///Users/gear/GitHub/openagy" {
+	if len(ref.WorkspaceURIs) != 1 || ref.WorkspaceURIs[0] != "file:///workspace/openagy" {
 		t.Errorf("workspaceUris = %+v", ref.WorkspaceURIs)
 	}
 	if ref.SpawnStepIndex != 7363 {

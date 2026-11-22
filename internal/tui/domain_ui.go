@@ -68,6 +68,10 @@ func (m *RootModel) SetViewportScroll(offset int)   { m.viewport.SetViewportScro
 func (m *RootModel) IsAutoScrollEnabled() bool      { return m.viewport.IsAutoScrollEnabled() }
 func (m *RootModel) SetAutoScroll(auto bool)        { m.viewport.SetAutoScroll(auto) }
 
-func (m *RootModel) ResetSelection()                 { m.viewport.ResetSelection() }
+func (m *RootModel) ResetSelection() {
+	m.viewport.ResetSelection()
+	m.viewport.selStartDocRow = 0
+	m.viewport.selEndDocRow = 0
+}
 func (m *RootModel) ResetInputSelection()            { m.prompt.ResetInputSelection() }
 func (m *RootModel) InputSelectionRange() (int, int) { return m.prompt.InputSelectionRange() }

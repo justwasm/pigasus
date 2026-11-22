@@ -220,7 +220,7 @@ func TestResumeBlock_SubagentsMatch153(t *testing.T) {
 				Role:           "Subagent & Task TUI Alignment Engineer",
 				ConversationID: "b1923c8b-d44e-4b8a-a368-29b54434bee4",
 				LogAbsoluteURI: "file:///home/brain/b1923c8b-d44e-4b8a-a368-29b54434bee4/.system_generated/logs/transcript.jsonl",
-				WorkspaceURIs:  []string{"file:///Users/gear/GitHub/openagy"},
+				WorkspaceURIs:  []string{"file:///workspace/openagy"},
 				SpawnStepIndex: 7363,
 			}},
 		},
@@ -237,7 +237,7 @@ func TestResumeBlock_SubagentsMatch153(t *testing.T) {
 		"    \"conversationId\":  \"b1923c8b-d44e-4b8a-a368-29b54434bee4\",\n" +
 		"    \"logAbsoluteUri\":  \"file:///home/brain/b1923c8b-d44e-4b8a-a368-29b54434bee4/.system_generated/logs/transcript.jsonl\",\n" +
 		"    \"workspaceUris\":  [\n" +
-		"      \"file:///Users/gear/GitHub/openagy\"\n" +
+		"      \"file:///workspace/openagy\"\n" +
 		"    ]\n" +
 		"  },\n" +
 		"  \"spawnStepIndex\":  7363\n" +

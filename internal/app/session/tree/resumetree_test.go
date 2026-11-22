@@ -14,7 +14,7 @@ func TestBaseWorkspaceLabelSkipsGenericSegments(t *testing.T) {
 		path string
 		want string
 	}{
-		{"/Users/gear/GitHub/openagy", "openagy"},
+		{"/workspace/openagy", "openagy"},
 		{"/tmp/agyprobe", "agyprobe"},
 		{"/tmp/agyprobe/repo", "agyprobe"},
 		{"/a/b/google3", "b"},
@@ -41,7 +41,7 @@ func TestWorkspaceLabelsRefineCollisions(t *testing.T) {
 	labels := WorkspaceLabels([]string{
 		"/tmp/agyprobe",
 		"/tmp/agyprobe/repo",
-		"/Users/gear/GitHub/openagy",
+		"/workspace/openagy",
 	})
 	if got := labels["/tmp/agyprobe"]; got != "tmp/agyprobe" {
 		t.Errorf("label of /tmp/agyprobe = %q, want %q", got, "tmp/agyprobe")
@@ -49,7 +49,7 @@ func TestWorkspaceLabelsRefineCollisions(t *testing.T) {
 	if got := labels["/tmp/agyprobe/repo"]; got != "tmp/agyprobe" {
 		t.Errorf("label of /tmp/agyprobe/repo = %q, want %q", got, "tmp/agyprobe")
 	}
-	if got := labels["/Users/gear/GitHub/openagy"]; got != "openagy" {
+	if got := labels["/workspace/openagy"]; got != "openagy" {
 		t.Errorf("label of the openagy workspace = %q, want %q", got, "openagy")
 	}
 }
@@ -110,13 +110,13 @@ func TestNormalizeWorkspaceURI(t *testing.T) {
 func TestBuildGroupOrder(t *testing.T) {
 	base := time.Date(2026, 10, 26, 15, 0, 0, 0, time.UTC)
 	items := []Item{
-		{ID: "a", Time: base, WorkspaceURIs: []string{"file:///Users/gear/GitHub/openagy"}},
+		{ID: "a", Time: base, WorkspaceURIs: []string{"file:///workspace/openagy"}},
 		{ID: "b", Time: base.Add(-time.Hour), WorkspaceURIs: []string{"file:///tmp/agyprobe"}},
 		{ID: "c", Time: base.Add(-2 * time.Hour)},
-		{ID: "d", Time: base.Add(-3 * time.Hour), WorkspaceURIs: []string{"file:///Users/gear"}},
+		{ID: "d", Time: base.Add(-3 * time.Hour), WorkspaceURIs: []string{"file:///workspace"}},
 	}
-	groups := Build(items, "/Users/gear")
-	want := []string{"/Users/gear", "/Users/gear/GitHub/openagy", "/tmp/agyprobe", ""}
+	groups := Build(items, "/workspace")
+	want := []string{"/workspace", "/workspace/openagy", "/tmp/agyprobe", ""}
 	if len(groups) != len(want) {
 		t.Fatalf("got %d groups, want %d", len(groups), len(want))
 	}

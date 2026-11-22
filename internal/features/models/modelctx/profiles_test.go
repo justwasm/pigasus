@@ -1,4 +1,4 @@
-// profiles_1.4.8_test.go — the cascade catalogue against the binary's own
+// profiles_test.go — the cascade catalogue against the binary's own
 // document.
 //
 // 【一手】 agy 1.4.8 embeds model_profiles.json (file offset 0x9ab160a,

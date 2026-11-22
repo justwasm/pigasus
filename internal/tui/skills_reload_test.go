@@ -1,4 +1,4 @@
-// cycle383_skills_test.go — finding A-27: `/skills reload` re-reads the
+// skills_reload_test.go — finding A-27: `/skills reload` re-reads the
 // skills from disk.
 //
 // Cycle 383, slice A: official-docs/cli/reference.md:47 documents the

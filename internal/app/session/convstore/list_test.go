@@ -17,7 +17,7 @@ func TestProjectFromURIsBasename(t *testing.T) {
 		// Plain JSON array of one URI.
 		{`["file:///tmp/agycmp"]`, "agycmp"},
 		// Bare URI, no array wrapper (the index column shape).
-		{`file:///Users/gear/Documents/GitHub/openagy`, "openagy"},
+		{`file:///workspace/openagy`, "openagy"},
 		// Trailing slash stripped before basename.
 		{`["file:///tmp/agycmp/"]`, "agycmp"},
 		// No `file://` marker → empty.

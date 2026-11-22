@@ -1,4 +1,4 @@
-// cycle383_slash_test.go — the slash-command divergences the
+// slash_aliases_test.go — the slash-command divergences the
 // official-docs survey closed (cycle 383, slice A).
 //
 // Four findings, four facts:

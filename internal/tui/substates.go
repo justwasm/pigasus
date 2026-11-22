@@ -132,6 +132,8 @@ type sessionState struct {
 // uiState holds the domain state for uiState.
 type uiState struct {
 	tuiviewport.TextSelection
+	selStartDocRow int
+	selEndDocRow   int
 	// seasonal is the seasonal event the session is themed with, or
 	// nil when no event is in season or the user has not opted in.
 	//

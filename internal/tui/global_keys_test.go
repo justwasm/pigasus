@@ -1,4 +1,4 @@
-// cycle383_keys_test.go — the host's global keys that cycle 383 aligned.
+// global_keys_test.go — the host's global keys that cycle 383 aligned.
 //
 // The reference binds Ctrl+R to `view.review_artifact` — it opens the
 // Artifact Review panel (official-docs/cli/reference.md:81) — and the

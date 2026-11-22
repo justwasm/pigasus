@@ -683,15 +683,35 @@ func (m *RootModel) clearLastTurnOutcome() {
 
 const selHighlightOpen = tuiviewport.SelHighlightOpen
 
+func (m *RootModel) selectionDocRange() (int, int, int, int, bool) {
+	startRow := m.viewport.selStartDocRow
+	endRow := m.viewport.selEndDocRow
+	if startRow == 0 && endRow == 0 && (m.viewport.SelStartRow != 0 || m.viewport.SelEndRow != 0) {
+		startRow = m.viewport.scroll + m.viewport.SelStartRow
+		endRow = m.viewport.scroll + m.viewport.SelEndRow
+	}
+	return tuiviewport.SelectionRange(
+		startRow, m.viewport.SelStartCol,
+		endRow, m.viewport.SelEndCol,
+		m.viewport.SelDragging,
+	)
+}
+
 func (m *RootModel) selectionText() string {
 	if !m.viewport.altScreen {
 		return ""
 	}
-	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.viewport.SelStartRow, m.viewport.SelStartCol, m.viewport.SelEndRow, m.viewport.SelEndCol, m.viewport.SelDragging)
+	rows, _, _ := m.syncRowsView()
+	if len(rows) == 0 {
+		return ""
+	}
+	sr, sc, er, ec, ok := m.selectionDocRange()
 	if !ok {
 		return ""
 	}
-	return tuiviewport.SelectionText(m.transcriptWindow(), sr, sc, er, ec)
+	sr = tuilib.ClampInt(sr, 0, len(rows)-1)
+	er = tuilib.ClampInt(er, 0, len(rows)-1)
+	return tuiviewport.SelectionText(rows, sr, sc, er, ec)
 }
 
 func (m *RootModel) copySelectionCmd(text string) tea.Cmd {
@@ -702,12 +722,35 @@ func (m *RootModel) copySelectionCmd(text string) tea.Cmd {
 }
 
 func (m *RootModel) selectionPass(rows []string) []string {
-	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.viewport.SelStartRow, m.viewport.SelStartCol, m.viewport.SelEndRow, m.viewport.SelEndCol, m.viewport.SelDragging)
-	return tuiviewport.SelectionPass(rows, sr, sc, er, ec, ok)
+	if !m.hasSelection() || len(rows) == 0 {
+		return rows
+	}
+	sr, sc, er, ec, ok := m.selectionDocRange()
+	if !ok {
+		return rows
+	}
+	stickyOffset := 0
+	if m.viewport.pinnedPromptText != "" || m.viewport.stickyBarRow != "" {
+		stickyOffset = 2
+	}
+	visSr := sr - m.viewport.scroll + stickyOffset
+	visEr := er - m.viewport.scroll + stickyOffset
+	if visEr < 0 || visSr >= len(rows) {
+		return rows
+	}
+	if visSr < 0 {
+		visSr = 0
+		sc = 0
+	}
+	if visEr >= len(rows) {
+		visEr = len(rows) - 1
+		ec = m.viewport.width
+	}
+	return tuiviewport.SelectionPass(rows, visSr, sc, visEr, ec, true)
 }
 
 func (m *RootModel) hasSelection() bool {
-	_, _, _, _, ok := tuiviewport.SelectionRange(m.viewport.SelStartRow, m.viewport.SelStartCol, m.viewport.SelEndRow, m.viewport.SelEndCol, m.viewport.SelDragging)
+	_, _, _, _, ok := m.selectionDocRange()
 	return ok || m.viewport.SelDragging
 }
 
@@ -721,14 +764,18 @@ func (m *RootModel) scrollBy(delta int) {
 		// sticky headers never flash during downward inertia scroll.
 		return
 	}
+	vpRows := m.viewport.vpRows
+	if vpRows <= 0 {
+		vpRows = m.viewportHeight()
+	}
 	oldScroll := m.viewport.scroll
 	oldAutoScroll := m.viewport.autoScroll
 	m.viewport.scroll += delta
 	if m.viewport.scroll < 0 {
 		m.viewport.scroll = 0
 		m.viewport.autoScroll = false
-	} else if m.viewport.vpRows > 0 && len(m.viewport.rowsView.Rows) > 0 {
-		maxScroll := len(m.viewport.rowsView.Rows) - m.viewport.vpRows
+	} else if vpRows > 0 && len(m.viewport.rowsView.Rows) > 0 {
+		maxScroll := len(m.viewport.rowsView.Rows) - vpRows
 		if maxScroll < 0 {
 			maxScroll = 0
 		}

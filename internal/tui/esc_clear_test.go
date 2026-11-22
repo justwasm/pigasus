@@ -1,4 +1,4 @@
-// cycle383_esc_clear_test.go — the host's Esc and `?` keys, as cycle 383
+// esc_clear_test.go — the host's Esc and `?` keys, as cycle 383
 // aligned them with the reference's own documentation.
 //
 //   - B-21: the composer is cleared on `esc esc`, not on one Esc
