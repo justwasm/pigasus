@@ -137,8 +137,14 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 		childRunCtx, runCancel := context.WithCancel(context.WithoutCancel(runCtx))
 		child.SetCancel(runCancel)
 		child.setState(StateRunning)
+		child.AddGoroutine()
 		go func() {
-			time.Sleep(150 * time.Millisecond)
+			defer child.DoneGoroutine()
+			select {
+			case <-time.After(150 * time.Millisecond):
+			case <-childRunCtx.Done():
+				return
+			}
 			runChild(childRunCtx, child, deps, model, provider, systemPrompt, cwd, worktreePath, subDir, inv, gatedTools, startedAt, initialMsg)
 		}()
 	}

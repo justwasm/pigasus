@@ -233,7 +233,11 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 			if model == "" {
 				model = deps.Model
 			}
-			go runChild(childRunCtx, child, deps, model, deps.Provider, meta.SystemPrompt, meta.Worktree, meta.Worktree, subDir, inv, inv.Tools, meta.StartedAt, initialMsg)
+			child.AddGoroutine()
+			go func() {
+				defer child.DoneGoroutine()
+				runChild(childRunCtx, child, deps, model, deps.Provider, meta.SystemPrompt, meta.Worktree, meta.Worktree, subDir, inv, inv.Tools, meta.StartedAt, initialMsg)
+			}()
 		}
 		child.SetLaunch(launchFn)
 

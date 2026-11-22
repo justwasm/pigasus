@@ -282,7 +282,8 @@ func TestTrajectoryFillsWhileTheChildWorks(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := Launch(ctx, Invocation{Prompt: "查一下上海天气"}, deps); err != nil {
+	launched, err := Launch(ctx, Invocation{Prompt: "查一下上海天气"}, deps)
+	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
 
@@ -296,15 +297,32 @@ func TestTrajectoryFillsWhileTheChildWorks(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
+	found := false
 	for time.Now().Before(deadline) {
 		for _, task := range tasks.List() {
 			if len(task.Steps) >= 2 {
-				return
+				found = true
+				break
 			}
+		}
+		if found {
+			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("the trajectory never recorded the child's answer step")
+	if !found {
+		t.Fatal("the trajectory never recorded the child's answer step")
+	}
+
+	// Wait for the child to enter StateIdle and finish writing checkpoint/transcript
+	// before the test finishes and triggers TempDir cleanup.
+	idleDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(idleDeadline) {
+		if launched.Child.State() == StateIdle {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // waitForCheckpoint waits for the child's checkpoint file and returns it.

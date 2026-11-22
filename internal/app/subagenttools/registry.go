@@ -91,6 +91,7 @@ type Child struct {
 	reported    bool
 	launchFn    func(ctx context.Context, initialMsg *Message)
 	subDir      string
+	wg          sync.WaitGroup
 }
 
 // NewChild returns a child in the running state.
@@ -333,6 +334,45 @@ func (c *Child) SetSubDir(dir string) {
 	c.subDir = dir
 }
 
+// AddGoroutine registers an active background goroutine for this child.
+func (c *Child) AddGoroutine() {
+	if c == nil {
+		return
+	}
+	c.wg.Add(1)
+}
+
+// DoneGoroutine records the completion of a background goroutine for this child.
+func (c *Child) DoneGoroutine() {
+	if c == nil {
+		return
+	}
+	c.wg.Done()
+}
+
+// WaitDone waits up to timeout for all running goroutines associated with this child
+// to terminate. It returns true if all goroutines exited, or false if timed out.
+func (c *Child) WaitDone(timeout time.Duration) bool {
+	if c == nil {
+		return true
+	}
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	if timeout <= 0 {
+		<-done
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
 // Registry is the conversation's set of live subagents.
 //
 // It belongs to the conversation, not to a turn: the parent's tools and the
@@ -504,6 +544,9 @@ func (r *Registry) Close() {
 	r.mu.Unlock()
 	for _, c := range children {
 		c.Kill()
+	}
+	for _, c := range children {
+		c.WaitDone(3 * time.Second)
 	}
 }
 
