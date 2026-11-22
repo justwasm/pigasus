@@ -44,6 +44,7 @@ var (
 	macUserPathRe     = regexp.MustCompile(`/Users/[a-zA-Z0-9._-]+`)
 	linuxUserPathRe   = regexp.MustCompile(`/home/[a-zA-Z0-9._-]+`)
 	windowsUserPathRe = regexp.MustCompile(`[a-zA-Z]:[/\\]Users[/\\][a-zA-Z0-9._-]+`)
+	tempTestHomeRe    = regexp.MustCompile(`(?:/var/folders/[^\s:/]+(?:/[^\s:/]+)*/T|/tmp)/pigasus-test-home-[0-9]+`)
 
 	// Timestamped log file matching (e.g. cli-20261123_001902.log)
 	cliLogRe = regexp.MustCompile(`cli-\d{8}_\d{6}\.log`)
@@ -157,6 +158,14 @@ func (s *Sanitizer) Sanitize(text string) string {
 		}
 	}
 
+	// Also replace tilde-shortened repo paths (~/GitHub/openagy or ~/work/pigasus/pigasus)
+	if s.userHome != "" && s.repoRoot != "" {
+		if rel, err := filepath.Rel(s.userHome, s.repoRoot); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			tildeRepo := "~/" + filepath.ToSlash(rel)
+			res = strings.ReplaceAll(res, tildeRepo, "~/workspace/openagy")
+		}
+	}
+
 	// Replace user home if set
 	if s.userHome != "" {
 		res = strings.ReplaceAll(res, s.userHome, "/workspace")
@@ -165,6 +174,18 @@ func (s *Sanitizer) Sanitize(text string) string {
 			res = strings.ReplaceAll(res, normHome, "/workspace")
 		}
 	}
+
+	// In test mode or when HOME / OPENAGY_CONFIG_HOME are overridden by testguard:
+	if cfgHome := os.Getenv("OPENAGY_CONFIG_HOME"); cfgHome != "" {
+		res = strings.ReplaceAll(res, cfgHome, "/workspace")
+	}
+	if agyHome := os.Getenv("ANTIGRAVITY_HOME"); agyHome != "" {
+		res = strings.ReplaceAll(res, agyHome, "/workspace/.gemini/antigravity-cli")
+	}
+	if curHome := os.Getenv("HOME"); curHome != "" {
+		res = strings.ReplaceAll(res, curHome, "/workspace")
+	}
+	res = tempTestHomeRe.ReplaceAllString(res, "/workspace")
 
 	// Apply generic user path regexes (/Users/xxx, /home/xxx)
 	for _, pr := range s.pathRules {

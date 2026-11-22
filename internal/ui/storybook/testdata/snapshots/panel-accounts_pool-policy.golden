@@ -4,16 +4,16 @@
 01: |   Accounts    Pool   (tab to cycle)                                            |
 02: |                                                                                |
 03: |> Enabled                 ‹ [ on ] ›  (space to toggle)                         |
-04: |  Aggregate               [ on ]                                                |
-05: |  Threshold (5h)          1%                                                    |
-06: |  Threshold (weekly)      1%                                                    |
+04: |  Aggregate               [ off ]                                               |
+05: |  Threshold (5h)          0%                                                    |
+06: |  Threshold (weekly)      0%                                                    |
 07: |  Refresh interval        1m0s                                                  |
 08: |  Cooldown                5m0s                                                  |
-09: |  Max attempts            5                                                     |
+09: |  Max attempts            1                                                     |
 10: |  Switch on quota error   [ on ]                                                |
 11: |  Accounts in pool        all (0)                                               |
 12: |                                                                                |
-13: |  /workspace/.openagy/accounts.json                                             |
+13: |  /workspace/accounts.json                                                      |
 14: |Keyboard: ↑/↓ Navigate  ←/→ Change  enter Edit  tab Accounts  esc Exit          |
 15: |                                                                                |
 16: |                                                                                |
@@ -29,7 +29,7 @@
 01: [3:11] fg=#657b83 | [15:19] fg=#268bd2,bold,ul | [20:36] fg=#657b83
 02: (plain)
 03: [0:9] fg=#268bd2 | [28:34] fg=#859900 | [38:55] fg=#657b83
-04: [26:32] fg=#859900
+04: [26:33] fg=#657b83
 05: (plain)
 06: (plain)
 07: (plain)
@@ -38,7 +38,7 @@
 10: [26:32] fg=#859900
 11: (plain)
 12: (plain)
-13: [2:35] fg=#586e75
+13: [2:26] fg=#586e75
 14: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:34] fg=#657b83 | [36:41] fg=#268bd2 | [42:46] fg=#657b83 | [48:51] fg=#268bd2 | [52:60] fg=#657b83 | [62:65] fg=#268bd2 | [66:70] fg=#657b83
 15: (plain)
 16: (plain)

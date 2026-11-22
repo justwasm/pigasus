@@ -10,6 +10,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/session/rewind"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/resumepicker"
@@ -534,7 +535,28 @@ type pluginsUIStory struct {
 
 func (s *pluginsUIStory) SetState(idx int) {
 	s.state = idx
-	s.panel = pluginsui.New(pluginsui.Seams{})
+	s.panel = pluginsui.New(pluginsui.Seams{
+		InstalledRows: func() []plugins.Row {
+			return []plugins.Row{
+				{Name: "chrome-devtools-plugin", Desc: "Reliable automation, in-depth debugging, and performance analysis in Chrome using Chrome DevTools and Puppeteer"},
+				{Name: "google-antigravity-sdk", Desc: "Using the Google Antigravity Python SDK to build AI agents"},
+				{Name: "modern-web-guidance-plugin", Desc: "Keep your coding agent up to date with the latest web best practices."},
+				{Name: "science", Desc: "Curated collection of agent skills for science tasks."},
+			}
+		},
+		Marketplaces: func() []plugins.Marketplace {
+			return []plugins.Marketplace{
+				{
+					Name: "official",
+					Items: []plugins.Row{
+						{Name: "gmail", Desc: "Search, read, draft, and send emails in Gmail.", Category: "Featured"},
+						{Name: "github", Desc: "GitHub repository and issue management.", Category: "Popular"},
+						{Name: "sqlite", Desc: "SQLite database explorer and query runner.", Category: "Tools"},
+					},
+				},
+			}
+		},
+	})
 	switch idx {
 	case 1: // discover
 		s.panel.HandleKey(tea.Key{Code: tea.KeyTab})
@@ -593,21 +615,24 @@ type skillsUIStory struct {
 
 func (s *skillsUIStory) SetState(idx int) {
 	s.state = idx
+	skillsui.SkillFileReader = func(path string) ([]byte, error) {
+		return []byte("---\nname: bubbletea\ndescription: Build terminal user interfaces with Go and Bubbletea framework\n---\n# Bubbletea TUI Development\n\nBuild terminal user interfaces with Go and Bubbletea framework."), nil
+	}
 	cat := []skillsui.SkillInfo{
 		{
 			Name:        "bubbletea",
 			Description: "Build terminal user interfaces with Go and Bubbletea framework",
-			Path:        "/Users/gear/.gemini/skills/bubbletea/SKILL.md",
+			Path:        "/workspace/openagy/skills/bubbletea/SKILL.md",
 		},
 		{
 			Name:        "alphafold-database",
 			Description: "Retrieve and analyze AlphaFold predicted structures for a protein",
-			Path:        "/Users/gear/.gemini/config/plugins/science/skills/alphafold/SKILL.md",
+			Path:        "/workspace/openagy/skills/alphafold/SKILL.md",
 		},
 		{
 			Name:        "cloudflare-workers",
 			Description: "Comprehensive Cloudflare platform development and worker deployment",
-			Path:        "/Users/gear/.gemini/skills/cloudflare/SKILL.md",
+			Path:        "/workspace/openagy/skills/cloudflare/SKILL.md",
 		},
 	}
 
@@ -764,7 +789,7 @@ func (s *resumePickerStory) SetState(idx int) {
 	convs := []convstore.ConversationMeta{
 		{
 			ID:        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-			Path:      "/Users/gear/.gemini/antigravity-cli/conversations/a1b2c3d4.db",
+			Path:      "/workspace/conversations/a1b2c3d4.db",
 			Title:     "Align Language Server Protos with CL 1017595969",
 			Project:   "openagy",
 			StepCount: 14,
@@ -772,7 +797,7 @@ func (s *resumePickerStory) SetState(idx int) {
 		},
 		{
 			ID:        "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-			Path:      "/Users/gear/.gemini/antigravity-cli/conversations/b2c3d4e5.db",
+			Path:      "/workspace/conversations/b2c3d4e5.db",
 			Title:     "Implement Antigravity TUI Component Storybook",
 			Project:   "openagy",
 			StepCount: 28,
@@ -780,7 +805,7 @@ func (s *resumePickerStory) SetState(idx int) {
 		},
 		{
 			ID:        "c3d4e5f6-a7b8-9012-cdef-123456789012",
-			Path:      "/Users/gear/.gemini/antigravity-cli/conversations/c3d4e5f6.db",
+			Path:      "/workspace/conversations/c3d4e5f6.db",
 			Title:     "Cloudflare Workers AI Agent Integration",
 			Project:   "cf-agents",
 			StepCount: 8,
@@ -790,7 +815,7 @@ func (s *resumePickerStory) SetState(idx int) {
 
 	s.picker = resumepicker.New(resumepicker.Seams{
 		CurrentConversationID: func() string { return "a1b2c3d4-e5f6-7890-abcd-ef1234567890" },
-		CurrentWorkspace:      func() string { return "/Users/gear/GitHub/openagy" },
+		CurrentWorkspace:      func() string { return "/workspace/openagy" },
 		ListConversations:     func() ([]convstore.ConversationMeta, error) { return convs, nil },
 	})
 	_ = s.picker.Open()

@@ -6,19 +6,19 @@
 03: |  Type to search providers and models...                                        |
 04: |                                                                                |
 05: |  + Add a provider...                                                           |
-06: |> ● ▾ agw  openai · https://agw.k0s.io/v1/chat/completions (1 model)            |
-07: |    ○ minimax-m3  MiniMax M3       model=MiniMax-M3       ctx=1000k             |
-08: |  ● ▾ agw-ant  openai · https://agw.k0s.io/v1/chat/completions (1 model)        |
-09: |    ○ minimax-m3.1-flash  MiniMax M3.1 Flash model=MiniMax-M3.1-Flash ctx=102…  |
-10: |  ● ▾ deepseek  openai · https://api.deepseek.com/v1/chat/completions (2 mode…  |
-11: |    ○ deepseek-v4-flash  DeepSeek-V4-Flash model=deepseek-v4-flash ctx=1000k …  |
-12: |    ○ deepseek-v4-pro  DeepSeek-V4-Pro  model=deepseek-v4-pro  ctx=1000k  eff…  |
-13: |  ● ▾ hiyo-free  openai · https://codexfree.xiaotuxp.com/v1/chat/completions …  |
-14: |  [1-8 of 86 items]                                                             |
-15: |                                                                                |
-16: |Keyboard: ↑/↓ Move  enter Edit  tab Tab  ctrl+a Add  ctrl+d Del  esc Exit       |
+06: |  No custom providers configured. Press enter on a preset below or a to add.    |
+07: |                                                                                |
+08: |> ● ▾ builtin (Google CloudCode)                                                |
+09: |    ○ gemini-3.8-flash-high  Gemini 3.8 Flash (High)                            |
+10: |    ○ gemini-3.8-flash-medium  Gemini 3.8 Flash (Medium)                        |
+11: |    ○ gemini-3.8-flash-low  Gemini 3.8 Flash (Low)                              |
+12: |    ○ gemini-3.7-flash-high  Gemini 3.7 Flash (High)                            |
+13: |    ○ gemini-3.7-flash-medium  Gemini 3.7 Flash (Medium)                        |
+14: |    ○ gemini-3.7-flash-low  Gemini 3.7 Flash (Low)                              |
+15: |    ○ gemini-3.6-flash-high  Gemini 3.6 Flash (High)                            |
+16: |  [1-8 of 15 items]                                                             |
 17: |                                                                                |
-18: |                                                                                |
+18: |Keyboard: ↑/↓ Move  enter Edit  tab Tab  ctrl+a Add  ctrl+d Del  esc Exit       |
 19: |                                                                                |
 20: |                                                                                |
 21: |                                                                                |
@@ -31,19 +31,19 @@
 03: [0:40] fg=#657b83
 04: (plain)
 05: [2:21] bold
-06: [0:2] fg=#268bd2 | [2:3] fg=color256:238 | [4:9] fg=#268bd2,bold | [11:68] fg=#657b83
-07: [4:5] fg=color256:238 | [18:67] fg=#657b83
-08: [2:3] fg=color256:238 | [4:13] bold | [15:72] fg=#657b83
-09: [4:5] fg=color256:238 | [26:78] fg=#657b83
-10: [2:3] fg=color256:238 | [4:14] bold | [16:78] fg=#657b83
-11: [4:5] fg=color256:238 | [25:78] fg=#657b83
-12: [4:5] fg=color256:238 | [23:78] fg=#657b83
-13: [2:3] fg=color256:238 | [4:15] bold | [17:78] fg=#657b83
-14: [0:19] fg=#657b83
-15: (plain)
-16: [0:10] bold | [10:13] fg=#268bd2 | [14:18] fg=#657b83 | [20:25] fg=#268bd2 | [26:30] fg=#657b83 | [32:35] fg=#268bd2 | [36:39] fg=#657b83 | [41:47] fg=#268bd2 | [48:51] fg=#657b83 | [53:59] fg=#268bd2 | [60:63] fg=#657b83 | [65:68] fg=#268bd2 | [69:73] fg=#657b83
+06: [2:76] fg=#586e75
+07: (plain)
+08: [0:2] fg=#268bd2 | [2:3] fg=color256:238 | [4:32] fg=#268bd2,bold
+09: [4:5] fg=color256:238 | [29:52] fg=#657b83
+10: [4:5] fg=color256:238 | [31:56] fg=#657b83
+11: [4:5] fg=color256:238 | [28:50] fg=#657b83
+12: [4:5] fg=color256:238 | [29:52] fg=#657b83
+13: [4:5] fg=color256:238 | [31:56] fg=#657b83
+14: [4:5] fg=color256:238 | [28:50] fg=#657b83
+15: [4:5] fg=color256:238 | [29:52] fg=#657b83
+16: [0:19] fg=#657b83
 17: (plain)
-18: (plain)
+18: [0:10] bold | [10:13] fg=#268bd2 | [14:18] fg=#657b83 | [20:25] fg=#268bd2 | [26:30] fg=#657b83 | [32:35] fg=#268bd2 | [36:39] fg=#657b83 | [41:47] fg=#268bd2 | [48:51] fg=#657b83 | [53:59] fg=#268bd2 | [60:63] fg=#657b83 | [65:68] fg=#268bd2 | [69:73] fg=#657b83
 19: (plain)
 20: (plain)
 21: (plain)

@@ -4,12 +4,12 @@
 01: |3 skills                                                                        |
 02: |                                                                                |
 03: |Create new skills                                                               |
-04: |  Workspace: ~/GitHub/openagy/internal/ui/storybook/.agents/skills/{skill_name}/|
-05: |SKILL.md                                                                        |
+04: |  Workspace: /workspace/openagy/internal/ui/storybook/.agents/skills/{skill_name|
+05: |}/SKILL.md                                                                      |
 06: |  Global:    ~/.gemini/antigravity-cli/skills/{skill_name}/SKILL.md             |
 07: |  Shared:    ~/.gemini/skills/{skill_name}/SKILL.md                             |
 08: |                                                                                |
-09: |Shared skills · From ~/.gemini/skills                                           |
+09: |Shared skills · From /workspace/openagy/skills                                  |
 10: |  bubbletea: Build terminal user interfaces with Go and Bubbletea framework     |
 11: |  alphafold-database: Retrieve and analyze AlphaFold predicted structures fo... |
 12: |  cloudflare-workers: Comprehensive Cloudflare platform development and work... |
@@ -30,11 +30,11 @@
 02: (plain)
 03: [0:17] bold
 04: [2:80] fg=#657b83
-05: [0:8] fg=#657b83
+05: [0:10] fg=#657b83
 06: [2:67] fg=#657b83
 07: [2:51] fg=#657b83
 08: (plain)
-09: [0:16] bold | [16:37] fg=#586e75,bold
+09: [0:16] bold | [16:46] fg=#586e75,bold
 10: [2:11] fg=#268bd2 | [13:75] fg=#586e75
 11: [2:20] fg=#268bd2 | [22:79] fg=#586e75
 12: [2:20] fg=#268bd2 | [22:79] fg=#586e75

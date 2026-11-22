@@ -2,15 +2,15 @@
 --- TEXT MATRIX ---
 00: |bubbletea                                                                       |
 01: |Build terminal user interfaces with Go and Bubbletea framework                  |
-02: |/workspace/.gemini/skills/bubbletea/SKILL.md                                    |
+02: |/workspace/openagy/skills/bubbletea/SKILL.md                                    |
 03: |                                                                                |
 04: |   Bubbletea TUI Development                                                    |
 05: |                                                                                |
-06: |  Production-ready skill for building beautiful terminal user interfaces with Go|
-07: |, Bubbletea, and Lipgloss.                                                      |
-08: |  (1–7 of 276 lines)                                                            |
-09: |                                                                                |
-10: |  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · esc back    |
+06: |  Build terminal user interfaces with Go and Bubbletea framework.               |
+07: |  (1–7 of 8 lines)                                                              |
+08: |                                                                                |
+09: |  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · esc back    |
+10: |                                                                                |
 11: |                                                                                |
 12: |                                                                                |
 13: |                                                                                |
@@ -31,11 +31,11 @@
 03: (plain)
 04: [2:29] fg=color256:228,bg=color256:63,bold
 05: (plain)
-06: [2:80] fg=color256:235
-07: [0:26] fg=color256:235
-08: [0:20] fg=#657b83
-09: (plain)
-10: [2:5] fg=#268bd2,bold | [5:15] fg=#657b83 | [15:26] fg=#268bd2,bold | [26:34] fg=#657b83 | [34:42] fg=#268bd2,bold | [42:52] fg=#657b83 | [52:61] fg=#268bd2,bold | [61:68] fg=#657b83 | [68:71] fg=#268bd2,bold | [71:76] fg=#657b83
+06: [2:65] fg=color256:235
+07: [0:18] fg=#657b83
+08: (plain)
+09: [2:5] fg=#268bd2,bold | [5:15] fg=#657b83 | [15:26] fg=#268bd2,bold | [26:34] fg=#657b83 | [34:42] fg=#268bd2,bold | [42:52] fg=#657b83 | [52:61] fg=#268bd2,bold | [61:68] fg=#657b83 | [68:71] fg=#268bd2,bold | [71:76] fg=#657b83
+10: (plain)
 11: (plain)
 12: (plain)
 13: (plain)

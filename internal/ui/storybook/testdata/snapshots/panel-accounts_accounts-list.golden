@@ -5,7 +5,7 @@
 02: |                                                                                |
 03: |  No accounts. Press a to sign in.                                              |
 04: |                                                                                |
-05: |  /workspace/.openagy/accounts.json                                             |
+05: |  /workspace/accounts.json                                                      |
 06: |Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  r Refresh  tab Po|
 07: |ol  esc Exit                                                                    |
 08: |                                                                                |
@@ -30,7 +30,7 @@
 02: (plain)
 03: [2:34] fg=#586e75
 04: (plain)
-05: [2:35] fg=#586e75
+05: [2:26] fg=#586e75
 06: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:29] fg=#268bd2 | [30:36] fg=#657b83 | [38:39] fg=#268bd2 | [40:51] fg=#657b83 | [53:54] fg=#268bd2 | [55:61] fg=#657b83 | [63:64] fg=#268bd2 | [65:72] fg=#657b83 | [74:77] fg=#268bd2 | [78:80] fg=#657b83
 07: [0:2] fg=#657b83 | [4:7] fg=#268bd2 | [8:12] fg=#657b83
 08: (plain)

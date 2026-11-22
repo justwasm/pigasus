@@ -5,6 +5,10 @@ import (
 )
 
 func TestSanitizer_Paths(t *testing.T) {
+	s := newDefaultSanitizer()
+	s.repoRoot = "/Users/gear/GitHub/openagy"
+	s.userHome = "/Users/gear"
+
 	tests := []struct {
 		input string
 		want  string
@@ -21,9 +25,12 @@ func TestSanitizer_Paths(t *testing.T) {
 			input: "Path: /home/runner/work/openagy/test.go",
 			want:  "Path: /workspace/work/openagy/test.go",
 		},
+		{
+			input: "Workspace: ~/GitHub/openagy/internal/ui/storybook/.agents/skills/{skill_name}/SKILL.md",
+			want:  "Workspace: ~/workspace/openagy/internal/ui/storybook/.agents/skills/{skill_name}/SKILL.md",
+		},
 	}
 
-	s := DefaultSanitizer()
 	for _, tc := range tests {
 		got := s.Sanitize(tc.input)
 		if got != tc.want {

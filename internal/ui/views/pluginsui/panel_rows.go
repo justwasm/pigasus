@@ -56,7 +56,13 @@ type shelf struct {
 // The "enabled only" filter drops the plugins whose
 // plugins.<name>.enabled is false; a read failure reads as disabled.
 func (p *Panel) installedRows() []plugins.Row {
-	return FilterInstalledEnabledOnly(plugins.InstalledRows(), p.enabledOnly)
+	var rows []plugins.Row
+	if p != nil && p.seams.InstalledRows != nil {
+		rows = p.seams.InstalledRows()
+	} else {
+		rows = plugins.InstalledRows()
+	}
+	return FilterInstalledEnabledOnly(rows, p.enabledOnly)
 }
 
 // installedVisibleRows returns the Installed rows the tab shows under the
@@ -74,6 +80,9 @@ func (p *Panel) installedVisibleRows() []plugins.Row {
 
 // marketplaces returns the marketplace feed the Discover tab lists.
 func (p *Panel) marketplaces() []plugins.Marketplace {
+	if p != nil && p.seams.Marketplaces != nil {
+		return p.seams.Marketplaces()
+	}
 	return plugins.Marketplaces()
 }
 

@@ -269,13 +269,13 @@ func (s *fileDiffStepStory) View() string {
 	var step toolsteps.Step
 	if s.state == 0 {
 		args, _ := json.Marshal(map[string]any{
-			"Path": "/Users/gear/GitHub/openagy/internal/ui/storybook/types.go",
+			"Path": "/workspace/openagy/internal/ui/storybook/types.go",
 		})
 		diffText := "package storybook\n\ntype Story struct {\n    ID string\n    Name string\n}"
 		step = toolsteps.NewToolStep("write_file", args, diffText, false)
 	} else {
 		args, _ := json.Marshal(map[string]any{
-			"Path": "/Users/gear/GitHub/openagy/internal/tui/tui_view.go",
+			"Path": "/workspace/openagy/internal/tui/tui_view.go",
 		})
 		diffText := "@@ -179,6 +179,0 @@\n-	if m.conversation.streaming || m.conversation.thinking {\n-		return false\n-	}\n-	if m.session.store.BashRunning() {\n-		return false\n-	}"
 		step = toolsteps.NewToolStep("edit_file", args, diffText, false)

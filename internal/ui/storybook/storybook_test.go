@@ -718,8 +718,8 @@ func TestSnapshotRegression(t *testing.T) {
 	for _, s := range stories {
 		t.Run(s.ID, func(t *testing.T) {
 			for stateIdx, st := range s.States {
-				// State 0 of workspace-herdr spawns an unmocked live shell process with machine-dependent prompt
-				if s.ID == "workspace-herdr" && st.ID == "live-pane" {
+				// State 0 of workspace-herdr and organism-herdr-multiplexer spawn unmocked live shell processes with machine-dependent prompt
+				if (s.ID == "workspace-herdr" && st.ID == "live-pane") || s.ID == "organism-herdr-multiplexer" {
 					continue
 				}
 				// States 1 & 2 of panel-codesearch perform live regex searches across the active Git workspace

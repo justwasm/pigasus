@@ -59,12 +59,12 @@ func (s *herdrStory) initModel() {
 		_, _ = s.model.SpawnMockPane("pigasus-srv", "[INFO] Listening on ws://127.0.0.1:8080/agentlink\r\n[INFO] 1 client attached (pigasus-tui)\r\n[TURN] Executing turn for session 00ac8418\r\n")
 		_, _ = s.model.SpawnMockPane("test-runner", "=== RUN   TestHerdr_PaneMockLifecycle\r\n--- PASS: TestHerdr_PaneMockLifecycle (0.00s)\r\n=== RUN   TestHerdr_ManagerOperations\r\n--- PASS: TestHerdr_ManagerOperations (0.00s)\r\nPASS\r\n")
 
-		ws2 := s.model.Manager.AddWorkspace("herdr", "/Users/gear/GitHub/herdr")
+		ws2 := s.model.Manager.AddWorkspace("herdr", "/workspace/herdr")
 		ws2.Branch = "feat/sidebar"
 		ws2.Ahead = 1
 		_, _ = s.model.SpawnMockPane("cargo build", "Compiling herdr v0.9.5\r\nFinished release [optimized] target(s) in 3.42s\r\n$ ")
 
-		ws3 := s.model.Manager.AddWorkspace("tuios", "/Users/gear/GitHub/tuios")
+		ws3 := s.model.Manager.AddWorkspace("tuios", "/workspace/tuios")
 		ws3.Branch = "master"
 		_, _ = s.model.SpawnMockPane("daemon", "2026-11-12 [INFO] Socket server listening on /tmp/tuios.sock\r\n")
 
@@ -80,7 +80,7 @@ func (s *herdrStory) initModel() {
 		ws1.Branch = "main"
 		_, _ = s.model.SpawnMockPane("build", "$ make quick && make arch\r\nall rules hold: 324 packages pass\r\n$ ")
 
-		ws2 := s.model.Manager.AddWorkspace("herdr", "/Users/gear/GitHub/herdr")
+		ws2 := s.model.Manager.AddWorkspace("herdr", "/workspace/herdr")
 		ws2.Branch = "main"
 		_, _ = s.model.SpawnMockPane("cargo test", "test result: ok. 142 passed; 0 failed\r\n")
 

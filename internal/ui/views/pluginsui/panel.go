@@ -14,6 +14,7 @@ package pluginsui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 )
 
 // The two /plugin tabs.
@@ -38,6 +39,11 @@ type Seams struct {
 	// close it, and the panel does not own the transcript block the
 	// close writes, so the host's own closer is the seam.
 	Close func() tea.Cmd
+
+	// InstalledRows returns custom installed plugin rows (e.g. for testing / storybook).
+	InstalledRows func() []plugins.Row
+	// Marketplaces returns custom marketplace feeds (e.g. for testing / storybook).
+	Marketplaces func() []plugins.Marketplace
 }
 
 // Panel is the /plugin picker.

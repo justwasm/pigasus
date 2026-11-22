@@ -306,9 +306,16 @@ func trimBlankLines(in []DetailLine) []DetailLine {
 	return in[i:j]
 }
 
+// SkillFileReader allows mocking or virtualizing skill documentation reads.
+var SkillFileReader = os.ReadFile
+
 // MDSkillBody reads the SKILL.md at path and returns its rendered body.
 func MDSkillBody(path string) []DetailLine {
-	data, err := os.ReadFile(path)
+	fn := SkillFileReader
+	if fn == nil {
+		fn = os.ReadFile
+	}
+	data, err := fn(path)
 	if err != nil {
 		return nil
 	}

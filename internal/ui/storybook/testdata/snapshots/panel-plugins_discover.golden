@@ -1,51 +1,51 @@
 === 2D SCREEN BUFFER [80x24] ===
 --- TEXT MATRIX ---
-00: |  ● gmail Search, read, draft, and send emails in Gmail.                        |
-01: |  ● gsheets Read, write, and format spreadsheets.                               |
-02: |  ● google-developer-knowledge Search and retrieve official documentation a...  |
-03: |                                                                                |
-04: |  DevOps                                                                        |
-05: |  ● data-agent-kit-plugin This plugin provides a specialized suite of skill...  |
-06: |  ● firebase Prototype, build & run modern apps that users love with Fireba...  |
-07: |  ● google-developer-knowledge Search and retrieve official documentation a...  |
-08: |  ● google-cloud-developer Google Cloud guidance for coding agents: first-p...  |
-09: |  ● google-home-developer Search official Google Home, Matter, and OpenThre...  |
+00: |  Plugins                                                                       |
+01: |  Installed (4)    Discover (3)   (tab to cycle)                                |
+02: |  Type to search plugins...                                                     |
+03: |> + Install from local directory...                                             |
+04: |                                                                                |
+05: |  Developer Tools                                                               |
+06: |  ● github GitHub repository and issue management.                              |
+07: |                                                                                |
+08: |  Productivity                                                                  |
+09: |  ● gmail Search, read, draft, and send emails in Gmail.                        |
 10: |                                                                                |
 11: |  Data & Analytics                                                              |
-12: |  ● data-agent-kit-plugin This plugin provides a specialized suite of skill...  |
-13: |  ● chemistry RDKit cheminformatics, reaction and property tools, plus ChEM...  |
-14: |  ● genomics AlphaGenome and major genetics databases to analyze DNA varian...  |
-15: |  ● science-overview Antigravity for science highlights, and an overview of...  |
-16: |  ● structural-biology AlphaFold, 3D visualization tools, and protein datab...  |
-17: |  ● looker Connect to your managed Looker MCP server to explore data, run s...  |
-18: |                                                                                |
-19: |  Notice: Third-party developer tools are provided by external partners and subj|
-20: |ect to their own terms and privacy policies.                                    |
+12: |  ● sqlite SQLite database explorer and query runner.                           |
+13: |                                                                                |
+14: |  Notice: Third-party developer tools are provided by external partners and subj|
+15: |ect to their own terms and privacy policies.                                    |
+16: |                                                                                |
+17: |Keyboard: ↑/↓ Navigate  ←/→ Page  tab Cycle Tabs  enter / ctrl+s Enter Local Pat|
+18: |h  ctrl+e Expand Shelf  [/] Prev/Next Shelf  esc Exit                           |
+19: |                                                                                |
+20: |                                                                                |
 21: |                                                                                |
-22: |Keyboard: ↑/↓ Navigate  ←/→ Page  tab Cycle Tabs  enter / ctrl+s Enter Local Pat|
-23: |h  ctrl+e Expand Shelf  [/] Prev/Next Shelf  esc Exit                           |
+22: |                                                                                |
+23: |                                                                                |
 --- ATTRIBUTE MATRIX ---
-00: [2:3] fg=#eee8d5 | [4:9] bold | [10:56] fg=#657b83
-01: [2:3] fg=#eee8d5 | [4:11] bold | [12:49] fg=#657b83
-02: [2:3] fg=#eee8d5 | [4:30] bold | [31:78] fg=#657b83
-03: (plain)
-04: [0:8] bold
-05: [2:3] fg=#eee8d5 | [4:25] bold | [26:78] fg=#657b83
-06: [2:3] fg=#eee8d5 | [4:12] bold | [13:78] fg=#657b83
-07: [2:3] fg=#eee8d5 | [4:30] bold | [31:78] fg=#657b83
-08: [2:3] fg=#eee8d5 | [4:26] bold | [27:78] fg=#657b83
-09: [2:3] fg=#eee8d5 | [4:25] bold | [26:78] fg=#657b83
+00: [0:9] bold
+01: [2:15] fg=#eee8d5 | [19:27] fg=#268bd2,bold,ul | [27:28] fg=#268bd2,ul | [28:31] fg=#268bd2,bold,ul | [32:48] fg=#eee8d5
+02: [0:27] fg=#586e75
+03: [0:2] fg=#268bd2 | [2:35] fg=#268bd2,bold
+04: (plain)
+05: [0:17] bold
+06: [2:3] fg=#eee8d5 | [4:10] bold | [11:50] fg=#657b83
+07: (plain)
+08: [0:14] bold
+09: [2:3] fg=#eee8d5 | [4:9] bold | [10:56] fg=#657b83
 10: (plain)
 11: [0:18] bold
-12: [2:3] fg=#eee8d5 | [4:25] bold | [26:78] fg=#657b83
-13: [2:3] fg=#eee8d5 | [4:13] bold | [14:78] fg=#657b83
-14: [2:3] fg=#eee8d5 | [4:12] bold | [13:78] fg=#657b83
-15: [2:3] fg=#eee8d5 | [4:20] bold | [21:78] fg=#657b83
-16: [2:3] fg=#eee8d5 | [4:22] bold | [23:78] fg=#657b83
-17: [2:3] fg=#eee8d5 | [4:10] bold | [11:78] fg=#657b83
-18: (plain)
-19: [0:80] fg=color256:238
-20: [0:80] fg=color256:238
+12: [2:3] fg=#eee8d5 | [4:10] bold | [11:53] fg=#657b83
+13: (plain)
+14: [0:80] fg=color256:238
+15: [0:44] fg=color256:238
+16: (plain)
+17: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:32] fg=#657b83 | [34:37] fg=#268bd2 | [38:48] fg=#657b83 | [50:64] fg=#268bd2 | [65:80] fg=#657b83
+18: [0:1] fg=#657b83 | [3:9] fg=#268bd2 | [10:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:43] fg=#657b83 | [45:48] fg=#268bd2 | [49:53] fg=#657b83
+19: (plain)
+20: (plain)
 21: (plain)
-22: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:32] fg=#657b83 | [34:37] fg=#268bd2 | [38:48] fg=#657b83 | [50:64] fg=#268bd2 | [65:80] fg=#657b83
-23: [0:1] fg=#657b83 | [3:9] fg=#268bd2 | [10:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:43] fg=#657b83 | [45:48] fg=#268bd2 | [49:80] fg=#657b83
+22: (plain)
+23: (plain)

@@ -6,10 +6,10 @@
 03: |          ────────────────────                                                  |
 04: |                                                                                |
 05: |> Agent Mode                   default                                          |
-06: |  Animation Speed              slow                                             |
-07: |  Artifact Review              always proceeds                                  |
-08: |  Color Scheme                 dark                                             |
-09: |  Conversation Picker Grouping grouped                                          |
+06: |  Animation Speed              medium                                           |
+07: |  Artifact Review              asks for review                                  |
+08: |  Color Scheme                 terminal                                         |
+09: |  Conversation Picker Grouping none                                             |
 10: |  Copy on Select               on                                               |
 11: |                                                                                |
 12: |  'default': standard behavior. 'accept-edits': auto-approve file edits, prompt |
