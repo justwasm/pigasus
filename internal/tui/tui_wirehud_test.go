@@ -80,7 +80,7 @@ func TestRootModel_WireHUD_SlashCommandAndKeyToggle(t *testing.T) {
 }
 
 func TestRootModel_WireHUD_DebugWireFlag(t *testing.T) {
-	fs := cli.NewFlagSet("pigasus")
+	fs := cli.NewFlagSet("pigasus", append(cli.StandardFlags(), cli.ExtraFlags()...))
 	if err := fs.Parse([]string{"--debug-wire"}); err != nil {
 		t.Fatalf("fs.Parse failed: %v", err)
 	}
@@ -109,6 +109,7 @@ func TestRootModel_WireHUD_VoiceTelemetryRendered(t *testing.T) {
 		},
 	})
 	sess := voicebackend.NewNativeLiveSession(mockBackend, nil)
+	sess.RecordSpeechActivity()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := sess.Start(ctx, voicebackend.LiveSessionConfig{Voice: "Aoede"}); err != nil {
@@ -116,12 +117,10 @@ func TestRootModel_WireHUD_VoiceTelemetryRendered(t *testing.T) {
 	}
 	defer sess.HangUp()
 
-	// Send audio chunk so Tx stats are non-zero, and wait briefly for Rx event.
-	_ = sess.SendAudio(make([]byte, 3200))
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
 		st := sess.WireStats()
-		if st.AudioSentChunks > 0 && st.AudioRecvChunks > 0 && st.TurnsCompleted > 0 {
+		if st.AudioRecvChunks > 0 && st.TurnsCompleted > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)

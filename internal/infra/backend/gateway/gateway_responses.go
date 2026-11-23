@@ -283,6 +283,8 @@ func (t *responsesToolTracker) emit(ctx context.Context, out chan<- backend.Stre
 
 type responsesSSEEvent struct {
 	Type        string                `json:"type"`
+	Code        any                   `json:"code,omitempty"`
+	Message     string                `json:"message,omitempty"`
 	Delta       string                `json:"delta,omitempty"`
 	Text        string                `json:"text,omitempty"`
 	ItemID      string                `json:"item_id,omitempty"`
@@ -366,6 +368,12 @@ func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string,
 			errType = errPayload.Type
 			errCode = formatSSEErrorCode(errPayload.Code)
 			errMsg = errPayload.Message
+		}
+		if errCode == "" && ev.Code != nil {
+			errCode = formatSSEErrorCode(ev.Code)
+		}
+		if errMsg == "" && ev.Message != "" {
+			errMsg = ev.Message
 		}
 		if errMsg == "" && errCode != "" {
 			errMsg = errCode

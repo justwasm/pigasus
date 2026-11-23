@@ -480,3 +480,82 @@ func TestEditor_PutProviderRejectsAnEmptyID(t *testing.T) {
 		t.Fatal("an empty provider id was accepted")
 	}
 }
+
+func TestEditor_RoundTripsAccountsFallbacksAndCapabilities(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	ed := NewEditor(path)
+
+	wantProvider := ProviderConfig{
+		ID:            "openrouter",
+		Name:          "OpenRouter",
+		Type:          ProviderTypeOpenAI,
+		BaseURL:       "https://openrouter.ai/api/v1",
+		ActiveAccount: "acct-b",
+		Accounts: []ProviderAccount{
+			{ID: "acct-a", APIKey: "sk-a", Label: "Primary"},
+			{ID: "acct-b", APIKey: "sk-b", Label: "Backup", Disabled: true},
+		},
+		Fallbacks: []string{"anthropic/claude-sonnet-4-6"},
+		FallbackChain: []string{
+			"anthropic/claude-sonnet-4-6",
+		},
+	}
+	if err := ed.PutProvider("openrouter", wantProvider); err != nil {
+		t.Fatalf("PutProvider: %v", err)
+	}
+
+	thinking := true
+	tools := false
+	wantModel := ProviderModel{
+		ID:                "openai/gpt-5",
+		Name:              "GPT-5",
+		ContextWindow:     200000,
+		DefaultMaxTokens:  16384,
+		SupportsThinking:  &thinking,
+		SupportsToolCalls: &tools,
+		Fallbacks:         []string{"claude-sonnet-4-6"},
+		FallbackChain: []string{
+			"anthropic/claude-sonnet-4-6",
+		},
+	}
+	if err := ed.PutModel("openrouter", wantModel); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+
+	providers, err := ed.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	gotP, ok := providers["openrouter"]
+	if !ok {
+		t.Fatalf("openrouter missing from List: %+v", providers)
+	}
+	if gotP.ActiveAccount != "acct-b" {
+		t.Fatalf("ActiveAccount = %q, want acct-b", gotP.ActiveAccount)
+	}
+	if !reflect.DeepEqual(gotP.Accounts, wantProvider.Accounts) {
+		t.Fatalf("Accounts = %+v, want %+v", gotP.Accounts, wantProvider.Accounts)
+	}
+	if !reflect.DeepEqual(gotP.Fallbacks, wantProvider.Fallbacks) {
+		t.Fatalf("Provider Fallbacks = %+v, want %+v", gotP.Fallbacks, wantProvider.Fallbacks)
+	}
+	if !reflect.DeepEqual(gotP.FallbackChain, wantProvider.FallbackChain) {
+		t.Fatalf("Provider FallbackChain = %+v, want %+v", gotP.FallbackChain, wantProvider.FallbackChain)
+	}
+	if len(gotP.Models) != 1 {
+		t.Fatalf("Models len = %d, want 1", len(gotP.Models))
+	}
+	gotM := gotP.Models[0]
+	if gotM.SupportsThinking == nil || !*gotM.SupportsThinking {
+		t.Fatalf("SupportsThinking = %v, want true", gotM.SupportsThinking)
+	}
+	if gotM.SupportsToolCalls == nil || *gotM.SupportsToolCalls {
+		t.Fatalf("SupportsToolCalls = %v, want false", gotM.SupportsToolCalls)
+	}
+	if !reflect.DeepEqual(gotM.Fallbacks, wantModel.Fallbacks) {
+		t.Fatalf("Model Fallbacks = %+v, want %+v", gotM.Fallbacks, wantModel.Fallbacks)
+	}
+	if !reflect.DeepEqual(gotM.FallbackChain, wantModel.FallbackChain) {
+		t.Fatalf("Model FallbackChain = %+v, want %+v", gotM.FallbackChain, wantModel.FallbackChain)
+	}
+}

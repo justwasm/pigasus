@@ -52,13 +52,13 @@ type Session struct {
 	scroll     []byte
 	totalBytes int64
 	acked      map[string]int64
-	exited   bool
-	exitCode int
-	closed   bool
-	titleNow string
-	cwdNow   string
-	scanner  oscScanner
-	done     chan struct{}
+	exited     bool
+	exitCode   int
+	closed     bool
+	titleNow   string
+	cwdNow     string
+	scanner    oscScanner
+	done       chan struct{}
 }
 
 // subscriber is one open output stream.

@@ -183,8 +183,8 @@ type mockVoiceThinkerEngine struct {
 
 func (e *mockVoiceThinkerEngine) Turn(ctx context.Context, t agentturn.Turn) (<-chan agentlink.Frame, error) {
 	ch := make(chan agentlink.Frame, 2)
-	ch <- agentlink.Frame{Kind: agentlink.FrameText, Text: e.answer}
-	ch <- agentlink.Frame{Kind: agentlink.FrameDone}
+	ch <- agentlink.Frame{Kind: agentlink.KindText, Text: e.answer}
+	ch <- agentlink.Frame{Kind: agentlink.KindResult}
 	close(ch)
 	return ch, nil
 }
@@ -256,8 +256,8 @@ func TestVoiceLiveStream_NotifyWaitingOnUser(t *testing.T) {
 
 	m.notifyVoiceWaitingOnUser("Approve running go test?")
 	host := m.turnInteractionHost()
-	if host.onWaiting != nil {
-		host.onWaiting("Which environment should I target?")
+	if th, ok := host.(*turnInteractionHost); ok && th.onWaiting != nil {
+		th.onWaiting("Which environment should I target?")
 	}
 
 	last := mockBackend.LastSession()

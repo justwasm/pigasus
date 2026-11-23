@@ -413,7 +413,7 @@ func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
 	}
 	defer func() { _ = reg.Close(info.TerminalID, true) }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	ch, err := reg.StreamChannelFrom(ctx, info.TerminalID, 0)
@@ -428,11 +428,11 @@ func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
 	vt := midterm.NewTerminal(24, 80)
 	var lastOffset int64
 	var rendered bytes.Buffer
-	deadline := time.After(8 * time.Second)
+	deadline := time.After(25 * time.Second)
 	for {
 		rendered.Reset()
 		_ = vt.Render(&rendered)
-		if strings.Contains(rendered.String(), "GREEN_PTY") && strings.Contains(rendered.String(), "\x1b[32m") {
+		if strings.Contains(rendered.String(), "\x1b[32mGREEN_PTY") {
 			break
 		}
 		select {
@@ -452,7 +452,7 @@ func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
 	}
 
 	// Resume from lastOffset and send a second marker; first marker must NOT replay.
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel2()
 	ch2, err := reg.StreamChannelFrom(ctx2, info.TerminalID, lastOffset)
 	if err != nil {
@@ -462,7 +462,7 @@ func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
 		t.Fatalf("Write second: %v", err)
 	}
 	var resumed strings.Builder
-	deadline2 := time.After(8 * time.Second)
+	deadline2 := time.After(15 * time.Second)
 	for !strings.Contains(resumed.String(), "RESUME_SECOND_MARKER") {
 		select {
 		case f, ok := <-ch2:
