@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/artifacts"
@@ -37,11 +38,14 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/version"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 )
 
 // Version is the server's version. It rides the hello frame, so a
@@ -215,6 +219,7 @@ func (s *Server) Listen() (net.Listener, error) {
 // Serve serves on an existing listener until the context is cancelled.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	s.prepare()
+	defer s.closeAllSessions()
 	return s.link.Serve(ctx, ln, agentlink.HandlerFunc(s.serve))
 }
 
@@ -222,7 +227,22 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // cancelled.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	s.prepare()
+	defer s.closeAllSessions()
 	return s.link.ListenAndServe(ctx, agentlink.HandlerFunc(s.serve))
+}
+
+func (s *Server) closeAllSessions() {
+	s.sessionsMu.Lock()
+	sessions := make([]*serverSession, 0, len(s.sessions))
+	for _, ss := range s.sessions {
+		sessions = append(sessions, ss)
+	}
+	s.sessionsMu.Unlock()
+	for _, ss := range sessions {
+		if ss != nil && ss.session != nil && ss.session.Close != nil {
+			ss.session.Close()
+		}
+	}
 }
 
 // prepare does the process-wide setup the session's tools need.
@@ -486,6 +506,8 @@ type Session struct {
 	Effort string
 	// BackendFor returns the transport for a model.
 	BackendFor func(model string) backend.Client
+	// Close releases session-scoped resources such as in-process terminal PTYs.
+	Close func()
 }
 
 // env builds the environment one turn runs in.
@@ -568,15 +590,25 @@ func (s *Server) sessionForID(id, ws, model string) (*Session, error) {
 		Sandbox: sandbox,
 	}
 
+	decls := toolrunner.AdvertisedToolDecls(s.cfg.AgentBody, catalog)
+	var closeFn func()
+	if s.cfg.AgentBody == "" {
+		termMgr := terminalmgr.New(workspace)
+		catalog.Register(&terminaltool.Tool{Manager: termMgr})
+		decls = append(decls, terminaltool.MinimalDecl())
+		closeFn = termMgr.CloseAll
+	}
+
 	return &Session{
 		Workspace:      workspace,
 		ConversationID: conversationID,
 		Model:          model,
 		Prompt:         s.prompt(workspace, agentDir, conversationID),
-		Tools:          toolrunner.AdvertisedToolDecls(s.cfg.AgentBody, catalog),
+		Tools:          decls,
 		Runner:         runner,
 		Effort:         s.cfg.Effort,
 		BackendFor:     s.cfg.BackendFor,
+		Close:          closeFn,
 	}, nil
 }
 
@@ -592,8 +624,13 @@ func (s *Server) prompt(workspace, agentDir, conversationID string) string {
 			opts.Workspaces = append(opts.Workspaces, abs)
 		}
 	}
+	_, _ = pigasusskills.Install(configdir.Dir())
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
-	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, workspace))
+	skillPaths := agyprompt.AgySkillPaths(agentDir, workspace)
+	if dir := pigasusskills.SkillsDir(configdir.Dir()); dir != "" {
+		skillPaths = append(skillPaths, dir)
+	}
+	opts.Skills = agyprompt.DiscoverSkills(skillPaths)
 	if s.cfg.AgentBody == "" {
 		// The browser agent is one of the built-in subagent types, and
 		// it comes before the user's own agents.

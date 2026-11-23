@@ -21,6 +21,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/artifacts"
@@ -39,6 +40,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
+	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/app/tools/workflow"
 	"github.com/justwasm/pigasus/internal/app/tuistore"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -57,6 +59,7 @@ import (
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
+	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
@@ -663,7 +666,11 @@ func (m *RootModel) promptOptions() agyprompt.Options {
 		}
 	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
-	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, m.session.cwd))
+	skillPaths := agyprompt.AgySkillPaths(agentDir, m.session.cwd)
+	if dir := pigasusskills.SkillsDir(configdir.Dir()); dir != "" {
+		skillPaths = append(skillPaths, dir)
+	}
+	opts.Skills = agyprompt.DiscoverSkills(skillPaths)
 	opts.Sandboxed = cliflags.BoolValue(m.session.flags, "sandbox")
 	opts.PlanningMode = (m.session.mode == permissions.ModePlan)
 	opts.Persona = m.Persona()
@@ -1034,6 +1041,7 @@ func (m *RootModel) reloadPluginsAndMCP() {
 	m.registerSubagentQuestionTool(m.tools.catalog)
 
 	decls := toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, m.tools.catalog, m.tools.sandbox.Enabled)
+	decls = m.registerTerminalTool(m.tools.catalog, decls)
 	var runner backend.ToolRunner
 	if m.session.policy != nil {
 		runner = &permissionRunner{
@@ -1069,6 +1077,21 @@ func (m *RootModel) registerSubagentQuestionTool(catalog *tools.Registry) {
 	})
 }
 
+func (m *RootModel) registerTerminalTool(catalog *tools.Registry, decls []backend.ToolDecl) []backend.ToolDecl {
+	if m == nil || m.session.agentBody != "" {
+		return decls
+	}
+	if catalog != nil {
+		catalog.Register(&terminaltool.Tool{Manager: m.terminalManager()})
+	}
+	for _, d := range decls {
+		if d.Name == terminaltool.ToolName {
+			return decls
+		}
+	}
+	return append(decls, terminaltool.MinimalDecl())
+}
+
 // requestAskQuestion sends the open request to the running program.
 //
 // The tool calls this from the turn's goroutine. With no program (unit
@@ -1091,7 +1114,9 @@ func (m *RootModel) applyAgentSwitch(name, body string) {
 	if m.session.policy != nil {
 		catalog := agentToolRegistry(workspace, body)
 		m.registerSubagentQuestionTool(catalog)
-		m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(body, catalog, m.tools.sandbox.Enabled), &permissionRunner{
+		decls := toolrunner.AdvertisedToolDeclsWithSandbox(body, catalog, m.tools.sandbox.Enabled)
+		decls = m.registerTerminalTool(catalog, decls)
+		m.enableTools(decls, &permissionRunner{
 			inner:   &toolrunner.RegistryRunner{Reg: catalog},
 			policy:  m.session.policy,
 			sandbox: m.tools.sandbox,

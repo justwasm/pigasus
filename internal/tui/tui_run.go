@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/browsercdp"
+	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
@@ -35,6 +36,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/personas"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
+	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/infra/daemon"
 	"github.com/justwasm/pigasus/internal/infra/memtrim"
@@ -531,7 +533,9 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 	sessionPolicy := printmode.PrintModePolicy(fs)
 	sessionSandbox := printmode.PrintModeSandbox(fs, workspace, m.session.conversationID)
 	m.tools.sandbox = sessionSandbox
-	m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, sessionSandbox.Enabled), &permissionRunner{
+	decls := toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, sessionSandbox.Enabled)
+	decls = m.registerTerminalTool(catalog, decls)
+	m.enableTools(decls, &permissionRunner{
 		inner:   &toolrunner.RegistryRunner{Reg: catalog},
 		policy:  &sessionPolicy,
 		sandbox: sessionSandbox,
@@ -605,6 +609,7 @@ func RunLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	_ = settings.NormalizeOnStartup()
 	_ = cli.RunPluginCleanupOnStartup(confhome.Antigravity())
 	_, _ = builtinskills.Install(confhome.Antigravity())
+	_, _ = pigasusskills.Install(configdir.Dir())
 	return runLiveTUI(w, fs)
 }
 

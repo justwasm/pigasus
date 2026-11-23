@@ -32,6 +32,7 @@
 | Plugin Runtime Hot-Reload | hot-reloading tool catalogs & MCP providers during active turn on filesystem changes | `internal/features/plugins/watch` |
 | Upstream Parity Fuzzer | AST and binary string symbol fuzzing against upstream reference binary to detect schema drift | `scripts/re/parity_fuzz.py` |
 | `/terminal` | interactive PTY panel (`midterm`) & transcript runner across local (`rcterminal`), server, and `--remote-agent` sessions; listed in `/` autocomplete | `internal/ui/views/terminalpanel`, `internal/tui/terminal_service.go`, [`remote-agents.md`](remote-agents.md) §3.6 |
+| `terminal` tool & built-in skill | in-process persistent tmux-like PTY tool (`list`/`new`/`capture`/`send`/`resize`/`kill`) shared with `/terminal` in TUI and available in `--print` / `agentserver` without approval prompts; full usage in embedded `terminal/SKILL.md` unpacked to `~/.openagy/builtin-skills/` | `internal/infra/terminalmgr`, `internal/app/tools/terminal`, `internal/features/tools/skills/pigasusskills` |
 | `/upload <path>` | hidden host-only wrapper over `uploadProjectFile` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/triggers` | hidden host-only trigger management | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/upload`, `/triggers` | hidden from the `/` picker; registered in `slashcommands.Hidden` | [`hidden-commands-and-flags.md`](hidden-commands-and-flags.md) |

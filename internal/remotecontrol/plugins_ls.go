@@ -662,14 +662,22 @@ func lsPluginMCPServersJSON(p core.InstalledPlugin) []any {
 	if err != nil {
 		return []any{}
 	}
-	out := make([]any, 0, len(servers))
-	for i, s := range servers {
+	// Sort server names for deterministic order and numeric index.
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]any, 0, len(names))
+	for idx, name := range names {
+		s := servers[name]
 		entry := map[string]any{
 			"serverName":         s.Name,
 			"command":            s.Command,
 			"args":               lsStringsJSON(s.Args),
 			"disabled":           false,
-			"serverIndex":        i,
+			"serverIndex":        uint32(idx),
 			"pluginName":         p.Name,
 			"pluginRoot":         p.Path,
 			"configPath":         filepath.Join(p.Path, "mcp_config.json"),

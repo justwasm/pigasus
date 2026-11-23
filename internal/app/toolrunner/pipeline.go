@@ -48,6 +48,9 @@ func PermissionGateMiddleware(
 ) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, call backend.ToolCall) (string, error) {
+			if call.Name == "terminal" {
+				return next(ctx, call)
+			}
 			if policy == nil {
 				return next(ctx, call)
 			}

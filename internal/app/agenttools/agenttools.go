@@ -23,6 +23,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 //go:embed tools_1.4.7.json
@@ -195,4 +196,28 @@ func (t *registryTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 		return nil, fmt.Errorf("unknown tool %q", t.decl.Name)
 	}
 	return t.inner.Run(ctx, args)
+}
+
+// AdaptTool wraps a tools.Tool with an explicit backend.ToolDecl as an actor.Tool.
+func AdaptTool(inner tools.Tool, decl backend.ToolDecl) actor.Tool {
+	params := surface.SchemaParams(decl.Parameters)
+	if params == nil && inner != nil {
+		params = surface.SchemaParams(inner.Schema())
+	}
+	name := decl.Name
+	if name == "" && inner != nil {
+		name = inner.Name()
+	}
+	desc := decl.Description
+	if desc == "" && inner != nil {
+		desc = tools.Describe(inner)
+	}
+	return &tool{
+		decl: Declaration{
+			Name:        name,
+			Description: desc,
+			Parameters:  params,
+		},
+		inner: inner,
+	}
 }

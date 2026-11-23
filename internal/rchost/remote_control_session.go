@@ -11,15 +11,19 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentbrowser"
+	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
+	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
@@ -107,9 +111,15 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 		ConversationID: s.prompt.ConversationID,
 	})
 
-	allTools := make([]actor.Tool, 0, len(catalogTools)+len(subTools)+1)
+	termMgr := terminalmgr.New(s.opts.Workspace)
+	defer termMgr.CloseAll()
+	termTool := &terminaltool.Tool{Manager: termMgr}
+	catalog.Register(termTool)
+
+	allTools := make([]actor.Tool, 0, len(catalogTools)+len(subTools)+2)
 	allTools = append(allTools, catalogTools...)
 	allTools = append(allTools, subTools...)
+	allTools = append(allTools, agenttools.AdaptTool(termTool, terminaltool.MinimalDecl()))
 	if s.opts.Browser != nil {
 		allTools = append(allTools, &browserActorTool{
 			tool: agentbrowser.NewTool(s.opts.Browser, agentbrowser.Options{
@@ -125,7 +135,13 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	if convID == "" {
 		convID = agyprompt.NewConversationID()
 	}
+	_, _ = pigasusskills.Install(configdir.Dir())
 	promptOpts := agyprompt.DefaultOptions(s.opts.Workspace, s.opts.AgentDir, convID)
+	skillPaths := agyprompt.AgySkillPaths(s.opts.AgentDir, s.opts.Workspace)
+	if dir := pigasusskills.SkillsDir(configdir.Dir()); dir != "" {
+		skillPaths = append(skillPaths, dir)
+	}
+	promptOpts.Skills = agyprompt.DiscoverSkills(skillPaths)
 	sysPrompt := agyprompt.Build(promptOpts)
 
 	act, err := actor.Spawn(actor.Config{

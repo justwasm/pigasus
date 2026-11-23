@@ -787,4 +787,31 @@ func TestSubscribeToPlugins_EmitsTheInstalledPlugins(t *testing.T) {
 	if len(plugins) != 2 {
 		t.Errorf("the frame carries %d plugins, want 2", len(plugins))
 	}
+
+	// Verify serverIndex is numeric (uint32 / int), not string (which breaks protobuf-es decoder).
+	foundMcp := false
+	for _, p := range plugins {
+		pMap, ok := p.(map[string]any)
+		if !ok {
+			continue
+		}
+		if pMap["name"] == "mcp-plugin" {
+			servers, _ := pMap["mcpServers"].([]any)
+			if len(servers) != 1 {
+				t.Fatalf("expected 1 mcp server, got %d", len(servers))
+			}
+			serverMap, _ := servers[0].(map[string]any)
+			idxVal := serverMap["serverIndex"]
+			switch idxVal.(type) {
+			case float64, uint32, int, int32, int64:
+				// JSON unmarshaling into map[string]any produces float64 for numbers.
+			default:
+				t.Errorf("serverIndex has type %T (%v), want numeric uint32/float64", idxVal, idxVal)
+			}
+			foundMcp = true
+		}
+	}
+	if !foundMcp {
+		t.Errorf("mcp-plugin not found in frame")
+	}
 }

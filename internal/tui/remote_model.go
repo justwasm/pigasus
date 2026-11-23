@@ -16,6 +16,7 @@ package tui
 import (
 	"context"
 
+	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
@@ -51,6 +52,8 @@ type RemoteModel struct {
 	runTerminals map[string]bool
 	// termService is the active TerminalService (local, remote agent, or server).
 	termService TerminalService
+	// termMgr owns the in-process headless terminal sessions shared with the `terminal` tool.
+	termMgr *terminalmgr.Manager
 	// controlStop stops the in-process remote-control server if one was
 	// started.
 	controlStop func()

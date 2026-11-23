@@ -14,6 +14,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
+	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
@@ -34,6 +35,26 @@ func (m *RootModel) terminalService() TerminalService {
 		m.remote.termService = NewLocalTerminalService(ws)
 	}
 	return m.remote.termService
+}
+
+func (m *RootModel) terminalManager() *terminalmgr.Manager {
+	if m == nil {
+		return nil
+	}
+	if m.remote.termMgr != nil {
+		return m.remote.termMgr
+	}
+	svc := m.terminalService()
+	if local, ok := svc.(*LocalTerminalService); ok && local != nil && local.reg != nil {
+		m.remote.termMgr = terminalmgr.NewWithRegistry(local.reg)
+		return m.remote.termMgr
+	}
+	ws := m.session.cwd
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+	m.remote.termMgr = terminalmgr.New(ws)
+	return m.remote.termMgr
 }
 
 func (m *RootModel) ensureTerminalSession(id, title, cwd string) *terminalSessionState {
@@ -257,6 +278,10 @@ func (m *RootModel) CloseAllTerminals() {
 	m.remote.runTerminals = nil
 	m.remote.terminalID = ""
 	m.overlays.panel.term = nil
+	if m.remote.termMgr != nil {
+		m.remote.termMgr.CloseAll()
+		m.remote.termMgr = nil
+	}
 }
 
 // slashTerminal handles /terminal across local and remote sessions.

@@ -75,6 +75,14 @@ func ToolStepTitleSearch(name string, args json.RawMessage) string {
 func ToolStepTitleMisc(name string, args json.RawMessage) string {
 	switch strings.ToLower(name) {
 	case "run_command", "bash", "exec", "execute_command", "execute", "terminal", "sh":
+		if strings.EqualFold(name, "terminal") {
+			if act := ArgStr(args, "action"); act != "" {
+				if target := terminalStepTarget(args); target != "" {
+					return "Terminal(" + act + " " + Clip(target, 40) + ")"
+				}
+				return "Terminal(" + act + ")"
+			}
+		}
 		if c := ArgStr(args, "CommandLine", "command", "cmd"); c != "" {
 			return "Bash(" + strings.TrimSpace(c) + ")"
 		}
@@ -152,6 +160,14 @@ func ToolStepTitle(name string, args json.RawMessage) string {
 func ToolStepSummary(name string, args json.RawMessage) string {
 	switch strings.ToLower(name) {
 	case "run_command", "bash", "exec", "execute_command", "execute", "terminal", "sh":
+		if strings.EqualFold(name, "terminal") {
+			if act := ArgStr(args, "action"); act != "" {
+				if target := terminalStepTarget(args); target != "" {
+					return "Terminal(" + act + " " + Clip(target, 40) + ")"
+				}
+				return "Terminal(" + act + ")"
+			}
+		}
 		if c := ArgStr(args, "CommandLine", "command", "cmd"); c != "" {
 			return "Ran (" + strings.TrimSpace(c) + ")"
 		}
@@ -413,4 +429,17 @@ func Clip(s string, n int) string {
 		return string(r[:n]) + "\u2026"
 	}
 	return s
+}
+
+func terminalStepTarget(args json.RawMessage) string {
+	if id := ArgStr(args, "id", "name"); id != "" {
+		return id
+	}
+	var env struct {
+		Args json.RawMessage `json:"args"`
+	}
+	if err := json.Unmarshal(args, &env); err == nil && len(env.Args) > 0 {
+		return ArgStr(env.Args, "id", "name")
+	}
+	return ""
 }

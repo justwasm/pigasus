@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/actor"
+	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
@@ -24,12 +25,15 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/browser"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
+	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 )
 
 // printHistoryTurn is one turn to replay ahead of the new prompt.
@@ -114,15 +118,22 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 		}
 	}
 
-	merged := make([]actor.Tool, 0, len(catalogTools)+len(subTools))
+	termMgr := terminalmgr.New(cfg.Workspace)
+	termTool := &terminaltool.Tool{Manager: termMgr}
+	if cfg.Catalog != nil {
+		cfg.Catalog.Register(termTool)
+	}
+
+	merged := make([]actor.Tool, 0, len(catalogTools)+len(subTools)+1)
 	merged = append(merged, catalogTools...)
 	merged = append(merged, subTools...)
+	merged = append(merged, agenttools.AdaptTool(termTool, terminaltool.MinimalDecl()))
 
 	gated := make([]actor.Tool, 0, len(merged))
 	for _, t := range merged {
 		gated = append(gated, agentturn.NewGatedTool(t, cfg.Policy, denials))
 	}
-	return gated, nil, nil
+	return gated, termMgr.CloseAll, nil
 }
 
 func installBrowserSubagent(cfg actorPrintConfig, provider actor.Provider) {
@@ -150,7 +161,11 @@ func buildPrintSystemPrompt(cfg actorPrintConfig) string {
 	if convID == "" {
 		convID = agyprompt.NewConversationID()
 	}
+	_, _ = pigasusskills.Install(configdir.Dir())
 	skillPaths := agyprompt.AgySkillPaths(cfg.AgentDir, cfg.Workspace)
+	if dir := pigasusskills.SkillsDir(configdir.Dir()); dir != "" {
+		skillPaths = append(skillPaths, dir)
+	}
 	promptOpts := agyprompt.DefaultOptions(cfg.Workspace, cfg.AgentDir, convID)
 	promptOpts.Sandboxed = cfg.Sandbox.Enabled
 	promptOpts.Persona = cfg.Persona
