@@ -1445,6 +1445,7 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 	if m.prompt.picker.IsModelMode() {
 		return m.submitModelCompletion()
 	}
+	wasTerminalMode := m.prompt.picker.IsTerminalMode()
 	sel := m.prompt.picker.Selected()
 	if sel == nil {
 		return false, nil
@@ -1463,7 +1464,6 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 	m.prompt.SetInputCursorOffset(len(completedText))
 	m.prompt.input.CursorEnd()
 	m.prompt.promptHistory.Reset()
-	m.prompt.picker.Reset()
 	if m.prompt.vimEng != nil {
 		m.prompt.vimEng.SetTextKeepingPending(completedText)
 		m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
@@ -1472,6 +1472,10 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 		}
 		m.syncVimInput()
 	}
+	if wasTerminalMode && (m.prompt.picker.Visible() || strings.HasSuffix(completedText, " ")) {
+		return true, nil
+	}
+	m.prompt.picker.Reset()
 
 	cleanCmd, cmdArgs := slashparse.Split(strings.TrimSpace(completedText))
 	if m.openSlashPanelArgs(cleanCmd, cmdArgs) {
@@ -1663,6 +1667,15 @@ func (m *RootModel) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd)
 }
 
 func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
+	if m.overlays.panel.kind == panelregistry.Terminal {
+		if tp := m.terminalPanel(); tp != nil {
+			relEv := ev
+			relEv.Y -= m.overlays.panelScreenY
+			if handled, cmd := tp.HandleMouse(relEv, false, false); handled {
+				return m, cmd
+			}
+		}
+	}
 	if (!m.viewport.altScreen && m.overlays.panel.kind == panelregistry.None) || ev.Button != tea.MouseLeft {
 		return m, nil
 	}
@@ -1742,6 +1755,15 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 
 func (m *RootModel) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	m.prompt.picker.HandleHover(ev)
+	if m.overlays.panel.kind == panelregistry.Terminal && !m.overlays.panelSelection.SelDragging {
+		if tp := m.terminalPanel(); tp != nil {
+			relEv := ev
+			relEv.Y -= m.overlays.panelScreenY
+			if handled, cmd := tp.HandleMouse(relEv, false, true); handled {
+				return m, cmd
+			}
+		}
+	}
 	if m.prompt.InputSelDragging && m.viewport.altScreen {
 		offset := m.prompt.InputOffsetAt(ev.X, ev.Y)
 		if offset != m.prompt.InputSelEnd {
@@ -1891,6 +1913,15 @@ func (m *RootModel) updateMouseReleasePanelSel(ev tea.Mouse) (tea.Model, tea.Cmd
 }
 
 func (m *RootModel) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
+	if m.overlays.panel.kind == panelregistry.Terminal && !m.overlays.panelSelection.SelDragging {
+		if tp := m.terminalPanel(); tp != nil {
+			relEv := ev
+			relEv.Y -= m.overlays.panelScreenY
+			if handled, cmd := tp.HandleMouse(relEv, true, false); handled {
+				return m, cmd
+			}
+		}
+	}
 	if m.prompt.InputSelDragging {
 		return m.updateMouseReleaseInputSel(ev)
 	}
@@ -1977,6 +2008,10 @@ func preservesTranscriptRows(msg tea.Msg) bool {
 
 func (m *RootModel) isIdleMouseMotion(msg tea.Msg) bool {
 	if _, ok := msg.(tea.MouseMotionMsg); !ok {
+		return false
+	}
+	if m.overlays.panel.kind == panelregistry.Terminal && m.overlays.panel.term != nil &&
+		(m.overlays.panel.term.MenuOpen() || m.overlays.panel.term.MouseTrackingEnabled()) {
 		return false
 	}
 	return !m.viewport.SelDragging &&

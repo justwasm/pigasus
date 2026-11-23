@@ -163,6 +163,9 @@ func (m *RootModel) applyTerminalSettings(v tea.View) tea.View {
 	v.AltScreen = altScreen
 	if altScreen {
 		v.MouseMode = tea.MouseModeCellMotion
+		if m.overlays.panel.kind == panelregistry.Terminal && m.overlays.panel.term != nil && m.overlays.panel.term.MouseAllMotion() {
+			v.MouseMode = tea.MouseModeAllMotion
+		}
 	}
 	return v
 }
@@ -892,7 +895,7 @@ func (m *RootModel) handleScrollKey(key tea.Key) bool {
 
 // handleMouseWheel scrolls the transcript or active panel on a wheel event.
 func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
-	if !m.effectiveAltScreen() {
+	if !m.effectiveAltScreen() && m.overlays.panel.kind != panelregistry.Terminal {
 		return false
 	}
 	if m.prompt.picker.HandleWheel(msg.Mouse()) {
@@ -925,6 +928,16 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 		return true
 	}
 	if m.overlays.panel.kind != panelregistry.None {
+		if m.overlays.panel.kind == panelregistry.Terminal {
+			if tp := m.terminalPanel(); tp != nil {
+				ev := msg.Mouse()
+				ev.Y -= m.overlays.panelScreenY
+				if tp.HandleWheel(ev) {
+					return true
+				}
+			}
+			return true
+		}
 		if m.overlays.panel.kind == panelregistry.Tasks && m.overlays.panel.tp != nil {
 			if m.overlays.panel.tp.HandleWheel(up) {
 				m.overlays.panel.cursor = m.overlays.panel.tp.Cursor()

@@ -119,6 +119,26 @@ func (p *Panel) CommitSelectionCmd() (bool, tea.Cmd) {
 			return true, CompletedCmd(text, true, sel.Name)
 		}
 	}
+	if p.terminalMode {
+		if p.terminalSubcmd == "" {
+			switch sel.Name {
+			case "switch", "attach", "close", "kill", "rename", "run":
+				text = "/terminal " + sel.Name + " "
+				p.setBuffer(text)
+				p.Update([]rune(text))
+				return true, CompletedCmd(text, false, sel.Name)
+			default:
+				text = "/terminal " + sel.Name
+				p.setBuffer(text)
+				p.Reset()
+				return true, CompletedCmd(text, true, sel.Name)
+			}
+		}
+		text = "/terminal " + p.terminalSubcmd + " " + sel.Name
+		p.setBuffer(text)
+		p.Reset()
+		return true, CompletedCmd(text, true, sel.Name)
+	}
 	if p.resumeMode {
 		bufStr := ""
 		if p.seams.Buffer != nil {

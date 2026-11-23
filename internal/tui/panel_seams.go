@@ -1905,7 +1905,9 @@ func (m *RootModel) engineSlashCommands() []slashcommands.Command {
 	return out
 }
 func (m *RootModel) newSlashPicker() *slashpicker.Panel {
-	return panels.NewSlashPicker(m)
+	p := panels.NewSlashPicker(m)
+	p.SetTerminalSource(m.terminalSlashCommands)
+	return p
 }
 
 // Voice
@@ -2778,50 +2780,6 @@ func (m *RootModel) initOpenedSlashPanel(kind panelregistry.Kind) {
 	m.initOpenedSlashPanelData(kind)
 }
 
-var panelInitializers = map[panelregistry.Kind]func(m *RootModel){
-	panelregistry.Provider: func(m *RootModel) {
-		m.overlays.panel.prov = m.newProviderPanel()
-		m.overlays.panel.prov.Reload()
-		m.overlays.panel.prov.Notice("")
-	},
-	panelregistry.Config:      func(m *RootModel) { m.overlays.panel.cfg = m.newConfigPanel() },
-	panelregistry.Model:       func(m *RootModel) { m.overlays.panel.mdl = m.newModelPanel() },
-	panelregistry.Plugin:      func(m *RootModel) { m.overlays.panel.plg = m.newPluginPanel() },
-	panelregistry.Skills:      func(m *RootModel) { m.overlays.panel.sk = m.newSkillsPanel() },
-	panelregistry.Permissions: func(m *RootModel) { m.overlays.panel.perm = m.newPermissionsPanel() },
-	panelregistry.Hooks:       func(m *RootModel) { m.overlays.panel.hk = m.newHooksPanel() },
-	panelregistry.Agents:      func(m *RootModel) { m.overlays.panel.ag = m.newAgentsPanel() },
-	panelregistry.Feedback:    func(m *RootModel) { m.overlays.panel.fb = m.newFeedbackPanel() },
-	panelregistry.Credits:     func(m *RootModel) { m.overlays.panel.cr = m.newCreditsPanel() },
-	panelregistry.Tasks:       func(m *RootModel) { m.overlays.panel.tp = m.newTasksPanel() },
-	panelregistry.Effort:      func(m *RootModel) { m.overlays.panel.ef = m.newEffortPanel() },
-	panelregistry.CodeSearch:  func(m *RootModel) { m.overlays.panel.csp = m.newCodesearchPanel() },
-	panelregistry.Rewind:      func(m *RootModel) { m.rewind.Reopen(m) },
-	panelregistry.Diff:        func(m *RootModel) { m.diff.Reopen(m) },
-	panelregistry.Rename: func(m *RootModel) {
-		m.overlays.panel.rn = m.newRenamePanel()
-		m.armRenameFocus()
-	},
-	panelregistry.AddDir:   func(m *RootModel) { m.overlays.panel.ad = m.newAddDirPanel() },
-	panelregistry.Context:  func(m *RootModel) { m.overlays.panel.ctxp = m.newContextPanel() },
-	panelregistry.Projects: func(m *RootModel) { m.overlays.panel.proj = m.newProjectsPanel() },
-	panelregistry.Accounts: func(m *RootModel) {
-		m.overlays.panel.acct = m.newAccountsPanel()
-		m.overlays.panel.acct.Reload()
-		m.overlays.panel.acct.ClearNotice()
-		if m.overlays.panel.cmd == "/pool" {
-			m.overlays.panel.acct.SetTab(accountspanel.TabPool)
-		}
-		m.overlays.panel.acct.ReloadPolicy()
-	},
-	panelregistry.History: func(m *RootModel) {
-		m.overlays.panel.hist = m.newHistoryPanel()
-	},
-	panelregistry.Terminal: func(m *RootModel) {
-		m.overlays.panel.term = m.newTerminalPanel()
-	},
-}
-
 func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 	if kind == panelregistry.Usage && m.viewport.height > 0 {
 		m.overlays.panel.quota = quotaState{state: quotaLoading}
@@ -2832,8 +2790,60 @@ func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 	if kind == panelregistry.Changelog {
 		changelog.TriggerOnlineSync()
 	}
-	if initFn, ok := panelInitializers[kind]; ok {
-		initFn(m)
+	switch kind {
+	case panelregistry.Provider:
+		m.overlays.panel.prov = m.newProviderPanel()
+		m.overlays.panel.prov.Reload()
+		m.overlays.panel.prov.Notice("")
+	case panelregistry.Config:
+		m.overlays.panel.cfg = m.newConfigPanel()
+	case panelregistry.Model:
+		m.overlays.panel.mdl = m.newModelPanel()
+	case panelregistry.Plugin:
+		m.overlays.panel.plg = m.newPluginPanel()
+	case panelregistry.Skills:
+		m.overlays.panel.sk = m.newSkillsPanel()
+	case panelregistry.Permissions:
+		m.overlays.panel.perm = m.newPermissionsPanel()
+	case panelregistry.Hooks:
+		m.overlays.panel.hk = m.newHooksPanel()
+	case panelregistry.Agents:
+		m.overlays.panel.ag = m.newAgentsPanel()
+	case panelregistry.Feedback:
+		m.overlays.panel.fb = m.newFeedbackPanel()
+	case panelregistry.Credits:
+		m.overlays.panel.cr = m.newCreditsPanel()
+	case panelregistry.Tasks:
+		m.overlays.panel.tp = m.newTasksPanel()
+	case panelregistry.Effort:
+		m.overlays.panel.ef = m.newEffortPanel()
+	case panelregistry.CodeSearch:
+		m.overlays.panel.csp = m.newCodesearchPanel()
+	case panelregistry.Rewind:
+		m.rewind.Reopen(m)
+	case panelregistry.Diff:
+		m.diff.Reopen(m)
+	case panelregistry.Rename:
+		m.overlays.panel.rn = m.newRenamePanel()
+		m.armRenameFocus()
+	case panelregistry.AddDir:
+		m.overlays.panel.ad = m.newAddDirPanel()
+	case panelregistry.Context:
+		m.overlays.panel.ctxp = m.newContextPanel()
+	case panelregistry.Projects:
+		m.overlays.panel.proj = m.newProjectsPanel()
+	case panelregistry.Accounts:
+		m.overlays.panel.acct = m.newAccountsPanel()
+		m.overlays.panel.acct.Reload()
+		m.overlays.panel.acct.ClearNotice()
+		if m.overlays.panel.cmd == "/pool" {
+			m.overlays.panel.acct.SetTab(accountspanel.TabPool)
+		}
+		m.overlays.panel.acct.ReloadPolicy()
+	case panelregistry.History:
+		m.overlays.panel.hist = m.newHistoryPanel()
+	case panelregistry.Terminal:
+		m.overlays.panel.term = m.terminalPanel()
 	}
 }
 
@@ -3118,8 +3128,34 @@ func (m *RootModel) newTerminalPanelForSession(sessionID string) *terminalpanel.
 		},
 		CopyText: clipboard.Write,
 		Tabs:     m.terminalTabs,
-		Height:   func() int { return m.viewport.height },
-		Width:    func() int { return m.viewport.width },
+		NewTab: func() tea.Cmd {
+			_, cmd, err := m.createAndOpenTerminalSession()
+			if err != nil {
+				m.slashRespond("/terminal", "error: "+err.Error())
+				return nil
+			}
+			return cmd
+		},
+		SwitchTab: func(id string) tea.Cmd {
+			return m.switchTerminalSession(id)
+		},
+		CloseTab: func(id string) tea.Cmd {
+			cmd, _ := m.killTerminalSession(id)
+			return cmd
+		},
+		Rename: func(id, title string) {
+			if id == "" {
+				id = resolveID()
+			}
+			if sess := m.remote.terminals[id]; sess != nil {
+				sess.title = title
+				if sess.panel != nil {
+					sess.panel.SetTitle(title)
+				}
+			}
+		},
+		Height: func() int { return m.viewport.height },
+		Width:  func() int { return m.viewport.width },
 	})
 }
 

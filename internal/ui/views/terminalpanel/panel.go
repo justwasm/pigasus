@@ -4,7 +4,9 @@
 package terminalpanel
 
 import (
+	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -47,6 +49,18 @@ type Seams struct {
 	// Tabs returns the open terminal sessions for the multi-session tab bar.
 	Tabs func() []TabInfo
 
+	// NewTab creates and switches to a new terminal session.
+	NewTab func() tea.Cmd
+
+	// SwitchTab switches to the terminal session with the given ID.
+	SwitchTab func(id string) tea.Cmd
+
+	// CloseTab closes the terminal session with the given ID.
+	CloseTab func(id string) tea.Cmd
+
+	// Rename updates the title of the specified (or active) terminal session.
+	Rename func(id, title string)
+
 	// Height returns the total available viewport height.
 	Height func() int
 
@@ -61,6 +75,34 @@ const (
 	copyVisualChar
 	copyVisualLine
 )
+
+type hitActionKind int
+
+const (
+	hitActionNone hitActionKind = iota
+	hitActionSwitchTab
+	hitActionCloseTab
+	hitActionNewTab
+	hitActionOpenMenu
+	hitActionMenuItem
+)
+
+type hitRect struct {
+	row    int
+	startX int
+	endX   int
+	kind   hitActionKind
+	id     string
+	index  int
+}
+
+type menuBoxRect struct {
+	valid  bool
+	top    int
+	bottom int
+	left   int
+	right  int
+}
 
 // Panel represents an interactive virtual terminal view.
 type Panel struct {
@@ -90,6 +132,24 @@ type Panel struct {
 	copyVisual    copyVisualKind
 	copyAnchorRow int
 	copyAnchorCol int
+
+	// Terminal DEC private modes forwarded by midterm
+	mouseClicks      bool
+	mouseCellMotion  bool
+	mouseAllMotion   bool
+	mouseSGR         bool
+	cursorKeysApp    bool
+	bracketedPaste   bool
+	mousePressedBtn  tea.MouseButton
+	pendingResponses [][]byte
+
+	// Interactive terminal menu & mouse hit-testing state
+	menuOpen      bool
+	menuCursor    int
+	menuRenaming  bool
+	menuRenameBuf string
+	menuBox       menuBoxRect
+	hits          []hitRect
 }
 
 // New creates a new interactive terminal panel.
@@ -111,6 +171,8 @@ func New(rows, cols int, seams Seams) *Panel {
 	term := midterm.NewTerminal(rows, cols)
 	term.Raw = false
 	term.CursorVisible = true
+	term.ForwardRequests = modeTrackerWriter{panel: p}
+	term.ForwardResponses = responseBufferWriter{panel: p}
 	term.OnScrollback(func(line midterm.Line) {
 		styled := renderStyledLine(line)
 		p.scrollbackMu.Lock()
@@ -123,6 +185,74 @@ func New(rows, cols int, seams Seams) *Panel {
 
 	p.term = term
 	return p
+}
+
+type modeTrackerWriter struct {
+	panel *Panel
+}
+
+func (w modeTrackerWriter) Write(data []byte) (int, error) {
+	if w.panel != nil {
+		w.panel.applyForwardedModeLocked(data)
+	}
+	return len(data), nil
+}
+
+type responseBufferWriter struct {
+	panel *Panel
+}
+
+func (w responseBufferWriter) Write(data []byte) (int, error) {
+	if w.panel != nil && len(data) > 0 {
+		cp := make([]byte, len(data))
+		copy(cp, data)
+		w.panel.pendingResponses = append(w.panel.pendingResponses, cp)
+	}
+	return len(data), nil
+}
+
+// applyForwardedModeLocked parses CSI mode sequences emitted by midterm.ForwardRequests
+// (e.g. "\x1b[1000h", "\x1b[?1000l") while p.mu is held.
+func (p *Panel) applyForwardedModeLocked(data []byte) {
+	// midterm emits "\x1b[%dh" on SetMode and "\x1b[?%dl" on UnsetMode.
+	for len(data) > 0 {
+		idx := bytes.Index(data, []byte("\x1b["))
+		if idx < 0 {
+			return
+		}
+		data = data[idx+2:]
+		if len(data) > 0 && data[0] == '?' {
+			data = data[1:]
+		}
+		end := 0
+		for end < len(data) && data[end] >= '0' && data[end] <= '9' {
+			end++
+		}
+		if end == 0 || end >= len(data) {
+			return
+		}
+		modeNum, err := strconv.Atoi(string(data[:end]))
+		op := data[end]
+		data = data[end+1:]
+		if err != nil || (op != 'h' && op != 'l') {
+			continue
+		}
+		enabled := op == 'h'
+		switch modeNum {
+		case 1:
+			p.cursorKeysApp = enabled
+		case 1000:
+			p.mouseClicks = enabled
+		case 1002:
+			p.mouseCellMotion = enabled
+		case 1003:
+			p.mouseAllMotion = enabled
+		case 1006:
+			p.mouseSGR = enabled
+		case 2004:
+			p.bracketedPaste = enabled
+		}
+	}
 }
 
 // renderStyledLine converts a midterm.Line into an ANSI SGR-preserving string
@@ -188,11 +318,22 @@ func formatLeaks(prev, f midterm.Format) bool {
 // passes them to the virtual terminal emulator.
 func (p *Panel) WriteOutput(data []byte) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.term != nil && len(data) > 0 {
 		_, _ = p.term.Write(data)
 		p.resumeOffset += int64(len(data))
+	}
+	var responses [][]byte
+	if len(p.pendingResponses) > 0 {
+		responses = p.pendingResponses
+		p.pendingResponses = nil
+	}
+	writeFn := p.seams.WriteInput
+	p.mu.Unlock()
+
+	if writeFn != nil {
+		for _, resp := range responses {
+			_ = writeFn(resp)
+		}
 	}
 }
 
@@ -202,6 +343,12 @@ func (p *Panel) HandlePaste(text string) {
 		return
 	}
 	p.mu.Lock()
+	if p.menuOpen && p.menuRenaming {
+		clean := strings.ReplaceAll(strings.ReplaceAll(text, "\r", ""), "\n", " ")
+		p.menuRenameBuf += clean
+		p.mu.Unlock()
+		return
+	}
 	if p.copyMode {
 		p.copyMode = false
 		p.copyVisual = copyVisualNone

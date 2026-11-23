@@ -104,6 +104,10 @@ type Panel struct {
 	voiceMode bool
 	// voiceSubcmd is the current subcommand being completed ("" for root subcommands).
 	voiceSubcmd string
+	// terminalMode says the popup holds /terminal subcommands or session IDs.
+	terminalMode bool
+	// terminalSubcmd is the current /terminal subcommand being completed ("" for root subcommands).
+	terminalSubcmd string
 	// resumeMode says the popup holds saved session IDs for /resume.
 	resumeMode bool
 	// modelSource returns the catalogue the model mode filters. It is
@@ -113,6 +117,8 @@ type Panel struct {
 	modelSource func() []ModelRow
 	// resumeSource returns available saved sessions for /resume autocompletion.
 	resumeSource func() []slashcommands.Command
+	// terminalSource returns active terminal sessions for /terminal autocompletion.
+	terminalSource func() []slashcommands.Command
 	// commandSource overrides default command catalogue filtering if set.
 	commandSource func(prefix string) []slashcommands.Command
 	// query is the text after "/model " in the model mode.
@@ -150,6 +156,8 @@ func (p *Panel) Reset() {
 	p.modelMode = false
 	p.voiceMode = false
 	p.voiceSubcmd = ""
+	p.terminalMode = false
+	p.terminalSubcmd = ""
 	p.resumeMode = false
 	p.query = ""
 }
@@ -182,6 +190,19 @@ func (p *Panel) SetResumeSource(fn func() []slashcommands.Command) {
 		return
 	}
 	p.resumeSource = fn
+}
+
+// SetTerminalSource installs the function returning active terminal sessions for "/terminal <subcmd> <query>".
+func (p *Panel) SetTerminalSource(fn func() []slashcommands.Command) {
+	if p == nil {
+		return
+	}
+	p.terminalSource = fn
+}
+
+// IsTerminalMode reports whether the popup holds /terminal subcommands or session IDs.
+func (p *Panel) IsTerminalMode() bool {
+	return p != nil && p.terminalMode
 }
 
 // SetCommandSource overrides default command catalogue filtering if set.
@@ -263,6 +284,8 @@ func (p *Panel) Update(buffer []rune) bool {
 		p.modelMode = true
 		p.voiceMode = false
 		p.voiceSubcmd = ""
+		p.terminalMode = false
+		p.terminalSubcmd = ""
 		p.query = query
 		p.all = p.filterModels(query)
 		p.visible = true
@@ -274,6 +297,8 @@ func (p *Panel) Update(buffer []rune) bool {
 	if subcmd, query, ok := voiceQuery(buffer); ok {
 		p.voiceMode = true
 		p.voiceSubcmd = subcmd
+		p.terminalMode = false
+		p.terminalSubcmd = ""
 		p.resumeMode = false
 		p.query = query
 		p.all = p.filterVoice(subcmd, query)
@@ -283,6 +308,19 @@ func (p *Panel) Update(buffer []rune) bool {
 	}
 	p.voiceMode = false
 	p.voiceSubcmd = ""
+
+	if subcmd, query, ok := terminalQuery(buffer); ok {
+		p.terminalMode = true
+		p.terminalSubcmd = subcmd
+		p.resumeMode = false
+		p.query = query
+		p.all = p.filterTerminal(subcmd, query)
+		p.visible = true
+		p.clampSelection()
+		return true
+	}
+	p.terminalMode = false
+	p.terminalSubcmd = ""
 
 	if query, ok := resumeQuery(buffer); ok {
 		p.resumeMode = true
@@ -527,7 +565,9 @@ func voiceQuery(buffer []rune) (subcmd string, query string, ok bool) {
 	var words []string
 	if err == nil {
 		for _, tok := range tokens {
-			words = append(words, tok.Value)
+			if tok.Value != "" {
+				words = append(words, tok.Value)
+			}
 		}
 	} else {
 		words = strings.Fields(after)
@@ -584,6 +624,84 @@ func (p *Panel) filterResume(query string) []slashcommands.Command {
 	var out []slashcommands.Command
 	for _, c := range pool {
 		if strings.HasPrefix(strings.ToLower(c.Name), q) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+var terminalSubcommands = []slashcommands.Command{
+	{Name: "new", Description: "Create and open a new interactive terminal session"},
+	{Name: "list", Description: "List active terminal sessions"},
+	{Name: "switch", Description: "Switch to an active terminal session (<id>)"},
+	{Name: "attach", Description: "Attach to an active terminal session (<id>)"},
+	{Name: "rename", Description: "Rename the active terminal session (<title>)"},
+	{Name: "close", Description: "Close a terminal session (<id>)"},
+	{Name: "kill", Description: "Kill a terminal session (<id>)"},
+	{Name: "run", Description: "Run a shell command in a terminal (<command>)"},
+}
+
+// terminalQuery reports whether the buffer is a "/terminal <query>" line and returns
+// the subcommand and the query after it.
+func terminalQuery(buffer []rune) (subcmd string, query string, ok bool) {
+	s := string(buffer)
+	const prefix = "/terminal "
+	if !strings.HasPrefix(s, prefix) {
+		return "", "", false
+	}
+	after := s[len(prefix):]
+	tokens, err := shlex.Split(after)
+	var words []string
+	if err == nil {
+		for _, tok := range tokens {
+			if tok.Value != "" {
+				words = append(words, tok.Value)
+			}
+		}
+	} else {
+		words = strings.Fields(after)
+	}
+	if len(words) == 0 {
+		return "", "", true
+	}
+	if len(words) == 1 && !strings.HasSuffix(after, " ") {
+		return "", words[0], true
+	}
+	sub := strings.ToLower(words[0])
+	switch sub {
+	case "switch", "attach", "open", "close", "kill":
+		if len(words) == 1 {
+			return sub, "", true
+		}
+		if len(words) == 2 && !strings.HasSuffix(after, " ") {
+			return sub, words[1], true
+		}
+		return sub, "", false
+	default:
+		return sub, "", false
+	}
+}
+
+func (p *Panel) filterTerminal(subcmd, query string) []slashcommands.Command {
+	var pool []slashcommands.Command
+	switch subcmd {
+	case "switch", "attach", "open", "close", "kill":
+		if p.terminalSource != nil {
+			pool = p.terminalSource()
+		}
+	default:
+		pool = terminalSubcommands
+	}
+	if query == "" {
+		out := make([]slashcommands.Command, len(pool))
+		copy(out, pool)
+		return out
+	}
+	q := strings.ToLower(query)
+	var out []slashcommands.Command
+	for _, c := range pool {
+		if strings.HasPrefix(strings.ToLower(c.Name), q) ||
+			(subcmd != "" && (strings.Contains(strings.ToLower(c.Name), q) || strings.Contains(strings.ToLower(c.Description), q))) {
 			out = append(out, c)
 		}
 	}

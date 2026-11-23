@@ -16,6 +16,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 )
 
@@ -637,8 +638,14 @@ func (m *RootModel) handleTerminalPanelShortcuts(key tea.Key) (tea.Model, tea.Cm
 	if !key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl) {
 		return m, nil, false
 	}
+	closeMenu := func() {
+		if m.overlays.panel.term != nil {
+			m.overlays.panel.term.SetMenuOpen(false)
+		}
+	}
 	switch {
 	case key.Code == 'n' || key.Code == 'N':
+		closeMenu()
 		_, cmd, err := m.createAndOpenTerminalSession()
 		if err != nil {
 			m.slashRespond("/terminal", "error: "+err.Error())
@@ -646,15 +653,53 @@ func (m *RootModel) handleTerminalPanelShortcuts(key tea.Key) (tea.Model, tea.Cm
 		}
 		return m, cmd, true
 	case key.Code == 'w' || key.Code == 'W':
+		closeMenu()
 		if m.remote.terminalID != "" {
 			cmd, _ := m.killTerminalSession(m.remote.terminalID)
 			return m, cmd, true
 		}
 		return m, m.closePanel(), true
 	case key.Code == tea.KeyLeft || key.Code == '[':
+		closeMenu()
 		return m, m.cycleTerminalSession(-1), true
 	case key.Code == tea.KeyRight || key.Code == ']':
+		closeMenu()
 		return m, m.cycleTerminalSession(1), true
 	}
 	return m, nil, false
+}
+
+func (m *RootModel) terminalSlashCommands() []slashcommands.Command {
+	if m == nil || len(m.remote.terminalOrder) == 0 {
+		return nil
+	}
+	out := make([]slashcommands.Command, 0, len(m.remote.terminalOrder))
+	for _, id := range m.remote.terminalOrder {
+		sess := m.remote.terminals[id]
+		if sess == nil {
+			continue
+		}
+		var parts []string
+		if id == m.remote.terminalID {
+			parts = append(parts, "active")
+		}
+		if sess.exited {
+			parts = append(parts, "exited")
+		}
+		if sess.title != "" {
+			parts = append(parts, sess.title)
+		}
+		if sess.cwd != "" {
+			parts = append(parts, sess.cwd)
+		}
+		desc := strings.Join(parts, " · ")
+		if desc == "" {
+			desc = "Terminal session"
+		}
+		out = append(out, slashcommands.Command{
+			Name:        id,
+			Description: desc,
+		})
+	}
+	return out
 }

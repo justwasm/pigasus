@@ -30,6 +30,26 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 
 	p.mu.Lock()
 
+	// -1. Interactive menu active or toggled (Alt+M / F10)
+	if p.menuOpen {
+		handled, cmd, runFn := p.handleMenuKeyLocked(key)
+		p.mu.Unlock()
+		if runFn != nil {
+			if rcmd := runFn(); rcmd != nil {
+				return handled, rcmd
+			}
+		}
+		return handled, cmd
+	}
+	if isMenuToggleKey(key) {
+		p.menuOpen = true
+		p.menuRenaming = false
+		p.menuRenameBuf = ""
+		p.menuCursor = 0
+		p.mu.Unlock()
+		return true, nil
+	}
+
 	// 0. Copy mode toggle (Alt+C or Ctrl+Space)
 	if isCopyModeToggleKey(key) {
 		if p.copyMode {
@@ -142,9 +162,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 
 	// 4. Encode key and forward directly to the backend PTY
 	writeFn := p.seams.WriteInput
+	cursorKeysApp := p.cursorKeysApp
 	p.mu.Unlock()
 
-	raw := EncodeKey(key)
+	raw := EncodeKeyWithModes(key, cursorKeysApp)
 	if len(raw) > 0 && writeFn != nil {
 		_ = writeFn(raw)
 	}

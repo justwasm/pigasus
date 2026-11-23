@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
 func TestPickerUpdate_EmptyBuffer(t *testing.T) {
@@ -531,5 +532,58 @@ func TestPicker_VoicePreviewAutocompletion(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected 'preview' among /voice subcommands, got %+v", p.all)
+	}
+}
+
+func TestPicker_TerminalAutocompletion(t *testing.T) {
+	var currentBuffer string
+	p := New(Seams{
+		SetBuffer: func(s string) { currentBuffer = s },
+		Buffer:    func() string { return currentBuffer },
+	})
+	p.SetTerminalSource(func() []slashcommands.Command {
+		return []slashcommands.Command{
+			{Name: "term-1", Description: "active · bash · /ws"},
+			{Name: "term-2", Description: "zsh · /tmp"},
+		}
+	})
+
+	// 1. "/terminal " lists subcommands
+	currentBuffer = "/terminal "
+	p.Update([]rune(currentBuffer))
+	if !p.Visible() || !p.IsTerminalMode() {
+		t.Fatalf("expected /terminal to enter terminalMode (visible=%v terminalMode=%v)", p.Visible(), p.IsTerminalMode())
+	}
+	if len(p.all) < 6 {
+		t.Fatalf("expected /terminal subcommands, got %+v", p.all)
+	}
+
+	// 2. "/terminal sw" filters to "switch"
+	currentBuffer = "/terminal sw"
+	p.Update([]rune(currentBuffer))
+	if len(p.all) != 1 || p.all[0].Name != "switch" {
+		t.Fatalf("expected only 'switch' for '/terminal sw', got %+v", p.all)
+	}
+
+	// 3. Commit "switch" -> completes "/terminal switch " and keeps popup open with active sessions
+	handled, _ := p.CommitSelectionCmd()
+	if !handled || currentBuffer != "/terminal switch " {
+		t.Fatalf("expected '/terminal switch ', got %q (handled=%v)", currentBuffer, handled)
+	}
+	if !p.Visible() || !p.IsTerminalMode() || p.terminalSubcmd != "switch" {
+		t.Fatalf("expected popup to stay open in switch subcmd, visible=%v subcmd=%q", p.Visible(), p.terminalSubcmd)
+	}
+	if len(p.all) != 2 || p.all[0].Name != "term-1" || p.all[1].Name != "term-2" {
+		t.Fatalf("expected active terminal sessions, got %+v", p.all)
+	}
+
+	// 4. Select second session and commit -> completes "/terminal switch term-2" and closes popup
+	p.MoveDown()
+	handled, _ = p.CommitSelectionCmd()
+	if !handled || currentBuffer != "/terminal switch term-2" {
+		t.Fatalf("expected '/terminal switch term-2', got %q", currentBuffer)
+	}
+	if p.Visible() {
+		t.Fatal("expected popup to close after completing session ID")
 	}
 }

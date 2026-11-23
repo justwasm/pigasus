@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -404,5 +405,105 @@ func TestRootModel_TerminalPanelSelectionStripsBorders(t *testing.T) {
 	want := "hello world\nsecond line"
 	if got != want {
 		t.Fatalf("terminalPanelSelectionText = %q, want %q", got, want)
+	}
+}
+
+func TestRootModel_TerminalMousePassthroughAndSlashMenu(t *testing.T) {
+	var mu sync.Mutex
+	var nextID int
+	var receivedInput []byte
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.HasSuffix(r.URL.Path, ":listTerminals"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"terminals": []any{}})
+		case strings.HasSuffix(r.URL.Path, ":createTerminal"):
+			nextID++
+			id := fmt.Sprintf("term-m-%d", nextID)
+			_ = json.NewEncoder(w).Encode(map[string]any{"terminal": map[string]any{
+				"terminalId": id, "title": fmt.Sprintf("sh-%d", nextID), "cwd": "/ws", "pid": 200 + nextID,
+			}})
+		case strings.HasSuffix(r.URL.Path, ":sendTerminalInput"):
+			var body struct {
+				Input []byte `json:"input"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			receivedInput = append(receivedInput, body.Input...)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ackedOffset": len(body.Input)})
+		case strings.HasSuffix(r.URL.Path, ":closeTerminal"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := remoteagentclient.New(remoteagentclient.Config{BaseURL: srv.URL})
+	engine := agentturn.NewRemoteAgentEngine(agentturn.RemoteAgentConfig{Client: client, Model: "m"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", false)
+	m.session.remoteAgent = true
+	m.turn.engine = engine
+	m.viewport.width = 100
+	m.viewport.height = 30
+
+	// 1. Open /terminal and enable SGR mouse reporting in child PTY
+	m.handleSlashCommand("/terminal")
+	m.Update(terminalChunkMsg{TerminalID: "term-m-1", Text: "\x1b[?1000h\x1b[?1006h"})
+	_ = m.View()
+
+	// 2. Mouse wheel & click pass through RootModel.Update to PTY
+	m.Update(tea.MouseWheelMsg{X: 10, Y: 5, Button: tea.MouseWheelUp})
+	m.Update(tea.MouseClickMsg{X: 10, Y: 5, Button: tea.MouseLeft})
+	m.Update(tea.MouseReleaseMsg{X: 10, Y: 5, Button: tea.MouseNone})
+
+	mu.Lock()
+	gotMouse := string(receivedInput)
+	receivedInput = nil
+	mu.Unlock()
+	wantMouse := "\x1b[<64;9;5M\x1b[<0;9;5M\x1b[<0;9;5m"
+	if gotMouse != wantMouse {
+		t.Fatalf("RootModel mouse passthrough = %q, want %q", gotMouse, wantMouse)
+	}
+
+	// 3. Click [+ New] in header to create second terminal session
+	viewLines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	newBtnIdx := strings.Index(viewLines[0], "[+ New]")
+	if newBtnIdx < 0 {
+		t.Fatalf("header missing [+ New]: %q", viewLines[0])
+	}
+	newBtnX := ansi.StringWidth(viewLines[0][:newBtnIdx])
+	m.Update(tea.MouseClickMsg{X: newBtnX + 1, Y: 0, Button: tea.MouseLeft})
+	if m.remote.terminalID != "term-m-2" {
+		t.Fatalf("clicking [+ New] did not create/switch to term-m-2, active=%q", m.remote.terminalID)
+	}
+
+	// 4. Detach with Esc, then use /terminal slash autocompletion menu to switch back to term-m-1
+	_, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if cmd != nil {
+		_ = cmd()
+	}
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("expected panel to detach on Esc, got %v", m.overlays.panel.kind)
+	}
+
+	for _, r := range "/terminal sw" {
+		m.Update(runeKey(r))
+	}
+	if !m.prompt.picker.Visible() || !m.prompt.picker.IsTerminalMode() {
+		t.Fatalf("expected slashpicker in terminalMode for '/terminal sw'")
+	}
+	// Enter on "switch" drills down to session list instead of executing prematurely
+	m.Update(enterKey())
+	if !m.prompt.picker.Visible() || m.prompt.input.Value() != "/terminal switch " {
+		t.Fatalf("expected '/terminal switch ' with open session picker, got val=%q vis=%v", m.prompt.input.Value(), m.prompt.picker.Visible())
+	}
+	// Avoid unbracketed-paste 10ms Enter burst detector in synthetic test
+	m.prompt.lastEnterTime = m.prompt.lastEnterTime.Add(-time.Second)
+	// First item is term-m-1; Enter switches to term-m-1 and opens terminal panel
+	m.Update(enterKey())
+	if m.remote.terminalID != "term-m-1" || m.overlays.panel.kind != panelregistry.Terminal {
+		t.Fatalf("expected switch to term-m-1 and open Terminal panel, got id=%q kind=%v", m.remote.terminalID, m.overlays.panel.kind)
 	}
 }

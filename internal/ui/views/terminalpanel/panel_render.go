@@ -57,6 +57,9 @@ func (p *Panel) Render() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.hits = p.hits[:0]
+	p.menuBox = menuBoxRect{}
+
 	tabs := p.tabsLocked()
 	height, width := p.bodyDimensionsLocked()
 
@@ -78,6 +81,8 @@ func (p *Panel) Render() string {
 	switch {
 	case p.copyMode:
 		statusBadge = ansiCyan + "◆ COPY MODE" + ansiReset
+	case p.isScrollbackMode:
+		statusBadge = ansiCyan + fmt.Sprintf("◆ Scrollback -%d", p.scrollOffset) + ansiReset
 	case strings.HasPrefix(p.status, "Running"):
 		statusBadge = ansiGreen + "● " + p.status + ansiReset
 	case strings.HasPrefix(p.status, "Exited"):
@@ -90,39 +95,70 @@ func (p *Panel) Render() string {
 
 	var b strings.Builder
 
-	// Top border with title and controls hint
-	hint := "Esc: Detach · Alt+C: Copy · PgUp: History"
+	// Top border with title, clickable buttons, and controls hint
+	hint := "Esc: Detach · Alt+C: Copy · Alt+M: Menu"
 	if p.copyMode {
 		hint = "hjkl: Move · v/V: Select · y/Enter: Yank · Esc/q: Exit"
 	} else if p.isScrollbackMode {
 		hint = fmt.Sprintf("Scrollback -%d (v: Copy · PgDn/End: Return)", p.scrollOffset)
 	}
 
-	headerLeft := fmt.Sprintf("╭─ %s%s%s · %s ", ansiBold, title, ansiReset, statusBadge)
-	headerRight := fmt.Sprintf(" %s%s%s ─╮", ansiGray, hint, ansiReset)
+	newBtnText := "[+ New]"
+	menuBtnText := "[≡ Menu]"
+	newBtn := ansiCyan + newBtnText + ansiReset
+	menuBtn := ansiCyan + menuBtnText + ansiReset
+	if p.menuOpen {
+		menuBtn = ansiBold + "\x1b[7m" + menuBtnText + ansiReset
+	}
 
+	headerLeft := fmt.Sprintf("╭─ %s%s%s · %s ", ansiBold, title, ansiReset, statusBadge)
+	totalBoxWidth := width + 4
 	leftLen := ansi.StringWidth(headerLeft)
+
+	hasNewBtn := true
+	hasMenuBtn := true
+	headerRight := fmt.Sprintf(" %s %s · %s%s%s ─╮", newBtn, menuBtn, ansiGray, hint, ansiReset)
 	rightLen := ansi.StringWidth(headerRight)
-	if leftLen+rightLen+1 > width+2 {
-		maxRight := width + 2 - leftLen - 2
-		if maxRight > 8 {
-			headerRight = ansi.Truncate(headerRight, maxRight, "… ─╮")
-			rightLen = ansi.StringWidth(headerRight)
+
+	if leftLen+rightLen+1 > totalBoxWidth {
+		// Drop hint first so clickable buttons stay intact
+		headerRight = fmt.Sprintf(" %s %s ─╮", newBtn, menuBtn)
+		rightLen = ansi.StringWidth(headerRight)
+	}
+	if leftLen+rightLen+1 > totalBoxWidth {
+		hasNewBtn = false
+		headerRight = fmt.Sprintf(" %s ─╮", menuBtn)
+		rightLen = ansi.StringWidth(headerRight)
+	}
+	if leftLen+rightLen+1 > totalBoxWidth {
+		maxLeft := totalBoxWidth - rightLen - 1
+		if maxLeft > 6 {
+			headerLeft = ansi.Truncate(headerLeft, maxLeft, "… ")
+			leftLen = ansi.StringWidth(headerLeft)
 		} else {
+			hasMenuBtn = false
 			headerRight = " ─╮"
 			rightLen = ansi.StringWidth(headerRight)
 		}
 	}
-	if leftLen+rightLen+1 > width+2 {
-		maxLeft := width + 2 - rightLen - 1
-		if maxLeft > 6 {
-			headerLeft = ansi.Truncate(headerLeft, maxLeft, "… ")
-			leftLen = ansi.StringWidth(headerLeft)
-		}
-	}
-	midFill := width + 2 - leftLen - rightLen
+	midFill := totalBoxWidth - leftLen - rightLen
 	if midFill < 1 {
 		midFill = 1
+	}
+
+	if hasNewBtn {
+		newStart := leftLen + midFill + 1
+		newEnd := newStart + ansi.StringWidth(newBtnText)
+		p.hits = append(p.hits, hitRect{row: 0, startX: newStart, endX: newEnd, kind: hitActionNewTab})
+		if hasMenuBtn {
+			menuStart := newEnd + 1
+			menuEnd := menuStart + ansi.StringWidth(menuBtnText)
+			p.hits = append(p.hits, hitRect{row: 0, startX: menuStart, endX: menuEnd, kind: hitActionOpenMenu})
+		}
+	} else if hasMenuBtn {
+		menuStart := leftLen + midFill + 1
+		menuEnd := menuStart + ansi.StringWidth(menuBtnText)
+		p.hits = append(p.hits, hitRect{row: 0, startX: menuStart, endX: menuEnd, kind: hitActionOpenMenu})
 	}
 
 	b.WriteString(headerLeft)
@@ -131,8 +167,10 @@ func (p *Panel) Render() string {
 	b.WriteString("\n")
 
 	// Optional multi-session tab bar
+	bodyStartRow := 1
 	if len(tabs) > 1 {
-		tabLine := renderTabBar(tabs, width)
+		bodyStartRow = 2
+		tabLine := p.renderTabBarLocked(tabs, width)
 		tabLine = ansi.Truncate(tabLine, width, "")
 		pad := width - ansi.StringWidth(tabLine)
 		if pad < 0 {
@@ -145,8 +183,14 @@ func (p *Panel) Render() string {
 		b.WriteString("\n")
 	}
 
-	// Collect visible lines
+	// Collect visible lines and overlay interactive menu if open
 	lines := p.renderVisibleLinesLocked(height, width)
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if p.menuOpen {
+		lines = p.overlayMenuLocked(lines, bodyStartRow, width)
+	}
 	for i := 0; i < height; i++ {
 		line := ""
 		if i < len(lines) {
@@ -190,14 +234,14 @@ func (p *Panel) Render() string {
 	}
 	fLeftLen := ansi.StringWidth(footerLeft)
 	fRightLen := ansi.StringWidth(footerRight)
-	if fLeftLen+fRightLen+1 > width+2 {
-		maxLeft := width + 2 - fRightLen - 2
+	if fLeftLen+fRightLen+1 > totalBoxWidth {
+		maxLeft := totalBoxWidth - fRightLen - 2
 		if maxLeft > 10 {
 			footerLeft = ansi.Truncate(footerLeft, maxLeft, "… ")
 			fLeftLen = ansi.StringWidth(footerLeft)
 		}
 	}
-	fMidFill := width + 2 - fLeftLen - fRightLen
+	fMidFill := totalBoxWidth - fLeftLen - fRightLen
 	if fMidFill < 1 {
 		fMidFill = 1
 	}
@@ -209,8 +253,9 @@ func (p *Panel) Render() string {
 	return b.String()
 }
 
-func renderTabBar(tabs []TabInfo, width int) string {
+func (p *Panel) renderTabBarLocked(tabs []TabInfo, width int) string {
 	var parts []string
+	curX := 2 // left border "│ " occupies columns 0..1
 	for i, tab := range tabs {
 		label := tab.Title
 		if label == "" {
@@ -219,14 +264,62 @@ func renderTabBar(tabs []TabInfo, width int) string {
 		if label == "" {
 			label = fmt.Sprintf("term-%d", i+1)
 		}
+		var seg string
+		var labelPart string
+		var closePart string
+		var suffixPart string
 		if tab.Active {
-			parts = append(parts, fmt.Sprintf("%s\x1b[7m %d:%s %s", ansiBold, i+1, label, ansiReset))
-		} else if tab.Exited {
-			parts = append(parts, fmt.Sprintf("%s[%d:%s]%s", ansiDim, i+1, label, ansiReset))
+			labelPart = fmt.Sprintf(" %d:%s ", i+1, label)
+			closePart = "×"
+			suffixPart = " "
+			seg = ansiBold + "\x1b[7m" + labelPart + closePart + suffixPart + ansiReset
 		} else {
-			parts = append(parts, fmt.Sprintf("%s[%d:%s]%s", ansiGray, i+1, label, ansiReset))
+			color := ansiGray
+			if tab.Exited {
+				color = ansiDim
+			}
+			labelPart = fmt.Sprintf("[%d:%s ", i+1, label)
+			closePart = "×"
+			suffixPart = "]"
+			seg = color + labelPart + closePart + suffixPart + ansiReset
 		}
+		segW := ansi.StringWidth(seg)
+		labelW := ansi.StringWidth(labelPart)
+		closeW := ansi.StringWidth(closePart)
+		if curX+labelW <= 2+width {
+			p.hits = append(p.hits, hitRect{
+				row:    1,
+				startX: curX,
+				endX:   curX + labelW,
+				kind:   hitActionSwitchTab,
+				id:     tab.ID,
+			})
+		}
+		if curX+labelW+closeW <= 2+width {
+			p.hits = append(p.hits, hitRect{
+				row:    1,
+				startX: curX + labelW,
+				endX:   curX + labelW + closeW,
+				kind:   hitActionCloseTab,
+				id:     tab.ID,
+			})
+		}
+		parts = append(parts, seg)
+		curX += segW + 1 // +1 for space separator in strings.Join
 	}
+
+	plusBtn := ansiCyan + "[+]" + ansiReset
+	plusW := ansi.StringWidth(plusBtn)
+	if curX+plusW <= 2+width {
+		p.hits = append(p.hits, hitRect{
+			row:    1,
+			startX: curX,
+			endX:   curX + plusW,
+			kind:   hitActionNewTab,
+		})
+		parts = append(parts, plusBtn)
+	}
+
 	hint := ansiDim + "Alt+N:New Alt+←/→:Switch Alt+W:Close" + ansiReset
 	joined := strings.Join(parts, " ")
 	if ansi.StringWidth(joined)+2+ansi.StringWidth(hint) <= width {

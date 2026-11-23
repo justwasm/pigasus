@@ -77,6 +77,8 @@ func TestRun_WithSessions(t *testing.T) {
 		t.Fatalf("failed to write transcript: %v", err)
 	}
 
+	t.Setenv("OPENAGY_NO_BROWSER", "1")
+
 	var buf bytes.Buffer
 	err := Run(&buf, []string{"--data-dir", tmpDir, "--all"})
 	if err != nil {
@@ -84,6 +86,14 @@ func TestRun_WithSessions(t *testing.T) {
 	}
 
 	out := buf.String()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "Stats generated: ") {
+			htmlPath := strings.TrimSpace(strings.TrimPrefix(line, "Stats generated: "))
+			if htmlPath != "" {
+				defer os.Remove(htmlPath)
+			}
+		}
+	}
 	if !strings.Contains(out, "Stats generated:") {
 		t.Errorf("expected 'Stats generated:' in output, got: %s", out)
 	}
@@ -95,5 +105,49 @@ func TestRun_WithSessions(t *testing.T) {
 	}
 	if !strings.Contains(out, "Total Tokens: 600") {
 		t.Errorf("expected 'Total Tokens: 600' in output, got: %s", out)
+	}
+}
+
+func TestRun_NoBrowserFlagSkipsLauncher(t *testing.T) {
+	tmpDir := t.TempDir()
+	brainDir := filepath.Join(tmpDir, "brain", "test-session-456", ".system_generated", "logs")
+	if err := os.MkdirAll(brainDir, 0o755); err != nil {
+		t.Fatalf("failed to create brainDir: %v", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	transcript := strings.Join([]string{
+		`{"step_index":0,"source":"USER","type":"USER_MESSAGE","created_at":"` + now + `","content":"test"}`,
+		`{"step_index":1,"source":"MODEL","type":"MODEL_RESPONSE","created_at":"` + now + `","model":"gemini-2.0-flash","input_tokens":10,"output_tokens":5}`,
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(brainDir, "transcript.jsonl"), []byte(transcript), 0o644); err != nil {
+		t.Fatalf("failed to write transcript: %v", err)
+	}
+
+	called := false
+	orig := openBrowserFn
+	openBrowserFn = func(string) { called = true }
+	defer func() { openBrowserFn = orig }()
+
+	var buf bytes.Buffer
+	if err := Run(&buf, []string{"--data-dir", tmpDir, "--all", "--no-browser"}); err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(line, "Stats generated: ") {
+			htmlPath := strings.TrimSpace(strings.TrimPrefix(line, "Stats generated: "))
+			if htmlPath != "" {
+				defer os.Remove(htmlPath)
+			}
+		}
+	}
+	if called {
+		t.Fatalf("expected --no-browser to skip openBrowserFn")
+	}
+}
+
+func TestShouldSuppressBrowser(t *testing.T) {
+	if !shouldSuppressBrowser() {
+		t.Fatalf("expected shouldSuppressBrowser() to be true under go test")
 	}
 }

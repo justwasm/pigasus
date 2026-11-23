@@ -39,6 +39,7 @@ Flags:
   -c, --cwd <dir>     Current working directory to filter stats for
   -D, --data-dir <dir> Root store directory (default ~/.gemini/antigravity-cli)
       --crawl-dir <dir> Crawl a directory recursively for all sessions/projects
+      --no-browser    Do not open the generated HTML report in a browser
   -h, --help          Show help for stats subcommand
 `, prog, prog)
 }
@@ -49,11 +50,12 @@ func Run(w io.Writer, args []string) error {
 	fs.SetOutput(w)
 
 	var (
-		all      bool
-		cwd      string
-		dataDir  string
-		crawlDir string
-		help     bool
+		all       bool
+		cwd       string
+		dataDir   string
+		crawlDir  string
+		noBrowser bool
+		help      bool
 	)
 
 	fs.BoolVar(&all, "all", false, "Aggregate stats from all known projects")
@@ -62,6 +64,7 @@ func Run(w io.Writer, args []string) error {
 	fs.StringVar(&dataDir, "data-dir", "", "Root store directory (default ~/.gemini/antigravity-cli)")
 	fs.StringVar(&dataDir, "D", "", "Root store directory (short)")
 	fs.StringVar(&crawlDir, "crawl-dir", "", "Crawl a directory recursively for all sessions/projects")
+	fs.BoolVar(&noBrowser, "no-browser", false, "Do not open the generated HTML report in a browser")
 	fs.BoolVar(&help, "help", false, "Show help for stats subcommand")
 	fs.BoolVar(&help, "h", false, "Show help for stats subcommand (short)")
 
@@ -136,11 +139,31 @@ func Run(w io.Writer, args []string) error {
 		statsData.Total.TotalCost,
 	)
 
-	openBrowser(htmlPath)
+	if !noBrowser {
+		openBrowserFn(htmlPath)
+	}
 	return nil
 }
 
+var openBrowserFn = openBrowser
+
+func shouldSuppressBrowser() bool {
+	if flag.Lookup("test.v") != nil {
+		return true
+	}
+	if v := os.Getenv("OPENAGY_NO_BROWSER"); v != "" {
+		switch v {
+		case "1", "true", "TRUE", "True", "yes", "YES":
+			return true
+		}
+	}
+	return false
+}
+
 func openBrowser(path string) {
+	if path == "" || shouldSuppressBrowser() {
+		return
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
