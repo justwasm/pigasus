@@ -459,7 +459,20 @@ func TestRenderMarkdown_BulletConversion(t *testing.T) {
 // which closed only the bold attribute). The structural
 // property — bold-on around the emphasised word, no `**`
 // surviving — is preserved.
+func pinSolarizedLightMarkdown(t *testing.T) {
+	t.Helper()
+	origPalette, _ := palette.CurrentScheme()
+	origMd := mdrender.CurrentColorScheme()
+	palette.SetScheme("solarized light")
+	mdrender.SetColorScheme("solarized light")
+	t.Cleanup(func() {
+		palette.SetScheme(origPalette)
+		mdrender.SetColorScheme(origMd)
+	})
+}
+
 func TestRenderMarkdown_BoldSpans(t *testing.T) {
+	pinSolarizedLightMarkdown(t)
 	got := mdrender.RenderMarkdown("this is **important** to remember", 0)
 	// Pin the bold-open escape and the emphasised word; the
 	// exact closing escape differs between the cycle-175
@@ -482,6 +495,7 @@ func TestRenderMarkdown_BoldSpans(t *testing.T) {
 // reset) rather than \x1b[23m; structural property — italic-on
 // around emphasised word — preserved.
 func TestRenderMarkdown_ItalicSpans(t *testing.T) {
+	pinSolarizedLightMarkdown(t)
 	got := mdrender.RenderMarkdown("this is *important* to remember", 0)
 	if !strings.Contains(got, "\x1b[38;2;7;54;66;3mimportant") {
 		t.Errorf("italic span opening missing: %q", got)
@@ -556,6 +570,7 @@ func stripAnsiConv(s string) string {
 // bytes to wrap, so the chip colour does not apply. Pin
 // glamour's gold-coloured code span and the content.
 func TestRenderMarkdown_InlineBackticks(t *testing.T) {
+	pinSolarizedLightMarkdown(t)
 	got := mdrender.RenderMarkdown("use `go test ./...` to verify", 0)
 	// Either the cycle-158 chip colour OR glamour's gold code
 	// colour around the same content must be present.
@@ -610,6 +625,7 @@ func TestRenderMarkdown_BlankLineCollapse(t *testing.T) {
 // bold/italic, no `**` / ` ``` ` surviving) instead of the
 // legacy byte-exact span shape.
 func TestRenderMarkdown_RealisticReply(t *testing.T) {
+	pinSolarizedLightMarkdown(t)
 	src := "Here is **what changed**:\n\n- the *parser* now handles `fenced` blocks\n- bullet markers get the round-dot glyph\n- **bold** spans are styled\n\n```\n$ go test ./...\nok\n```\n"
 	got := mdrender.RenderMarkdown(src, 0)
 	if !strings.Contains(got, "\u2022 the") {

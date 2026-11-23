@@ -9,9 +9,18 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/features/perfrecorder"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestSlashBattle_UsageAndOverlayLifecycle(t *testing.T) {
+	origScheme, _ := palette.CurrentScheme()
+	origMdScheme := mdrender.CurrentColorScheme()
+	t.Cleanup(func() {
+		palette.SetScheme(origScheme)
+		mdrender.SetColorScheme(origMdScheme)
+	})
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("base\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -65,6 +74,13 @@ func TestSlashBattle_UsageAndOverlayLifecycle(t *testing.T) {
 }
 
 func TestRootModel_PerfRecorderTracksUpdateAndView(t *testing.T) {
+	origScheme, _ := palette.CurrentScheme()
+	origMdScheme := mdrender.CurrentColorScheme()
+	t.Cleanup(func() {
+		palette.SetScheme(origScheme)
+		mdrender.SetColorScheme(origMdScheme)
+	})
+	t.Setenv("HOME", t.TempDir())
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
