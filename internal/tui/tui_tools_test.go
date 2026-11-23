@@ -31,12 +31,14 @@ import (
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // scriptedTUIClient replays canned chunk sets, one per Stream call, and records
@@ -772,10 +774,11 @@ func TestTUITools_SpinnerNamesRunningTool(t *testing.T) {
 		t.Fatalf("spinner hint not set: %q streaming=%v", m.conversation.activeTool, m.conversation.streaming)
 	}
 	view := m.View().Content
-	if !strings.Contains(view, "Running command") {
+	plain := diffaction.StripANSI(view)
+	if !strings.Contains(plain, "Running command") {
 		t.Fatalf("spinner line does not name the activity:\n%s", view)
 	}
-	if !strings.Contains(view, "Running") || !strings.Contains(view, "(date)") {
+	if !strings.Contains(plain, "Bash(date)") {
 		t.Fatalf("transcript is missing the provisional running row:\n%s", view)
 	}
 	if strings.Contains(view, "Generating...") {
@@ -813,7 +816,7 @@ func TestTUITools_SpinnerAndTipStickyAboveInputWhenScrolledUp(t *testing.T) {
 
 	// 1. When at bottom, spinner and tip are visible above input
 	viewBottom := m.View().Content
-	if !strings.Contains(viewBottom, "Running command") {
+	if !strings.Contains(diffaction.StripANSI(viewBottom), "Running command") {
 		t.Fatalf("at bottom: view must contain spinner 'Running command'")
 	}
 	if !strings.Contains(viewBottom, "esc to interrupt") {
@@ -824,7 +827,8 @@ func TestTUITools_SpinnerAndTipStickyAboveInputWhenScrolledUp(t *testing.T) {
 	m.viewport.autoScroll = false
 	m.viewport.scroll = 5
 	viewScrolled := m.View().Content
-	if !strings.Contains(viewScrolled, "Running command") {
+	plainScrolled := diffaction.StripANSI(viewScrolled)
+	if !strings.Contains(plainScrolled, "Running command") {
 		t.Fatalf("scrolled up: spinner 'Running command' must remain visible above input field:\n%s", viewScrolled)
 	}
 	if !strings.Contains(viewScrolled, "esc to interrupt") {
@@ -832,10 +836,10 @@ func TestTUITools_SpinnerAndTipStickyAboveInputWhenScrolledUp(t *testing.T) {
 	}
 
 	// Verify that the spinner appears above the top prompt rule
-	promptRule := m.promptRule(true)
-	ruleIdx := strings.Index(viewScrolled, promptRule)
-	spinnerIdx := strings.Index(viewScrolled, "Running command")
-	tipIdx := strings.Index(viewScrolled, "esc to interrupt")
+	promptRule := diffaction.StripANSI(m.promptRule(true))
+	ruleIdx := strings.Index(plainScrolled, promptRule)
+	spinnerIdx := strings.Index(plainScrolled, "Running command")
+	tipIdx := strings.Index(plainScrolled, "esc to interrupt")
 	if ruleIdx == -1 || spinnerIdx == -1 || tipIdx == -1 {
 		t.Fatalf("missing elements in view: ruleIdx=%d, spinnerIdx=%d, tipIdx=%d", ruleIdx, spinnerIdx, tipIdx)
 	}
@@ -987,18 +991,80 @@ func TestLiveRows_PostToolPhrase(t *testing.T) {
 	m.conversation.streaming = true
 	// Frames past the "typing" phase show the settled phrase.
 	m.conversation.spinFrame = 9
-	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Generating") {
+	if got := diffaction.StripANSI(strings.Join(m.liveRows(120), "\n")); !strings.Contains(got, "Generating") {
 		t.Fatalf("pre-tool spinner label = %q; want Generating", got)
 	}
 	m.conversation.anyToolRun = true
 	m.conversation.spinFrame = 6
-	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Working") {
+	if got := diffaction.StripANSI(strings.Join(m.liveRows(120), "\n")); !strings.Contains(got, "Working") {
 		t.Fatalf("post-tool spinner label = %q; want Working", got)
 	}
 	m.conversation.activeTool = "Running command"
 	m.conversation.spinFrame = 15
-	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Running command") {
+	if got := diffaction.StripANSI(strings.Join(m.liveRows(120), "\n")); !strings.Contains(got, "Running command") {
 		t.Fatalf("in-call spinner label = %q; want Running command", got)
+	}
+}
+
+func TestTUITools_StaleSpinnerTickDoesNotSpinLoop(t *testing.T) {
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.streaming = true
+
+	// Advance once from tag=0 so the spinner's internal tag becomes 1 (non-zero).
+	_, initCmd := m.Update(m.conversation.spinner.Tick())
+	if initCmd == nil {
+		t.Fatal("expected initial tick to schedule next tick")
+	}
+
+	// Capture a tagged tick (tag=1) and advance with it so internal tag becomes 2.
+	validTick := m.conversation.spinner.Tick()
+	_, cmd := m.Update(validTick)
+	if cmd == nil {
+		t.Fatal("expected valid tick to schedule next tick")
+	}
+	frameAfterValid := m.conversation.spinFrame
+
+	// Re-sending the now-stale tick (tag=1 != 2) must be ignored: no spinFrame
+	// increment and no 0ms immediate Tick() command.
+	_, staleCmd := m.Update(validTick)
+	if staleCmd != nil {
+		t.Fatalf("expected stale TickMsg to return nil cmd, got non-nil")
+	}
+	if m.conversation.spinFrame != frameAfterValid {
+		t.Fatalf("stale TickMsg incremented spinFrame from %d to %d", frameAfterValid, m.conversation.spinFrame)
+	}
+}
+
+func TestTUITools_RunningCommandUsesRunningLight(t *testing.T) {
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.streaming = true
+	m.conversation.activeTool = "Running command"
+
+	// Default speed ("medium") renders with SpinnerBaseOpen (and SpinnerHiOpen
+	// during the sweep) and appends "..." just like Generating.../Working...
+	rows := m.liveRows(120)
+	if len(rows) == 0 {
+		t.Fatal("expected liveRows to be non-empty")
+	}
+	if !strings.Contains(rows[0], palette.SpinnerBaseOpen) && !strings.Contains(rows[0], palette.SpinnerHiOpen) {
+		t.Fatalf("expected Running command to use RunningLight ANSI styling, got %q", rows[0])
+	}
+	if plain := diffaction.StripANSI(rows[0]); !strings.Contains(plain, "Running command...") {
+		t.Fatalf("expected plain text to contain 'Running command...', got %q", plain)
+	}
+
+	// With runningLightSpeed="off", highlight sweep is disabled and spinner glyph freezes at frame 0.
+	settings.SetSessionOverlay(map[string]any{"runningLightSpeed": "off"})
+	t.Cleanup(func() { settings.SetSessionOverlay(nil) })
+	offRows := m.liveRows(120)
+	if len(offRows) == 0 {
+		t.Fatal("expected offRows to be non-empty")
+	}
+	if strings.Contains(offRows[0], palette.SpinnerHiOpen) {
+		t.Fatalf("expected no highlight sweep when runningLightSpeed=off, got %q", offRows[0])
+	}
+	if !strings.Contains(offRows[0], palette.SpinnerBaseOpen+"Running command...\x1b[m") {
+		t.Fatalf("expected static base-styled 'Running command...' when off, got %q", offRows[0])
 	}
 }
 
@@ -1408,7 +1474,7 @@ func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
 
 	// Spinner live rows should contain the snippet
 	rows := m.liveRows(80)
-	if len(rows) == 0 || !strings.Contains(rows[0], "Let's verify the binary.") {
+	if len(rows) == 0 || !strings.Contains(diffaction.StripANSI(rows[0]), "Let's verify the binary.") {
 		t.Fatalf("expected liveRows[0] to contain thinking snippet, got %v", rows)
 	}
 

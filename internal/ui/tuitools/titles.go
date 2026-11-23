@@ -198,15 +198,127 @@ func RunningSummary(name string, args json.RawMessage) string {
 
 // RunningSpinnerText returns the spinner suffix for an executing tool.
 func RunningSpinnerText(name string) string {
+	switch strings.ToLower(name) {
+	case "list_dir", "listdir", "ls":
+		return "Listing directory"
+	case "call_mcp":
+		return "Calling MCP tool"
+	}
 	switch ToolCategory(name) {
 	case "command":
 		return "Running command"
 	case "file":
 		return "Reading file"
+	case "edit":
+		return "Editing files"
 	case "search":
 		return "Searching web"
+	case "page":
+		return "Reading page"
+	case "image":
+		return "Generating image"
 	}
 	return "Working"
+}
+
+// RunningLightSpeeds returns the step intervals in milliseconds for the
+// running-light sweep animation, matching agy 1.5.14's
+// types.RunningLightSpeed.Speeds:
+//   - "off":    (0, 0)
+//   - "fast":   (20, 10)
+//   - "slow":   (200, 100)
+//   - "medium": (80, 40) (default)
+func RunningLightSpeeds(speed string) (stepMs, bounceStepMs int64) {
+	switch speed {
+	case "off":
+		return 0, 0
+	case "fast":
+		return 20, 10
+	case "slow":
+		return 200, 100
+	case "medium":
+		return 80, 40
+	default:
+		return 80, 40
+	}
+}
+
+// RunningLightWindow computes the highlight window [start, start+width) for a
+// label of runeLen runes at wall-clock timestamp nowMs, matching agy 1.5.14's
+// render.RunningLightWindow.
+func RunningLightWindow(runeLen int, nowMs, stepMs, bounceStepMs int64) (start, width int, ok bool) {
+	if runeLen <= 0 {
+		return 0, 0, false
+	}
+	width = runeLen
+	if width > 5 {
+		width = 5
+	}
+	cycle := runeLen + width + 6
+	if runeLen < 25 {
+		if stepMs <= 0 {
+			return 0, 0, false
+		}
+		step := nowMs / stepMs
+		pos := int(step % int64(cycle))
+		if pos < 0 {
+			pos += cycle
+		}
+		return pos - width - 3, width, true
+	}
+	if bounceStepMs <= 0 {
+		return 0, 0, false
+	}
+	half := runeLen + width + 5
+	period := 2 * half
+	step := nowMs / bounceStepMs
+	pos := int(step % int64(period))
+	if pos < 0 {
+		pos += period
+	}
+	if pos >= cycle {
+		pos = period - pos
+	}
+	return pos - width - 3, width, true
+}
+
+// RunningLight renders text with agy 1.5.14's sweeping highlight window driven
+// by wall-clock time nowMs and the configured runningLightSpeed ("off", "slow",
+// "medium", "fast").
+func RunningLight(text, speed string, nowMs int64) string {
+	if text == "" {
+		text = "Working..."
+	}
+	runes := []rune(text)
+	stepMs, bounceStepMs := RunningLightSpeeds(speed)
+	start, width, ok := RunningLightWindow(len(runes), nowMs, stepMs, bounceStepMs)
+	if !ok {
+		return palette.SpinnerBaseOpen + text + "\x1b[m"
+	}
+	hiStart := start
+	if hiStart < 0 {
+		hiStart = 0
+	}
+	hiEnd := start + width
+	if hiEnd > len(runes) {
+		hiEnd = len(runes)
+	}
+	if hiStart >= hiEnd {
+		return palette.SpinnerBaseOpen + text + "\x1b[m"
+	}
+	var b strings.Builder
+	if hiStart > 0 {
+		b.WriteString(palette.SpinnerBaseOpen)
+		b.WriteString(string(runes[:hiStart]))
+	}
+	b.WriteString(palette.SpinnerHiOpen)
+	b.WriteString(string(runes[hiStart:hiEnd]))
+	if hiEnd < len(runes) {
+		b.WriteString(palette.SpinnerBaseOpen)
+		b.WriteString(string(runes[hiEnd:]))
+	}
+	b.WriteString("\x1b[m")
+	return b.String()
 }
 
 // SpinnerText renders the animated activity label next to the braille spinner.

@@ -1122,23 +1122,32 @@ func (m *RootModel) liveRows(width int) []string {
 		return nil
 	}
 	var rows []string
+	speed := settings.String("runningLightSpeed")
 	line := m.conversation.spinner.View()
+	if speed == "off" && len(m.conversation.spinner.Spinner.Frames) > 0 {
+		line = m.conversation.spinner.Style.Render(m.conversation.spinner.Spinner.Frames[0])
+	}
 	phrase := "Generating"
 	if m.conversation.anyToolRun {
 		phrase = "Working"
 	}
+	nowMs := time.Now().UnixMilli()
 	if retryText, ok := m.conversation.ModelRetryStatus(); ok {
 		line += " " + retryText
 	} else if (m.conversation.thinking || m.audio.thinking) && m.conversation.activeTool == "" {
 		if m.conversation.liveThinkingSnippet != "" {
-			line += " " + palette.SpinnerBaseOpen + m.conversation.liveThinkingSnippet + "\x1b[m"
+			line += " " + tuitools.RunningLight(m.conversation.liveThinkingSnippet, speed, nowMs)
 		} else {
-			line += " " + tuitools.SpinnerText("Thinking", m.conversation.spinFrame)
+			line += " " + tuitools.RunningLight("Thinking...", speed, nowMs)
 		}
 	} else if m.conversation.activeTool != "" {
-		line += " " + m.conversation.activeTool
+		label := m.conversation.activeTool
+		if !strings.HasSuffix(label, "...") {
+			label += "..."
+		}
+		line += " " + tuitools.RunningLight(label, speed, nowMs)
 	} else {
-		line += " " + tuitools.SpinnerText(phrase, m.conversation.spinFrame)
+		line += " " + tuitools.RunningLight(phrase+"...", speed, nowMs)
 	}
 
 	ind := ""

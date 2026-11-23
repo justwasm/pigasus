@@ -377,6 +377,57 @@ func TestSpinnerText_MatchesReferenceFrames(t *testing.T) {
 	}
 }
 
+func TestRunningLight_SpeedsAndWindow(t *testing.T) {
+	// Speeds match agy 1.5.14 types.RunningLightSpeed.Speeds.
+	for _, tc := range []struct {
+		speed      string
+		wantStep   int64
+		wantBounce int64
+	}{
+		{"off", 0, 0},
+		{"fast", 20, 10},
+		{"medium", 80, 40},
+		{"slow", 200, 100},
+		{"", 80, 40},
+	} {
+		s, b := RunningLightSpeeds(tc.speed)
+		if s != tc.wantStep || b != tc.wantBounce {
+			t.Errorf("RunningLightSpeeds(%q) = (%d, %d), want (%d, %d)", tc.speed, s, b, tc.wantStep, tc.wantBounce)
+		}
+	}
+
+	// "off" renders static base color without highlight sweep.
+	if got := RunningLight("Running command...", "off", 640); got != palette.SpinnerBaseOpen+"Running command...\x1b[m" {
+		t.Errorf("RunningLight(off) = %q", got)
+	}
+
+	// "medium" sweeps a 5-rune highlight across "Running command..." at 80ms/step.
+	// len("Running command...") = 18, width = 5, cycle = 29.
+	// At nowMs = 8*80 = 640ms: step = 8, start = 8 - 5 - 3 = 0 -> "Runni" highlighted.
+	wantAt640 := palette.SpinnerHiOpen + "Runni" + palette.SpinnerBaseOpen + "ng command...\x1b[m"
+	if got := RunningLight("Running command...", "medium", 640); got != wantAt640 {
+		t.Errorf("RunningLight(medium, 640ms) = %q, want %q", got, wantAt640)
+	}
+
+	// "slow" uses 200ms/step: at 640ms step = 3, start = 3 - 5 - 3 = -5 -> all base.
+	wantSlowAt640 := palette.SpinnerBaseOpen + "Running command...\x1b[m"
+	if got := RunningLight("Running command...", "slow", 640); got != wantSlowAt640 {
+		t.Errorf("RunningLight(slow, 640ms) = %q, want %q", got, wantSlowAt640)
+	}
+
+	// "fast" uses 20ms/step: at 160ms step = 8, start = 0 -> "Runni" highlighted.
+	if got := RunningLight("Running command...", "fast", 160); got != wantAt640 {
+		t.Errorf("RunningLight(fast, 160ms) = %q, want %q", got, wantAt640)
+	}
+
+	// Long strings (>= 25 runes) use bounce mode with bounceStepMs.
+	longText := "Analyzing the repository structure..."
+	start1, w1, ok1 := RunningLightWindow(len([]rune(longText)), 8*40, 80, 40)
+	if !ok1 || w1 != 5 || start1 != 0 {
+		t.Errorf("long bounce window at step 8 = (%d, %d, %v), want (0, 5, true)", start1, w1, ok1)
+	}
+}
+
 // TestLiveRows_PostToolPhrase pins the two settled phrases: "Generating"
 // before the turn has run a call and "Working" afterwards (both measured;
 // see ref_view.bin / ref_queue.bin captures).

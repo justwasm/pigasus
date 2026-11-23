@@ -2270,9 +2270,8 @@ func (m *RootModel) updateSpinnerTickMsg(msg sp.TickMsg) (tea.Model, tea.Cmd) {
 	if m.conversation.streaming || m.audio.thinking {
 		var cmd tea.Cmd
 		m.conversation.spinner, cmd = m.conversation.spinner.Update(msg)
-		m.conversation.spinFrame++
-		if cmd == nil {
-			cmd = func() tea.Msg { return m.conversation.spinner.Tick() }
+		if cmd != nil {
+			m.conversation.spinFrame++
 		}
 		return m, cmd
 	}
