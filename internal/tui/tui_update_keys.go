@@ -820,7 +820,7 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 
 	// Priority 1: Modals, overlays, pickers, and side-question cards
 	if m.help.Panel.Active() {
-		m.help.Panel.Cancel()
+		m.CloseHelp()
 		return m, nil
 	}
 	if m.swarm.Board != nil && m.swarm.Board.Active() {

@@ -8,7 +8,7 @@
 05: |  Gemini 3.8 Flash (Low)        gemini-3.8-flash-low                            |
 06: |  Gemini 3.7 Flash (High)       gemini-3.7-flash-high                           |
 07: |  Gemini 3.7 Flash (Medium)     gemini-3.7-flash-medium                         |
-08: |   ↓ 9 more                                                                     |
+08: |   ↓ 14 more                                                                    |
 09: |                                                                                |
 10: |  ↑/↓ Navigate · enter Select · tab Complete                                    |
 11: |                                                                                |
@@ -33,7 +33,7 @@
 05: [32:52] fg=#586e75
 06: [32:53] fg=#586e75
 07: [32:55] fg=#586e75
-08: [0:11] fg=#586e75
+08: [0:12] fg=#586e75
 09: (plain)
 10: [2:5] fg=#268bd2,bold | [5:17] fg=#657b83 | [17:22] fg=#268bd2,bold | [22:32] fg=#657b83 | [32:35] fg=#268bd2,bold | [35:44] fg=#657b83
 11: (plain)

@@ -41,11 +41,11 @@ func TestPickerShowsTheSonarRowWhenTheGateIsOpen(t *testing.T) {
 	if rows[0].Slug != catalog.SonarModelID || rows[0].Display != catalog.SonarModelLabel {
 		t.Errorf("RowsUndocumented()[0] = %+v, want %s / %s", rows[0], catalog.SonarModelID, catalog.SonarModelLabel)
 	}
-	if rows[0].HasEffortSlider() {
-		t.Error("the Sonar row has an effort slider; the model publishes no tier")
+	if !rows[0].HasEffortSlider() {
+		t.Error("the Sonar row has no effort slider; expected low/medium/high/xhigh tiers")
 	}
-	if got := rows[0].CatalogueID(0); got != catalog.SonarModelID {
-		t.Errorf("Row.CatalogueID(0) = %q, want %q", got, catalog.SonarModelID)
+	if got := rows[0].CatalogueID(2); got != catalog.SonarModelHighID {
+		t.Errorf("Row.CatalogueID(2) = %q, want %q", got, catalog.SonarModelHighID)
 	}
 
 	view := modelpicker.RowsView()

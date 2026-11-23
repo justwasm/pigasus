@@ -1,4 +1,4 @@
-.PHONY: build test quick arch align wirealign canary parity-fuzz verify help \
+.PHONY: build test quick arch align wirealign race canary parity-fuzz verify help \
         fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
         drift-check sync-official-docs sync-docs official-docs
 
@@ -33,6 +33,9 @@ align:
 
 wirealign:
 	./scripts/wire-align.sh test
+
+race:
+	./scripts/verify.sh race
 
 canary:
 	./scripts/canary-pipeline.sh
@@ -80,6 +83,7 @@ help:
 	@echo "  make arch                 - Run architecture layering compliance guard"
 	@echo "  make align                - Run tuialign scenarios (skips the live half without agy/tmux)"
 	@echo "  make wirealign            - Run wirealign protocol test suite"
+	@echo "  make race                 - Run Go race detector on goroutine-owning packages"
 	@echo "  make verify               - Full verification suite via scripts/verify.sh"
 	@echo "  make sync-official-docs   - Crawl and sync latest official markdown docs from gweb-jetski"
 	@echo ""

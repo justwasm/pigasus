@@ -170,28 +170,29 @@ func ConfiguredRows() []Row {
 	return out
 }
 
-// RowsUndocumented returns the conditional rows for the wire ids the
+// RowsUndocumented returns the conditional row for the wire id the
 // CloudCode endpoint serves without advertising — today
 // "Gemini 4 Hydrogen (Sonar)".
 //
-// The row is a fixed model (no effort slider): the endpoint publishes no
-// `sonar` tier alongside low/medium/high/xhigh, so the id carries the variant
-// itself. It is drawn like any other row, not dim: unlike Gemini 4 Argon it is
-// not refused for plan reasons — it is simply not in the reference's catalogue.
+// Like Gemini 3.8 Flash, it is a single picker row whose reasoning tiers
+// (low, medium, high, xhigh) live on the effort slider. It is drawn like any
+// other row, not dim: unlike Gemini 4 Argon it is not refused for plan reasons.
 //
-// Empty unless catalog.UndocumentedModelsEnabled() is true — a stock run, and
-// every alignment harness (which points the clone at a loopback mock), sees
-// exactly the reference's rows.
+// Empty unless catalog.UndocumentedModelsEnabled() is true.
 func RowsUndocumented() []Row {
-	entries := catalog.UndocumentedModels()
-	if len(entries) == 0 {
+	if !catalog.UndocumentedModelsEnabled() {
 		return nil
 	}
-	out := make([]Row, 0, len(entries))
-	for _, m := range entries {
-		out = append(out, Row{Display: m.Label, Slug: m.ID})
+	spec := catalog.BaseModelEfforts[catalog.SonarModelID]
+	tiers := append([]string(nil), spec.Levels...)
+	return []Row{
+		{
+			Display:     catalog.SonarModelLabel,
+			Slug:        catalog.SonarModelID,
+			Tiers:       tiers,
+			DefaultTier: spec.Def,
+		},
 	}
-	return out
 }
 
 // RowsView returns the full picker view: Rows + any conditional 5.5

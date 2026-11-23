@@ -1220,11 +1220,84 @@ func (m *RootModel) computeVisibleWindow(rows []string, availScroll int) []strin
 	return visible
 }
 
+type extraRowsCacheKey struct {
+	width           int
+	height          int
+	altScreen       bool
+	autoScroll      bool
+	hasScrollInd    bool
+	streaming       bool
+	thinking        bool
+	audioThinking   bool
+	pickerVis       bool
+	atFileVis       bool
+	resumeVis       bool
+	panelKind       panelregistry.Kind
+	helpActive      bool
+	askActive       bool
+	hasModal        bool
+	fallbackFrom    string
+	fallbackTo      string
+	sendingLen      int
+	streamQueueLen  int
+	bashQueueLen    int
+	pendingMediaLen int
+	mediaExpanded   bool
+	hasBtw          bool
+	inputVal        string
+	statusVisible   string
+	bashMode        bool
+	activeItemsRows int
+}
+
+func (m *RootModel) currentExtraRowsKey() extraRowsCacheKey {
+	hasScrollInd := false
+	if m.viewport.altScreen && !m.viewport.autoScroll {
+		hasScrollInd = m.scrollPositionIndicator() != ""
+	}
+	activeItemsRows := 0
+	if m.overlays.panel.kind == panelregistry.None && m.activeItems.Panel != nil {
+		if r := m.activeItems.Panel.Rows(); r != "" {
+			activeItemsRows = len(r)
+		}
+	}
+	return extraRowsCacheKey{
+		width:           m.viewport.width,
+		height:          m.viewport.height,
+		altScreen:       m.viewport.altScreen,
+		autoScroll:      m.viewport.autoScroll,
+		hasScrollInd:    hasScrollInd,
+		streaming:       m.conversation.streaming,
+		thinking:        m.conversation.thinking,
+		audioThinking:   m.audio.thinking,
+		pickerVis:       m.prompt.picker.Visible(),
+		atFileVis:       m.prompt.atFilePicker.Visible(),
+		resumeVis:       m.overlays.resumePicker.Active(),
+		panelKind:       m.overlays.panel.kind,
+		helpActive:      m.help.Panel.Active(),
+		askActive:       m.askQuestion.Active(),
+		hasModal:        m.hasActiveModal(),
+		fallbackFrom:    m.session.fallbackFrom,
+		fallbackTo:      m.session.fallbackTo,
+		sendingLen:      len(m.session.store.SendingMessages),
+		streamQueueLen:  len(m.session.store.StreamQueue),
+		bashQueueLen:    len(m.session.store.BashQueue),
+		pendingMediaLen: len(m.prompt.pendingMedia),
+		mediaExpanded:   m.prompt.mediaExpanded,
+		hasBtw:          m.isBtwCardVisible(),
+		inputVal:        m.prompt.input.Value(),
+		statusVisible:   m.statusLine.visible,
+		bashMode:        m.session.store.BashMode,
+		activeItemsRows: activeItemsRows,
+	}
+}
+
 func (m *RootModel) viewportHeight() int {
 	if m.viewport.height <= 0 {
 		return 0
 	}
-	if m.viewport.extraRowsValid && m.viewport.cachedExtraW == m.viewport.width && m.viewport.cachedExtraH == m.viewport.height {
+	key := m.currentExtraRowsKey()
+	if m.viewport.extraRowsValid && m.viewport.cachedExtraKey == key {
 		return m.viewport.cachedExtraRows
 	}
 	savedIndY := m.viewport.scrollIndScreenY
@@ -1257,6 +1330,7 @@ func (m *RootModel) viewportHeight() int {
 	m.viewport.cachedExtraRows = avail
 	m.viewport.cachedExtraW = m.viewport.width
 	m.viewport.cachedExtraH = m.viewport.height
+	m.viewport.cachedExtraKey = key
 	m.viewport.extraRowsValid = true
 	return avail
 }

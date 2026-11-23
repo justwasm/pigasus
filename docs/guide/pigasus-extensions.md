@@ -23,54 +23,56 @@
 |---|---|---|
 | `pigasus --remote-agent` | a native client of `JetskiRemoteAgentProxyService`; it does not spawn `agy` | [`remote-agents.md`](remote-agents.md) §2.3, §3.6 |
 | `pigasus agent-server` | the mock server as a subcommand; `mock-remote-agent` is the compatibility shell | [`remote-agents.md`](remote-agents.md) §2.1 |
-| `pigasus livechat --debug-wire` | real-time duplex wire diagnostics; exposes audio frames, chunk bytes, and latency metrics | [`remote-agents.md`](remote-agents.md) §3.6 |
+| `pigasus livechat` / `--debug-wire` | standalone & embedded live multimodal chat TUI/Web UI with real-time duplex wire diagnostics | `internal/ui/livechat`, `cmd/livechat`, [`remote-agents.md`](remote-agents.md) §3.6 |
+| `pigasus stats` | hidden CLI subcommand generating local session usage & cost HTML dashboard | `internal/app/subcommands/stats`, `internal/features/stats` |
 | `pigasus mic-serve` | local audio server over `JETSKI-AUDIO/1` (`micwire`); exposes real-time `MicWireStats` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/wire` & `Ctrl+Shift+W` | interactive TUI Wire Diagnostics HUD overlay; real-time RTT, TTFT, packets and tok/s rate | `internal/ui/views/wirehud` |
 | Trajectory Cold Storage | tiering folded turns (<= checkpoint boundary) to disk to bound heap in 200+ turn sessions | `actor/trajectory.go` |
 | Dynamic Routing Failover | multi-provider fallback chain (CloudCode -> Gateway -> Claude/GPT) with typed error interception | `internal/infra/backend/failover` |
 | Plugin Runtime Hot-Reload | hot-reloading tool catalogs & MCP providers during active turn on filesystem changes | `internal/features/plugins/watch` |
 | Upstream Parity Fuzzer | AST and binary string symbol fuzzing against upstream reference binary to detect schema drift | `scripts/re/parity_fuzz.py` |
-| `/terminal` | hidden host-only command over `create/list/send/stream/closeTerminal` | [`remote-agents.md`](remote-agents.md) §3.6 |
+| `/terminal` | interactive PTY panel (`midterm`) & transcript runner across local (`rcterminal`), server, and `--remote-agent` sessions; listed in `/` autocomplete | `internal/ui/views/terminalpanel`, `internal/tui/terminal_service.go`, [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/upload <path>` | hidden host-only wrapper over `uploadProjectFile` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/triggers` | hidden host-only trigger management | [`remote-agents.md`](remote-agents.md) §3.6 |
-| all three commands | hidden from the `/` picker; registered in `slashcommands.Hidden` | [`hidden-commands-and-flags.md`](hidden-commands-and-flags.md) |
+| `/upload`, `/triggers` | hidden from the `/` picker; registered in `slashcommands.Hidden` | [`hidden-commands-and-flags.md`](hidden-commands-and-flags.md) |
 
 The hidden registration is load-bearing: `slashHandlers` and
 `slashcommands.Hidden` must agree, or `TestHiddenSlashCommandsAreNotTheCatalog`
-and `TestVocabularyDispatchedMatchesTheHostTable` fail. In a local session the
-three commands answer `… only available in a --remote-agent session.`
+and `TestVocabularyDispatchedMatchesTheHostTable` fail. In a local session
+`/upload` and `/triggers` answer `… only available in a --remote-agent session.`
+(`/terminal` was promoted to `slashcommands.Default` and works locally via
+`LocalTerminalService` backed by `rcterminal`).
 
 Everything else a remote session uses — `@` files, `WAITING` prompts,
 `/continue`, `/permissions`, `/plugin`, `/skills`, `/diff` — is **parity**,
 and its row in `remote-agents.md` §3.6 is the single source of truth.
 
-## 3. The one open design: an interactive terminal panel
+## 3. Interactive terminal panel (`/terminal`)
 
-`/terminal` is an **output path**: it runs a command and streams the output
-into the transcript. The protocol and the server PTY are complete; the panel
-is not built. This section is the only part of this file that is not a
-pointer, because the design is not written down anywhere else.
+`/terminal` supports both an **output path** (`/terminal run <command>` streams
+into the transcript) and an **interactive modal panel** (`/terminal`,
+`/terminal new`, `/terminal open|attach [id]`) unified across local, server,
+and `--remote-agent` sessions via `TerminalService`
+(`internal/tui/terminal_service.go`).
 
-Phase A — read-only panel:
+Implemented (Phase A & Phase B):
 
-- `internal/ui/views/terminalpanel`, registered like `/resume`, rendering
-  through `github.com/vito/midterm` (already a dependency:
-  `internal/ui/views/canvas`).
-- screen + `OnScrollback` history + `PgUp`/`PgDn`; detach keeps the terminal
-  and its `resumeOffset`, reattach replays from there.
-- exit shows the code; `q`/`Esc` closes without killing the PTY.
+- `internal/ui/views/terminalpanel`, registered in `panelregistry.Terminal` and
+  `slashcommands.Default`, rendering through `github.com/vito/midterm`.
+- Screen + `OnScrollback` history (up to 2000 lines) + `PgUp`/`PgDn`/`Home`/`End`;
+  `Esc` exits scrollback or detaches without killing the PTY (`resumeOffset`
+  preserved), and never leaks to global turn cancellation (`AGENTS.md` §10).
+- Key encoding (`internal/ui/views/terminalpanel/key_encoder.go`): arrows,
+  Home/End/PgUp/PgDn/Delete, `Ctrl+A..Z` → `0x01..0x1a` (including `Ctrl+C`
+  passthrough to the PTY), `Alt+key` → `ESC` + key, bracketed paste.
+- `Panel.Resize` updates `midterm` and forwards dimensions to `LocalTerminalService`
+  (`rcterminal.Registry.Resize`).
 
-Phase B — input and size:
+Remaining (Phase C — polish):
 
-- key encoding (`tea.Key` → PTY bytes): arrows, Home/End/PgUp/PgDn/Delete,
-  `Ctrl+A..Z` → `0x01..0x1a`, `Alt+key` → `ESC` + key, bracketed paste.
-- while the panel is focused `Ctrl+C` goes to the PTY and `Esc` only detaches;
-  it must not reach turn cancellation (the modal rule, `AGENTS.md` §10).
-- `midterm.Resize` plus a `sendTerminalInput` resize action; the PTY has no
-  initial size, so the first attach must send one.
-
-Phase C — polish: copy mode, alt-screen, reconnect on a dropped stream,
-multi-terminal picker.
+- Copy mode, alt-screen passthrough, reconnect on a dropped stream,
+  multi-terminal picker, and wiring `RemoteAgentTerminalService.Resize` (currently
+  a no-op).
 
 ## 4. Limits worth knowing
 
@@ -88,6 +90,7 @@ multi-terminal picker.
 ```bash
 make quick
 make arch
+go test ./internal/ui/views/terminalpanel/... -count=1
 go test ./internal/tui/ -run 'TestHidden|TestSlashTerminal|TestSlashUpload|TestSlashTriggers' -count=1
 go test ./internal/infra/remoteagentclient/ ./internal/infra/mockremoteagent/ -count=1
 ```

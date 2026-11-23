@@ -96,9 +96,7 @@ var (
 	cachedModTime     time.Time
 	cachedSize        int64
 	cachedMergedBytes []byte
-	cachedCheckTime   time.Time
 	cachedOverlayGen  int64
-	cachedErr         error
 	overlayGen        int64
 )
 
@@ -109,8 +107,6 @@ func InvalidateCache() {
 	cachedModTime = time.Time{}
 	cachedSize = -1
 	cachedMergedBytes = nil
-	cachedCheckTime = time.Time{}
-	cachedErr = nil
 	overlayGen++
 	settingsCacheMu.Unlock()
 }
@@ -172,15 +168,15 @@ func formatSettingsJSON(data []byte) []byte {
 
 func readSettingsBytes() ([]byte, error) {
 	p := Path()
-	now := time.Now()
+
+	fi, statErr := os.Stat(p)
 
 	settingsCacheMu.RLock()
-	if cachedPath == p && (len(cachedMergedBytes) > 0 || cachedErr != nil) {
-		if now.Sub(cachedCheckTime) < 50*time.Millisecond && cachedOverlayGen == overlayGen {
+	if cachedPath == p && cachedOverlayGen == overlayGen {
+		if statErr == nil && fi.ModTime().Equal(cachedModTime) && fi.Size() == cachedSize && len(cachedMergedBytes) > 0 {
 			b := cachedMergedBytes
-			err := cachedErr
 			settingsCacheMu.RUnlock()
-			return b, err
+			return b, nil
 		}
 	}
 	settingsCacheMu.RUnlock()
@@ -188,22 +184,25 @@ func readSettingsBytes() ([]byte, error) {
 	settingsCacheMu.Lock()
 	defer settingsCacheMu.Unlock()
 
-	if cachedPath == p && (len(cachedMergedBytes) > 0 || cachedErr != nil) && now.Sub(cachedCheckTime) < 50*time.Millisecond && cachedOverlayGen == overlayGen {
-		return cachedMergedBytes, cachedErr
+	if cachedPath == p && cachedOverlayGen == overlayGen {
+		if statErr == nil && fi.ModTime().Equal(cachedModTime) && fi.Size() == cachedSize && len(cachedMergedBytes) > 0 {
+			return cachedMergedBytes, nil
+		}
 	}
 
-	fi, statErr := os.Stat(p)
-	if statErr == nil && cachedPath == p && fi.ModTime().Equal(cachedModTime) && fi.Size() == cachedSize && cachedOverlayGen == overlayGen {
-		cachedCheckTime = now
-		return cachedMergedBytes, cachedErr
-	}
+	sessionSettingsMu.RLock()
+	overlay := sessionSettingsOverlay
+	curOverlayGen := overlayGen
+	sessionSettingsMu.RUnlock()
 
 	var data []byte
 	var readErr error
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
+			if len(overlay) == 0 {
+				return nil, statErr
+			}
 			data = []byte("{}")
-			readErr = nil
 		} else {
 			return nil, statErr
 		}
@@ -215,27 +214,12 @@ func readSettingsBytes() ([]byte, error) {
 		data = confhome.StripBOM(data)
 	}
 
-	sessionSettingsMu.RLock()
-	overlay := sessionSettingsOverlay
-	curOverlayGen := overlayGen
-	sessionSettingsMu.RUnlock()
-
 	if len(overlay) == 0 {
 		cachedPath = p
-		if statErr == nil {
-			cachedModTime = fi.ModTime()
-			cachedSize = fi.Size()
-		} else {
-			cachedModTime = time.Time{}
-			cachedSize = 0
-		}
+		cachedModTime = fi.ModTime()
+		cachedSize = fi.Size()
 		cachedMergedBytes = data
-		cachedCheckTime = now
 		cachedOverlayGen = curOverlayGen
-		cachedErr = statErr
-		if statErr != nil {
-			return nil, statErr
-		}
 		return data, nil
 	}
 
@@ -260,12 +244,10 @@ func readSettingsBytes() ([]byte, error) {
 		cachedSize = fi.Size()
 	} else {
 		cachedModTime = time.Time{}
-		cachedSize = 0
+		cachedSize = -1
 	}
 	cachedMergedBytes = merged
-	cachedCheckTime = now
 	cachedOverlayGen = curOverlayGen
-	cachedErr = nil
 
 	return merged, nil
 }

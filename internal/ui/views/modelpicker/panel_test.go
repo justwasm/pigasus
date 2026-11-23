@@ -49,6 +49,7 @@ func testHome(t *testing.T, seed map[string]any) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	b, err := json.MarshalIndent(seed, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal seed: %v", err)
@@ -94,6 +95,7 @@ func isolateCatalogue(t *testing.T) {
 	configtest.WriteProviders(t, "{}")
 	t.Setenv("AGY_ADC_AUTH", "")
 	t.Setenv("AGY_CLAUDE55_PROJECT", "")
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 }
 
 // ---- the panel under test -------------------------------------------------

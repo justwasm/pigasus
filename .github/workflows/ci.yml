@@ -114,6 +114,9 @@ jobs:
           - name: "tui (T-Z)"
             packages: "./internal/tui"
             flags: '-run "^Test[T-Z]"'
+          - name: "tui (_)"
+            packages: "./internal/tui"
+            flags: '-run "^Test_"'
           - name: "tui (subpackages)"
             packages: "./internal/tui/commands/... ./internal/tui/panels/... ./internal/tui/stream/..."
             flags: ""

@@ -201,6 +201,7 @@ type uiState struct {
 	cachedExtraLiveRows int
 	cachedExtraW        int
 	cachedExtraH        int
+	cachedExtraKey      extraRowsCacheKey
 	extraRowsValid      bool
 	cachedHeaderRows    []string
 	cachedHeaderKey     headerCacheKey
