@@ -176,3 +176,141 @@ func TestVoiceLiveStream_InterimToCommittedSpeechParity(t *testing.T) {
 		t.Fatalf("expected finalized markdown in transcript, got %q", finalTranscript)
 	}
 }
+
+type mockVoiceThinkerEngine struct {
+	answer string
+}
+
+func (e *mockVoiceThinkerEngine) Turn(ctx context.Context, t agentturn.Turn) (<-chan agentlink.Frame, error) {
+	ch := make(chan agentlink.Frame, 2)
+	ch <- agentlink.Frame{Kind: agentlink.FrameText, Text: e.answer}
+	ch <- agentlink.Frame{Kind: agentlink.FrameDone}
+	close(ch)
+	return ch, nil
+}
+
+func (e *mockVoiceThinkerEngine) Close() error { return nil }
+
+func TestTuiLiveHandler_OnThinkerCancel(t *testing.T) {
+	mockBackend := voicebackend.NewMockLiveBackend()
+	sess := voicebackend.NewNativeLiveSession(mockBackend, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voicebackend.LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	defer taskCancel()
+
+	m := &RootModel{
+		viewport: uiState{width: 80},
+		audio: AudioModel{
+			liveSession: sess,
+			thinking:    true,
+		},
+	}
+	m.audio.setThinkerCancel("inv-tui-active", taskCancel)
+
+	h := &tuiLiveHandler{m: m}
+	h.OnThinkerCancel("inv-tui-cancel")
+
+	if taskCtx.Err() != context.Canceled {
+		t.Fatalf("expected active thinker context to be cancelled, got %v", taskCtx.Err())
+	}
+
+	last := mockBackend.LastSession()
+	if last == nil {
+		t.Fatal("expected mock backend session")
+	}
+	if last.TaskStoppedCount() != 1 {
+		t.Fatalf("expected SendTaskStopped() count == 1, got %d", last.TaskStoppedCount())
+	}
+	resp, ok := last.ToolResponses()["inv-tui-cancel"]
+	if !ok {
+		t.Fatalf("expected CompleteHandoff tool response for inv-tui-cancel, got %+v", last.ToolResponses())
+	}
+	respMap, ok := resp.(map[string]any)
+	if !ok || respMap["cancelled"] != true {
+		t.Fatalf("expected cancelled=true in tool response, got %+v", resp)
+	}
+}
+
+func TestVoiceLiveStream_NotifyWaitingOnUser(t *testing.T) {
+	mockBackend := voicebackend.NewMockLiveBackend()
+	sess := voicebackend.NewNativeLiveSession(mockBackend, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voicebackend.LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	m := &RootModel{
+		viewport: uiState{width: 80},
+		audio: AudioModel{
+			liveSession: sess,
+		},
+	}
+
+	m.notifyVoiceWaitingOnUser("Approve running go test?")
+	host := m.turnInteractionHost()
+	if host.onWaiting != nil {
+		host.onWaiting("Which environment should I target?")
+	}
+
+	last := mockBackend.LastSession()
+	if last == nil {
+		t.Fatal("expected mock backend session")
+	}
+	waiting := last.InWaitingOnUser()
+	if len(waiting) != 2 {
+		t.Fatalf("expected 2 SendWaitingOnUser calls, got %d: %v", len(waiting), waiting)
+	}
+	if waiting[0] != "Approve running go test?" || waiting[1] != "Which environment should I target?" {
+		t.Fatalf("unexpected waiting prompts: %v", waiting)
+	}
+}
+
+func TestVoiceLiveStream_ThinkerHandoffSendsBothCompleteHandoffAndAnswer(t *testing.T) {
+	mockBackend := voicebackend.NewMockLiveBackend()
+	sess := voicebackend.NewNativeLiveSession(mockBackend, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voicebackend.LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	m := newRootModel(nil, "user@test", "gemini-2.5-pro", "tier1", t.TempDir(), false)
+	m.turn.engine = &mockVoiceThinkerEngine{answer: "All 12 tests passed."}
+	m.audio.liveSession = sess
+
+	_ = m.handleVoiceThinkerHandoff("inv-handoff-1", "run the test suite")
+
+	last := mockBackend.LastSession()
+	if last == nil {
+		t.Fatal("expected mock backend session")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(last.InAnswers()) > 0 && len(last.ToolResponses()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	answers := last.InAnswers()
+	if len(answers) == 0 || !strings.Contains(answers[0], "All 12 tests passed.") {
+		t.Fatalf("expected SendThinkerAnswer with 'All 12 tests passed.', got %v", answers)
+	}
+	resp, ok := last.ToolResponses()["inv-handoff-1"]
+	if !ok {
+		t.Fatalf("expected CompleteHandoff tool response for inv-handoff-1, got %+v", last.ToolResponses())
+	}
+	respMap, ok := resp.(map[string]any)
+	if !ok || !strings.Contains(respMap["answer"].(string), "All 12 tests passed.") {
+		t.Fatalf("expected answer in CompleteHandoff response, got %+v", resp)
+	}
+}
