@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 	"github.com/justwasm/pigasus/internal/ui/transcript"
@@ -297,5 +298,26 @@ func TestWarmFrameTimeIndependentOfTranscriptLength(t *testing.T) {
 	t.Logf("warm frame: 1000 steps = %v, 8000 steps = %v (ratio %.2f)", small, large, ratio)
 	if ratio > 3 {
 		t.Errorf("warm frame time scales with transcript length: %v vs %v (ratio %.2f)", small, large, ratio)
+	}
+}
+
+func TestPreservesTranscriptRowsOnTicksAndIdleMouseMotion(t *testing.T) {
+	m := warmModel(20, 100)
+	m.viewport.rowsCacheDirty = false
+	m.viewport.viewCacheValid = true
+
+	// Idle mouse motion must preserve both rowsCacheDirty and viewCacheValid.
+	_, _ = m.Update(tea.MouseMotionMsg(tea.Mouse{X: 10, Y: 5}))
+	if m.viewport.rowsCacheDirty {
+		t.Error("idle MouseMotionMsg dirtied rowsCacheDirty")
+	}
+	if !m.viewport.viewCacheValid {
+		t.Error("idle MouseMotionMsg invalidated viewCacheValid")
+	}
+
+	// tasksTickMsg must not dirty rowsCacheDirty (avoids O(N) WrapSlot.Rebuild).
+	_, _ = m.Update(tasksTickMsg{})
+	if m.viewport.rowsCacheDirty {
+		t.Error("tasksTickMsg dirtied rowsCacheDirty")
 	}
 }

@@ -1258,9 +1258,7 @@ func (m *RootModel) currentExtraRowsKey() extraRowsCacheKey {
 	}
 	activeItemsRows := 0
 	if m.overlays.panel.kind == panelregistry.None && m.activeItems.Panel != nil {
-		if r := m.activeItems.Panel.Rows(); r != "" {
-			activeItemsRows = len(r)
-		}
+		activeItemsRows = m.activeItems.Panel.VisibleRowCount()
 	}
 	return extraRowsCacheKey{
 		width:           m.viewport.width,

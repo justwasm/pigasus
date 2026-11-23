@@ -113,6 +113,13 @@ func (p *Panel) Render() string {
 			rightLen = ansi.StringWidth(headerRight)
 		}
 	}
+	if leftLen+rightLen+1 > width+2 {
+		maxLeft := width + 2 - rightLen - 1
+		if maxLeft > 6 {
+			headerLeft = ansi.Truncate(headerLeft, maxLeft, "… ")
+			leftLen = ansi.StringWidth(headerLeft)
+		}
+	}
 	midFill := width + 2 - leftLen - rightLen
 	if midFill < 1 {
 		midFill = 1
@@ -356,7 +363,7 @@ func (p *Panel) renderVisibleLinesLocked(height, width int) []string {
 		visible = append(visible, ansi.Truncate(screenLines[i], width, ""))
 	}
 
-	if p.term.CursorVisible {
+	if p.term.CursorVisible && p.exitCode == nil {
 		curY := p.term.Cursor.Y - start
 		curX := p.term.Cursor.X
 		if curX < 0 {

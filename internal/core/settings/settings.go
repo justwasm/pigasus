@@ -91,14 +91,21 @@ var (
 	sessionSettingsMu      sync.RWMutex
 	sessionSettingsOverlay map[string]any
 
-	settingsCacheMu   sync.RWMutex
-	cachedPath        string
-	cachedModTime     time.Time
-	cachedSize        int64
-	cachedMergedBytes []byte
-	cachedOverlayGen  int64
-	overlayGen        int64
+	settingsCacheMu    sync.RWMutex
+	cachedPath         string
+	cachedModTime      time.Time
+	cachedSize         int64
+	cachedMergedBytes  []byte
+	cachedOverlayGen   int64
+	cachedValidChecked bool
+	cachedValid        bool
+	cachedFields       map[string]any
+	overlayGen         int64
 )
+
+type missingFieldSentinel struct{}
+
+var missingField = missingFieldSentinel{}
 
 // InvalidateCache invalidates the in-memory cache for settings.json.
 func InvalidateCache() {
@@ -107,6 +114,9 @@ func InvalidateCache() {
 	cachedModTime = time.Time{}
 	cachedSize = -1
 	cachedMergedBytes = nil
+	cachedValidChecked = false
+	cachedValid = false
+	cachedFields = nil
 	overlayGen++
 	settingsCacheMu.Unlock()
 }
@@ -220,6 +230,9 @@ func readSettingsBytes() ([]byte, error) {
 		cachedSize = fi.Size()
 		cachedMergedBytes = data
 		cachedOverlayGen = curOverlayGen
+		cachedValidChecked = false
+		cachedValid = false
+		cachedFields = nil
 		return data, nil
 	}
 
@@ -248,6 +261,9 @@ func readSettingsBytes() ([]byte, error) {
 	}
 	cachedMergedBytes = merged
 	cachedOverlayGen = curOverlayGen
+	cachedValidChecked = false
+	cachedValid = false
+	cachedFields = nil
 
 	return merged, nil
 }
@@ -339,21 +355,15 @@ func SetBool(key string, value bool) error {
 // the clone already corrupted keep working instead of silently reverting the
 // toggle to its default.
 func Bool(key string) (value, ok bool) {
-	data, err := readSettingsBytes()
-	if err != nil {
+	val, err := cachedField(key, false)
+	if err != nil || val == nil {
 		return false, false
 	}
-	res := gjson.GetBytes(data, key)
-	if !res.Exists() {
-		return false, false
-	}
-	switch res.Type {
-	case gjson.True:
-		return true, true
-	case gjson.False:
-		return false, true
-	case gjson.String:
-		switch res.Str {
+	switch v := val.(type) {
+	case bool:
+		return v, true
+	case string:
+		switch v {
 		case "on", "true":
 			return true, true
 		case "off", "false":
@@ -376,13 +386,12 @@ func Has(key string) bool {
 // file, the key or the value is absent. It seeds the TUI's /statusline and
 // /title toggles from disk.
 func String(key string) string {
-	data, err := readSettingsBytes()
-	if err != nil {
+	val, err := cachedField(key, false)
+	if err != nil || val == nil {
 		return ""
 	}
-	res := gjson.GetBytes(data, key)
-	if res.Type == gjson.String {
-		return res.Str
+	if s, ok := val.(string); ok {
+		return s
 	}
 	return ""
 }
@@ -398,19 +407,82 @@ func String(key string) string {
 // next render. Print-mode /config (print_slash.go) still goes through
 // its own typed mappers — Field is the TUI-only counterpart.
 func Field(key string) (any, error) {
+	return cachedField(key, true)
+}
+
+func cachedField(key string, validate bool) (any, error) {
 	data, err := readSettingsBytes()
 	if err != nil {
 		return nil, err
 	}
-	if !gjson.ValidBytes(data) {
-		var m map[string]any
-		return nil, json.Unmarshal(data, &m)
+
+	settingsCacheMu.RLock()
+	isCurrent := len(cachedMergedBytes) > 0 && len(data) == len(cachedMergedBytes) && &data[0] == &cachedMergedBytes[0]
+	if isCurrent {
+		if validate && cachedValidChecked && !cachedValid {
+			settingsCacheMu.RUnlock()
+			var m map[string]any
+			return nil, json.Unmarshal(data, &m)
+		}
+		if (!validate || cachedValidChecked) && cachedFields != nil {
+			if v, ok := cachedFields[key]; ok {
+				settingsCacheMu.RUnlock()
+				if _, isMissing := v.(missingFieldSentinel); isMissing {
+					return nil, nil
+				}
+				return v, nil
+			}
+		}
 	}
+	settingsCacheMu.RUnlock()
+
+	if validate {
+		valid := gjson.ValidBytes(data)
+		if !valid {
+			settingsCacheMu.Lock()
+			if len(cachedMergedBytes) > 0 && len(data) == len(cachedMergedBytes) && &data[0] == &cachedMergedBytes[0] {
+				cachedValidChecked = true
+				cachedValid = false
+			}
+			settingsCacheMu.Unlock()
+			var m map[string]any
+			return nil, json.Unmarshal(data, &m)
+		}
+	}
+
 	res := gjson.GetBytes(data, key)
+	var val any
+	var cacheable bool
 	if !res.Exists() {
+		val = missingField
+		cacheable = true
+	} else {
+		val = res.Value()
+		switch val.(type) {
+		case nil, bool, string, float64, int, int64:
+			cacheable = true
+		}
+	}
+
+	settingsCacheMu.Lock()
+	if len(cachedMergedBytes) > 0 && len(data) == len(cachedMergedBytes) && &data[0] == &cachedMergedBytes[0] {
+		if validate {
+			cachedValidChecked = true
+			cachedValid = true
+		}
+		if cacheable {
+			if cachedFields == nil {
+				cachedFields = make(map[string]any, 16)
+			}
+			cachedFields[key] = val
+		}
+	}
+	settingsCacheMu.Unlock()
+
+	if _, isMissing := val.(missingFieldSentinel); isMissing {
 		return nil, nil
 	}
-	return res.Value(), nil
+	return val, nil
 }
 
 // SetField writes one raw value into settings.json at the dot

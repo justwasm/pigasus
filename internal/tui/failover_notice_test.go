@@ -43,9 +43,10 @@ func TestRootModel_FailoverNoticeRenderedInViewportAndSurvivesFinalise(t *testin
 	}
 	_ = sent
 
-	updated, _, handled := m.updateConversationStreamMsg(msg)
-	if !handled {
-		t.Fatal("expected failoverNoticeMsg to be handled")
+	updatedModel, _ := m.Update(msg)
+	updated, ok := updatedModel.(*RootModel)
+	if !ok {
+		t.Fatalf("expected *RootModel from Update, got %T", updatedModel)
 	}
 	m = updated
 	if !m.conversation.streaming {

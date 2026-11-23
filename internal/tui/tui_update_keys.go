@@ -1956,6 +1956,36 @@ func (m *RootModel) updateEditorFinished(msg editorFinishedMsg) (tea.Model, tea.
 	return m, nil
 }
 
+func preservesTranscriptRows(msg tea.Msg) bool {
+	switch msg.(type) {
+	case tasksTickMsg,
+		sp.TickMsg,
+		compactSpinnerTickMsg,
+		btwTickMsg,
+		statusLineExternalTickMsg,
+		usageQuotaTickMsg,
+		pluginsui.BlinkMsg,
+		resumepicker.BlinkMsg,
+		keybind.EscTimeoutMsg,
+		voice.TickMsg,
+		codesearchpanel.TickMsg,
+		tea.MouseMotionMsg:
+		return true
+	}
+	return false
+}
+
+func (m *RootModel) isIdleMouseMotion(msg tea.Msg) bool {
+	if _, ok := msg.(tea.MouseMotionMsg); !ok {
+		return false
+	}
+	return !m.viewport.SelDragging &&
+		!m.prompt.InputSelDragging &&
+		!m.overlays.btwSelection.SelDragging &&
+		!m.overlays.panelSelection.SelDragging &&
+		!m.prompt.picker.Visible()
+}
+
 func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case pluginReloadMsg:

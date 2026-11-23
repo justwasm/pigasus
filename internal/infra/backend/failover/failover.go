@@ -19,10 +19,14 @@ import (
 
 // Target describes one endpoint or provider in the failover chain.
 type Target struct {
-	Name         string
-	Client       backend.Client
-	ModelMap     func(model string) string
-	LogicalModel string
+	Name              string
+	Client            backend.Client
+	ModelMap          func(model string) string
+	LogicalModel      string
+	MaxTokens         int
+	ReasoningEffort   string
+	SupportsThinking  *bool
+	SupportsToolCalls *bool
 }
 
 // Event reports a failover occurrence for telemetry, logging, and UI status updates.
@@ -278,6 +282,20 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 
 		curReq := req
 		curReq.Model = targetModel(target, req.Model)
+		if i > 0 || candidates[0].Name != c.targets[0].Name {
+			if target.MaxTokens > 0 {
+				curReq.MaxTokens = target.MaxTokens
+			}
+			if target.ReasoningEffort != "" {
+				curReq.ReasoningEffort = target.ReasoningEffort
+			}
+			if target.SupportsThinking != nil {
+				curReq.SupportsThinking = target.SupportsThinking
+			}
+			if target.SupportsToolCalls != nil {
+				curReq.SupportsToolCalls = target.SupportsToolCalls
+			}
+		}
 
 		attemptCtx := ctx
 		if hasRemainingBackup {

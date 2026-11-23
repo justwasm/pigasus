@@ -170,8 +170,12 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return mod, cmd
 	}
 	if !tuiviewport.IsScrollMsg(msg) {
-		m.viewport.rowsCacheDirty = true
-		m.invalidateViewCache()
+		if !preservesTranscriptRows(msg) {
+			m.viewport.rowsCacheDirty = true
+			m.invalidateViewCache()
+		} else if !m.isIdleMouseMotion(msg) {
+			m.viewport.viewCacheValid = false
+		}
 	}
 	if mod, cmd, handled := m.updateMouseAndMiscMsg(msg); handled {
 		return mod, cmd

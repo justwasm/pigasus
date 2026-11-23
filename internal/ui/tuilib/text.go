@@ -28,19 +28,47 @@ func isPureASCIIPrintable(s string) bool {
 	return true
 }
 
+// asciiANSIWidth computes the visible cell width of s in a single zero-alloc
+// byte pass when s contains only printable ASCII (0x20..0x7e) and CSI escape
+// sequences (\x1b[...<0x40..0x7e>). Returns (0, false) for UTF-8 multibyte
+// runes, control characters, or non-CSI escapes (e.g. OSC 8 hyperlinks).
+func asciiANSIWidth(s string) (int, bool) {
+	w := 0
+	n := len(s)
+	for i := 0; i < n; i++ {
+		b := s[i]
+		if b == 0x1b {
+			if i+1 >= n || s[i+1] != '[' {
+				return 0, false
+			}
+			i += 2
+			for i < n && (s[i] < 0x40 || s[i] > 0x7e) {
+				i++
+			}
+			if i >= n {
+				return 0, false
+			}
+			continue
+		}
+		if b < 0x20 || b >= 0x7f {
+			return 0, false
+		}
+		w++
+	}
+	return w, true
+}
+
 // FitWidth clamps one rendered line to w visible cells, padding with spaces
 // when it is short. ANSI escape sequences are preserved.
 func FitWidth(s string, w int) string {
-	if strings.ContainsRune(s, '\r') {
+	if strings.IndexByte(s, '\r') >= 0 {
 		s = strings.ReplaceAll(s, "\r", "")
 	}
 	if w <= 0 {
 		return s
 	}
-	var sw int
-	if isPureASCIIPrintable(s) {
-		sw = len(s)
-	} else {
+	sw, ok := asciiANSIWidth(s)
+	if !ok {
 		sw = ansi.StringWidth(s)
 	}
 	switch {
@@ -107,7 +135,12 @@ func WrapRows(line string, width int) []string {
 			out = append(out, sub)
 			continue
 		}
-		if ansi.StringWidth(sub) <= width {
+		if sw, ok := asciiANSIWidth(sub); ok {
+			if sw <= width {
+				out = append(out, sub)
+				continue
+			}
+		} else if ansi.StringWidth(sub) <= width {
 			out = append(out, sub)
 			continue
 		}
@@ -118,7 +151,16 @@ func WrapRows(line string, width int) []string {
 
 // PadTo pads or truncates s to w cells.
 func PadTo(s string, w int) string {
-	sw := ansi.StringWidth(s)
+	if w <= 0 {
+		return ""
+	}
+	if s == "" {
+		return strings.Repeat(" ", w)
+	}
+	sw, ok := asciiANSIWidth(s)
+	if !ok {
+		sw = ansi.StringWidth(s)
+	}
 	if sw > w {
 		return ansi.Truncate(s, w, "")
 	}
@@ -148,7 +190,11 @@ func Truncate(s string, w int, tail string) string {
 	if w <= 0 {
 		return ""
 	}
-	if ansi.StringWidth(s) <= w {
+	if sw, ok := asciiANSIWidth(s); ok {
+		if sw <= w {
+			return s
+		}
+	} else if ansi.StringWidth(s) <= w {
 		return s
 	}
 	return ansi.Truncate(s, w, tail)

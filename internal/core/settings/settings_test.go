@@ -197,3 +197,41 @@ func TestSettingsCorruptFileHandling(t *testing.T) {
 		t.Fatalf("file remained corrupt after DeleteField: %v", err)
 	}
 }
+
+func TestSettingsFieldCacheInvalidatesOnExternalWrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
+	InvalidateCache()
+
+	if err := os.MkdirAll(home, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(home, "settings.json")
+	if err := os.WriteFile(p, []byte(`{"hideActiveItems":false,"verbosity":"low"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if v, err := Field("hideActiveItems"); err != nil || v != false {
+		t.Fatalf("initial Field = (%v, %v), want (false, nil)", v, err)
+	}
+	if s := String("verbosity"); s != "low" {
+		t.Fatalf("initial String = %q, want low", s)
+	}
+	if v, ok := Bool("hideActiveItems"); !ok || v {
+		t.Fatalf("initial Bool = (%v, %v), want (false, true)", v, ok)
+	}
+
+	// External write with different content/size must invalidate immediately.
+	if err := os.WriteFile(p, []byte(`{"hideActiveItems":true,"verbosity":"high","extra":"1"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := Field("hideActiveItems"); err != nil || v != true {
+		t.Fatalf("updated Field = (%v, %v), want (true, nil)", v, err)
+	}
+	if s := String("verbosity"); s != "high" {
+		t.Fatalf("updated String = %q, want high", s)
+	}
+	if v, ok := Bool("hideActiveItems"); !ok || !v {
+		t.Fatalf("updated Bool = (%v, %v), want (true, true)", v, ok)
+	}
+}

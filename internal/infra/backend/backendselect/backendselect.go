@@ -166,9 +166,13 @@ func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Clie
 			client := newGatewayClientForModel(m, timeout)
 			wireModel := strings.TrimSpace(m.ExternalModelName)
 			targets = append(targets, failover.Target{
-				Name:         targetName,
-				Client:       client,
-				LogicalModel: fbClean,
+				Name:              targetName,
+				Client:            client,
+				LogicalModel:      fbClean,
+				MaxTokens:         m.DefaultMaxTokens,
+				ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
+				SupportsThinking:  m.SupportsThinking,
+				SupportsToolCalls: m.SupportsToolCalls,
 				ModelMap: func(string) string {
 					if wireModel != "" {
 						return wireModel

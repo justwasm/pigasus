@@ -177,6 +177,12 @@ func (a *Actor) resolveTurnConfig(req TurnRequest) (TurnConfig, error) {
 	if req.ToolPruningTurns != 0 {
 		cfg.ToolPruningTurns = req.ToolPruningTurns
 	}
+	if req.ShouldRecover != nil {
+		cfg.ShouldRecover = req.ShouldRecover
+	}
+	if req.MaxRecoveries != 0 {
+		cfg.MaxRecoveries = req.MaxRecoveries
+	}
 	if cfg.Budget == nil {
 		cfg.Budget = DefaultBudgetManager()
 	}

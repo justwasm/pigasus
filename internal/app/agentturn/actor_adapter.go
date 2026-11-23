@@ -26,6 +26,7 @@ const autoContMaxNetworkDepth = 8
 type backendProviderAdapter struct {
 	client       backend.Client
 	initialModel string
+	onFailover   failover.Notifier
 
 	mu          sync.Mutex
 	activeModel string
@@ -156,6 +157,9 @@ func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.Generat
 	}
 	if req.Temperature != nil {
 		streamReq.Temperature = float64(*req.Temperature)
+	}
+	if p.onFailover != nil {
+		ctx = failover.ContextWithNotifier(ctx, p.onFailover)
 	}
 
 	streamCh, err := p.client.Stream(ctx, streamReq)
@@ -818,7 +822,7 @@ func RunActorTurnOnActorWithPermHandler(
 	}
 
 	sink := NewFrameSink(emit, permHandler)
-	turnCtx := failover.ContextWithNotifier(ctx, func(ev failover.Event) {
+	provider.onFailover = func(ev failover.Event) {
 		nextModel := strings.TrimSpace(ev.LogicalModel)
 		if nextModel == "" {
 			nextModel = strings.TrimSpace(ev.Model)
@@ -841,8 +845,8 @@ func RunActorTurnOnActorWithPermHandler(
 				},
 			})
 		}
-	})
-	_ = ExecuteActorTurnRequest(turnCtx, act, actor.TurnRequest{
+	}
+	_ = ExecuteActorTurnRequest(ctx, act, actor.TurnRequest{
 		Prompt: lastPrompt,
 		TurnConfig: actor.TurnConfig{
 			Model:        model,

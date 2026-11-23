@@ -57,6 +57,7 @@ func TestLocalTurn_MidStreamFailoverUpdatesPolicyAndEmitsNotice(t *testing.T) {
 		},
 	}
 
+	wantLimit := modelctx.For("claude-sonnet-4-6")
 	fc := failover.NewWithOptions([]failover.Target{
 		{
 			Name:         "cloudcode",
@@ -67,6 +68,7 @@ func TestLocalTurn_MidStreamFailoverUpdatesPolicyAndEmitsNotice(t *testing.T) {
 		{
 			Name:         "fallback:openrouter",
 			LogicalModel: "claude-sonnet-4-6",
+			MaxTokens:    wantLimit.ReserveTokens,
 			Client:       secondary,
 			ModelMap:     func(string) string { return "anthropic/claude-sonnet-4-6" },
 		},
@@ -103,12 +105,12 @@ func TestLocalTurn_MidStreamFailoverUpdatesPolicyAndEmitsNotice(t *testing.T) {
 			if f.Notice != nil && f.Notice.Kind == agentlink.NoticeFailover {
 				cp := *f.Notice
 				failoverNotices = append(failoverNotices, &cp)
+			} else if f.Notice != nil && f.Notice.Kind == agentlink.NoticeError {
+				t.Fatalf("unexpected error notice: %+v", f.Notice)
 			}
 		case agentlink.KindResult:
 			cp := f
 			resultFrame = &cp
-		case agentlink.KindError:
-			t.Fatalf("unexpected error frame: %+v", f.Error)
 		}
 	}
 
@@ -122,7 +124,7 @@ func TestLocalTurn_MidStreamFailoverUpdatesPolicyAndEmitsNotice(t *testing.T) {
 		t.Fatalf("expected 1 NoticeFailover frame, got %d (%+v)", len(failoverNotices), failoverNotices)
 	}
 	n := failoverNotices[0]
-	if n.FromTarget != "cloudcode" || n.ToTarget != "fallback:openrouter" || n.Model != "claude-sonnet-4-6" {
+	if n.FromTarget != "cloudcode" || n.ToTarget != "fallback:openrouter" || n.Model != "anthropic/claude-sonnet-4-6" {
 		t.Fatalf("unexpected NoticeFailover payload: %+v", n)
 	}
 
@@ -137,7 +139,6 @@ func TestLocalTurn_MidStreamFailoverUpdatesPolicyAndEmitsNotice(t *testing.T) {
 	if cpPolicy == nil || cpPolicy.Model() != "claude-sonnet-4-6" {
 		t.Fatalf("checkpoint policy model = %v, want claude-sonnet-4-6", cpPolicy)
 	}
-	wantLimit := modelctx.For("claude-sonnet-4-6")
 	if cpPolicy.Limit().ContextWindow != wantLimit.ContextWindow {
 		t.Fatalf("checkpoint policy ContextWindow = %d, want %d", cpPolicy.Limit().ContextWindow, wantLimit.ContextWindow)
 	}

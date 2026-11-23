@@ -8,6 +8,7 @@
 package activeitemspanel
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -543,4 +544,50 @@ func TestPanel_SwarmRow(t *testing.T) {
 	if p.Count() != 0 {
 		t.Fatalf("Count after dismiss = %d, want 0", p.Count())
 	}
+}
+
+func TestPanel_VisibleRowCountMatchesRows(t *testing.T) {
+	tempHome(t)
+	home := os.Getenv("ANTIGRAVITY_HOME")
+	reg := taskregistry.New()
+	p := New(Seams{
+		Registry: func() *taskregistry.Registry { return reg },
+		Width:    func() int { return 80 },
+		Height:   func() int { return 30 }, // maxVisible = 3
+	})
+
+	check := func(label string) {
+		t.Helper()
+		rows := p.Rows()
+		want := 0
+		if rows != "" {
+			want = strings.Count(rows, "\n") + 1
+		}
+		if got := p.VisibleRowCount(); got != want {
+			t.Errorf("%s: VisibleRowCount() = %d, want %d (rows=%q)", label, got, want, rows)
+		}
+	}
+
+	check("empty")
+
+	for i := 0; i < 5; i++ {
+		reg.Register(&taskregistry.Task{
+			ID:    fmt.Sprintf("t-%d", i),
+			Kind:  taskregistry.KindShell,
+			Name:  fmt.Sprintf("cmd-%d", i),
+			State: taskregistry.StateRunning,
+		})
+	}
+	check("5 items top")
+
+	p.SetFocus(true)
+	for i := 0; i < 3; i++ {
+		p.HandleKey(tea.Key{Code: tea.KeyDown})
+	}
+	check("5 items scrolled middle")
+
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte(`{"hideActiveItems":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check("hidden")
 }

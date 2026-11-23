@@ -236,6 +236,36 @@ func (p *Panel) Count() int {
 	return len(p.entries())
 }
 
+// VisibleRowCount returns the number of rendered lines Rows() would produce
+// without formatting any row strings.
+func (p *Panel) VisibleRowCount() int {
+	if p == nil || p.Hidden() {
+		return 0
+	}
+	total := p.Count()
+	if total == 0 {
+		return 0
+	}
+	p.clamp(total, p.height())
+	maxVis := p.maxVisible
+	start := p.scroll
+	if start < 0 {
+		start = 0
+	}
+	end := start + maxVis
+	if end > total {
+		end = total
+	}
+	lines := end - start
+	if start > 0 {
+		lines++
+	}
+	if end < total {
+		lines++
+	}
+	return lines
+}
+
 // Clamp keeps the cursor and the scroll window inside the item list.
 //
 // The host calls it when the terminal is resized: a list that shrank
