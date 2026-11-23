@@ -109,7 +109,7 @@ vendored `internal/cli/testdata/changelog_reference.txt`. They stay
 parseable as clone extras so the side channels remain reachable, and the
 visible `--help` stays byte-identical with the reference's.
 
-### The clone's hidden extras (11)
+### The clone's hidden extras (13)
 
 These are openagy-only. None of them exists in the reference at all.
 
@@ -126,6 +126,8 @@ These are openagy-only. None of them exists in the reference at all.
 | `--remote-control-tcp` | string | `""` | Bind addr (host:port) for the WebSocket JSON-RPC transport; empty disables |
 | `--remote-control-socket` | string | `""` | Override the unix socket path for `--remote-control` |
 | `--experimental-rc-v2` | bool | — | Opt in to the deferred v2 (WebRTC mesh / Hub) features; no-op today |
+| `--persona` | string | `""` | Onboarding persona ID (`engineering`, `knowledge-work`, `data`, `science`, `design`) |
+| `--skin` | string | `""` | Product skin (`developer` or `non-technical`) |
 
 `--alt-screen` and `--no-alt-screen` are a pair: the explicit flag
 overrides the `/config` Rendering Mode setting, in either direction.
@@ -174,12 +176,12 @@ the reference's, so the three extras are accepted and not advertised
 (`--addr`, `--name`, `--no-login`, `--desktop`), and `web` lists its own
 (`--desktop` included).
 
-## The hidden TUI slash commands (7)
+## The hidden TUI slash commands (9)
 
-The TUI's picker shows the built-in catalogue. Seven more commands are
-registered in `slashcommands.Hidden` and never listed in the picker: five are
-the reference-hidden set (`/branch` as a standalone command alongside `/fork`'s
-alias, `/login`, `/narration`, `/quote`, `/share`), and two are openagy-only
+The TUI's picker shows the built-in catalogue. Nine more commands are
+registered in `slashcommands.Hidden` and never listed in the picker: seven are
+the reference-hidden and persona commands (`/branch` as a standalone command alongside `/fork`'s
+alias, `/login`, `/narration`, `/persona`, `/quote`, `/share`, `/skin`), and two are openagy-only
 remote-agent commands (`/upload`, `/triggers`). (`/continue` and `/terminal`
 were promoted to `slashcommands.Default`.)
 
@@ -188,8 +190,10 @@ were promoted to `slashcommands.Default`.)
 | `/branch` | `slashBranch` | Standalone branch command (distinct from `/fork`'s `branch` alias) |
 | `/login` | `slashLogin` | Sign in to a Google account (the device-code login UI) |
 | `/narration` | `slashNarration` | Print the narration feedback — what the narration of a turn does |
+| `/persona <name>` | `slashPersona` | Query active persona or switch between 5 personas (`engineering`, `knowledge-work`, `data`, `science`, `design`) |
 | `/quote <n>` | `slashQuote` | Insert a quoted block of the n-th turn into the prompt |
 | `/share <name>` | `slashShare` | Open a read-only, isolated share of the workspace |
+| `/skin <name>` | `slashSkin` | Switch product skin (`developer` or `non-technical`) |
 | `/upload <path>` | `slashUpload` | Remote-only: upload a local file as a project resource |
 | `/triggers` | `slashTriggers` | Remote-only: list/add/pause/resume/delete remote triggers |
 

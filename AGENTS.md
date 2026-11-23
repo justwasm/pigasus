@@ -123,5 +123,6 @@ When working on specific subsystems, refer to the focused manuals under `docs/gu
 | Remote Control & Web UI Wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) | `internal/remotecontrol/*`, `remotetransport/`, `rcmesh/` |
 | Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.14/` |
 | pigasus-only surfaces (index) | [`docs/guide/pigasus-extensions.md`](docs/guide/pigasus-extensions.md) | `internal/tui/remote_*.go`, `internal/infra/remoteagentclient`, `internal/rchost/agentserver` |
+| Knowledge Work & Personas | [`docs/guide/knowledge-work.md`](docs/guide/knowledge-work.md) | `internal/features/personas`, `internal/app/prompt/agyprompt`, `internal/tui` |
 | Architecture Tier Ledger | [`docs/guide/architecture-tiers.md`](docs/guide/architecture-tiers.md) | `internal/core/architecture` |
 | Reverse-Engineering SOP | [`docs/guide/reverse-engineering-sop.md`](docs/guide/reverse-engineering-sop.md) | `scripts/re/`, `Makefile` |
