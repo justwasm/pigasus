@@ -28,6 +28,7 @@ func (m *mockClient) Stream(ctx context.Context, req backend.StreamRequest) (<-c
 }
 
 func TestFailover_PrimarySuccess(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{}
 	secondary := &mockClient{}
 
@@ -64,6 +65,7 @@ func TestFailover_PrimarySuccess(t *testing.T) {
 }
 
 func TestFailover_ImmediateErrorSwitchesToSecondary(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			return nil, &apierror.HTTPError{StatusCode: 429, Body: []byte(`{"error":"quota"}`)}
@@ -127,6 +129,7 @@ func TestFailover_ImmediateErrorSwitchesToSecondary(t *testing.T) {
 }
 
 func TestFailover_FirstChunk429SwitchesToSecondary(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			ch := make(chan backend.StreamChunk, 1)
@@ -175,6 +178,7 @@ func TestFailover_FirstChunk429SwitchesToSecondary(t *testing.T) {
 }
 
 func TestFailover_MidStreamErrorDoesNotBlindRetry(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			ch := make(chan backend.StreamChunk, 2)
@@ -226,6 +230,7 @@ func TestFailover_MidStreamErrorDoesNotBlindRetry(t *testing.T) {
 }
 
 func TestFailover_AllTargetsFailPreservesHTTPError(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	expectedErr := &apierror.HTTPError{StatusCode: 429, Body: []byte(`{"error":"all exhausted"}`)}
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
@@ -265,6 +270,7 @@ func TestFailover_AllTargetsFailPreservesHTTPError(t *testing.T) {
 }
 
 func TestFailover_MultiHopAndGlobalNotifier(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	ResetGlobalNotifiers()
 	defer ResetGlobalNotifiers()
 
@@ -332,6 +338,7 @@ func TestFailover_MultiHopAndGlobalNotifier(t *testing.T) {
 }
 
 func TestFailover_NetworkErrorTriggersFailover(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			return nil, errors.New("dial tcp: connection refused")
@@ -367,6 +374,7 @@ func TestFailover_NetworkErrorTriggersFailover(t *testing.T) {
 }
 
 func TestFailover_NonContentChunksDiscardedOnFailover(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			ch := make(chan backend.StreamChunk, 2)
@@ -411,6 +419,7 @@ func TestFailover_NonContentChunksDiscardedOnFailover(t *testing.T) {
 }
 
 func TestFailover_StreamClosedWithoutContentTriggersFailover(t *testing.T) {
+	DefaultHealthTracker().Reset()
 	primary := &mockClient{
 		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 			ch := make(chan backend.StreamChunk)

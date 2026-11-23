@@ -225,6 +225,7 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 
 func (m *RootModel) buildTeaView(body string, cursorX, cursorY int) tea.View {
 	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() && m.viewport.width > 0 {
+		m.syncVoiceWireHUD()
 		rows := strings.Split(body, "\n")
 		rows = m.overlays.wireHUD.OverlayOnRows(rows, m.viewport.width)
 		body = strings.Join(rows, "\n")

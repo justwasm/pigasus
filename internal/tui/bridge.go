@@ -24,30 +24,32 @@ import (
 
 // EngineBridge abstracts and coordinates turn execution for the TUI.
 type EngineBridge struct {
-	turns        *session.TurnRuntime
-	engine       agentturn.Engine
-	prog         *tea.Program
-	promptMgr    *PermissionPromptState
-	onUsage      func(*backend.ChunkMeta)
-	onFrame      func(agentlink.Frame)
-	hookStart    func(context.Context)
-	hookPre      func(context.Context)
-	hookStop     func(context.Context)
-	hookPost     func(context.Context)
-	sessionEpoch func() uint64
+	turns              *session.TurnRuntime
+	engine             agentturn.Engine
+	prog               *tea.Program
+	promptMgr          *PermissionPromptState
+	onUsage            func(*backend.ChunkMeta)
+	onFrame            func(agentlink.Frame)
+	onPermissionPrompt func(permissionprompt.Request)
+	hookStart          func(context.Context)
+	hookPre            func(context.Context)
+	hookStop           func(context.Context)
+	hookPost           func(context.Context)
+	sessionEpoch       func() uint64
 }
 
 // BridgeOptions configures an EngineBridge.
 type BridgeOptions struct {
-	Engine    agentturn.Engine
-	Program   *tea.Program
-	PromptMgr *PermissionPromptState
-	OnUsage   func(*backend.ChunkMeta)
-	OnFrame   func(agentlink.Frame)
-	HookStart func(context.Context)
-	HookPre   func(context.Context)
-	HookStop  func(context.Context)
-	HookPost  func(context.Context)
+	Engine             agentturn.Engine
+	Program            *tea.Program
+	PromptMgr          *PermissionPromptState
+	OnUsage            func(*backend.ChunkMeta)
+	OnFrame            func(agentlink.Frame)
+	OnPermissionPrompt func(permissionprompt.Request)
+	HookStart          func(context.Context)
+	HookPre            func(context.Context)
+	HookStop           func(context.Context)
+	HookPost           func(context.Context)
 	// SessionEpoch identifies the host transcript the bridge's turns are
 	// built from. The local engine uses it to keep its actor across a
 	// checkpoint and to rebuild it after /clear or /resume.
@@ -57,17 +59,18 @@ type BridgeOptions struct {
 // NewEngineBridge creates an EngineBridge instance.
 func NewEngineBridge(opts BridgeOptions) *EngineBridge {
 	b := &EngineBridge{
-		turns:        session.NewTurnRuntime(),
-		engine:       opts.Engine,
-		prog:         opts.Program,
-		promptMgr:    opts.PromptMgr,
-		onUsage:      opts.OnUsage,
-		onFrame:      opts.OnFrame,
-		hookStart:    opts.HookStart,
-		hookPre:      opts.HookPre,
-		hookStop:     opts.HookStop,
-		hookPost:     opts.HookPost,
-		sessionEpoch: opts.SessionEpoch,
+		turns:              session.NewTurnRuntime(),
+		engine:             opts.Engine,
+		prog:               opts.Program,
+		promptMgr:          opts.PromptMgr,
+		onUsage:            opts.OnUsage,
+		onFrame:            opts.OnFrame,
+		onPermissionPrompt: opts.OnPermissionPrompt,
+		hookStart:          opts.HookStart,
+		hookPre:            opts.HookPre,
+		hookStop:           opts.HookStop,
+		hookPost:           opts.HookPost,
+		sessionEpoch:       opts.SessionEpoch,
 	}
 	b.wirePermissionHandler()
 	return b
@@ -152,6 +155,9 @@ func (b *EngineBridge) handleACPPermission(ctx context.Context, req agentturn.Pe
 	}
 
 	prompt := mgr.Raise(pReq)
+	if b.onPermissionPrompt != nil {
+		b.onPermissionPrompt(pReq)
+	}
 	if b.prog != nil {
 		b.prog.Send(PermissionPromptRaisedMsg{Prompt: prompt})
 	}

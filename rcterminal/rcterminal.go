@@ -156,6 +156,8 @@ type Frame struct {
 	Cwd string
 	// ExitCode is the payload of a FrameExitCode frame.
 	ExitCode int
+	// Offset is the cumulative byte offset after this frame's output.
+	Offset int64
 	// IsScrollback marks a frame as replay rather than live output.
 	IsScrollback bool
 }
@@ -344,6 +346,12 @@ func (r *Registry) Write(terminalID string, data []byte) error {
 
 // StreamChannel returns a receive-only channel of Frames for the given terminal.
 func (r *Registry) StreamChannel(ctx context.Context, terminalID string) (<-chan Frame, error) {
+	return r.StreamChannelFrom(ctx, terminalID, 0)
+}
+
+// StreamChannelFrom returns a receive-only channel of Frames for the given
+// terminal, replaying scrollback starting from resumeOffset.
+func (r *Registry) StreamChannelFrom(ctx context.Context, terminalID string, resumeOffset int64) (<-chan Frame, error) {
 	r.mu.Lock()
 	s := r.sessions[terminalID]
 	r.mu.Unlock()
@@ -353,7 +361,7 @@ func (r *Registry) StreamChannel(ctx context.Context, terminalID string) (<-chan
 	ch := make(chan Frame, subscriberQueue)
 	go func() {
 		defer close(ch)
-		_ = s.streamContext(ctx, func(f Frame) error {
+		_ = s.streamContextFrom(ctx, resumeOffset, func(f Frame) error {
 			select {
 			case ch <- f:
 				return nil

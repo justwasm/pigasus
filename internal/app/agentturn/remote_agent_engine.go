@@ -964,6 +964,14 @@ func (e *RemoteAgentEngine) SendTerminalInput(ctx context.Context, terminalID st
 	return err
 }
 
+// ResizeTerminal updates the remote terminal's window dimensions.
+func (e *RemoteAgentEngine) ResizeTerminal(ctx context.Context, terminalID string, rows, cols int) error {
+	if e == nil || e.client == nil {
+		return errors.New("remote agent: no client configured")
+	}
+	return e.client.ResizeTerminal(ctx, terminalID, rows, cols)
+}
+
 // CloseTerminal ends a remote terminal.
 func (e *RemoteAgentEngine) CloseTerminal(ctx context.Context, terminalID string) error {
 	if e == nil || e.client == nil {

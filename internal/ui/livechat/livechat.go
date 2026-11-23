@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1121,13 +1122,19 @@ func (m *liveChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendLog(fmt.Sprintf("%s⚡ [Barge-in: Agent interrupted by user]%s", ansiYellow, ansiReset))
 
 	case thinkerStartMsg:
+		m.thinking = true
 		m.appendLog(fmt.Sprintf("%s⚙️ [Thinker Task]: %s%s", ansiYellow+ansiBold, msg.task, ansiReset))
 
 	case thinkerDoneMsg:
+		m.thinking = false
 		if msg.err != nil {
-			m.appendLog(fmt.Sprintf("%s❌ [Thinker Failed]: %s (%v)%s", ansiRed+ansiBold, msg.task, msg.err, ansiReset))
-			if msg.result != "" {
-				m.appendLog(fmt.Sprintf("%s%s%s", ansiDim, msg.result, ansiReset))
+			if errors.Is(msg.err, context.Canceled) {
+				m.appendLog(fmt.Sprintf("%s🛑 [Thinker Cancelled]: %s%s", ansiYellow+ansiBold, msg.task, ansiReset))
+			} else {
+				m.appendLog(fmt.Sprintf("%s❌ [Thinker Failed]: %s (%v)%s", ansiRed+ansiBold, msg.task, msg.err, ansiReset))
+				if msg.result != "" {
+					m.appendLog(fmt.Sprintf("%s%s%s", ansiDim, msg.result, ansiReset))
+				}
 			}
 		} else {
 			m.appendLog(fmt.Sprintf("%s✅ [Thinker Finished]: %s%s", ansiGreen+ansiBold, msg.task, ansiReset))
@@ -1683,6 +1690,11 @@ type liveChatHandlerBridge struct {
 	prog      *tea.Program
 	workspace string
 	sess      *voice.NativeLiveSession
+
+	thinkerMu         sync.Mutex
+	thinkerCancel     context.CancelFunc
+	thinkerInvID      string
+	thinkerCancelSent bool
 }
 
 func (h *liveChatHandlerBridge) OnUserSpeech(text string, interim bool) {
@@ -1839,24 +1851,97 @@ func (h *liveChatHandlerBridge) OnToolCall(call voice.LiveToolCall) {
 	}
 }
 
+func (h *liveChatHandlerBridge) OnThinkerCancel(invocationID string) {
+	h.thinkerMu.Lock()
+	cancel := h.thinkerCancel
+	activeID := h.thinkerInvID
+	if cancel != nil {
+		h.thinkerCancelSent = true
+	}
+	h.thinkerMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if invocationID == "" {
+		invocationID = activeID
+	}
+	if h.sess != nil && h.sess.IsActive() {
+		_ = h.sess.SendTaskStopped()
+		if invocationID != "" {
+			_ = h.sess.SendToolResponse(invocationID, "cancel_thinker_agent", map[string]any{"cancelled": true})
+		}
+	}
+	if h.prog != nil {
+		h.prog.Send(thinkerDoneMsg{task: "cancelled", err: context.Canceled})
+	}
+}
+
 func (h *liveChatHandlerBridge) OnThinkerHandoff(invocationID string, task string) {
 	if h.prog != nil {
 		h.prog.Send(thinkerStartMsg{id: invocationID, task: task})
 	}
 
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	h.thinkerMu.Lock()
+	prevCancel := h.thinkerCancel
+	h.thinkerCancel = taskCancel
+	h.thinkerInvID = invocationID
+	h.thinkerCancelSent = false
+	h.thinkerMu.Unlock()
+	if prevCancel != nil {
+		prevCancel()
+	}
+
 	go func() {
-		_ = h.sess.SendThinkerNote("Starting execution for: " + task)
+		defer taskCancel()
+		if h.sess != nil {
+			_ = h.sess.SendThinkerNote("Starting execution for: " + task)
+		}
 
 		var history []voice.LiveTurnRecord
 		if h.sess != nil {
 			history = h.sess.ConversationHistory()
 		}
-		result, err := executeThinkerTask(h.workspace, task, history)
+		result, err := executeThinkerTaskWithContext(taskCtx, h.workspace, task, history)
 
-		_ = h.sess.CompleteHandoff(invocationID, result)
-		_ = h.sess.SendThinkerAnswer(result)
+		h.thinkerMu.Lock()
+		alreadySent := h.thinkerCancelSent
+		if h.thinkerInvID == invocationID {
+			h.thinkerCancel = nil
+			h.thinkerInvID = ""
+			h.thinkerCancelSent = false
+		}
+		h.thinkerMu.Unlock()
+
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				if !alreadySent && h.sess != nil && h.sess.IsActive() {
+					_ = h.sess.SendTaskStopped()
+					if invocationID != "" {
+						_ = h.sess.CompleteHandoff(invocationID, map[string]any{"cancelled": true})
+					}
+				}
+			} else if h.sess != nil && h.sess.IsActive() {
+				if invocationID != "" {
+					_ = h.sess.CompleteHandoff(invocationID, map[string]any{"error": err.Error()})
+				}
+				_ = h.sess.SendThinkerNote("Task failed: " + err.Error())
+			}
+			if !alreadySent && h.prog != nil {
+				h.prog.Send(thinkerDoneMsg{task: task, result: result, err: err})
+			}
+			return
+		}
+
+		if h.sess != nil && h.sess.IsActive() {
+			if invocationID != "" {
+				_ = h.sess.CompleteHandoff(invocationID, map[string]any{"answer": result})
+			}
+			_ = h.sess.SendThinkerAnswer(result)
+		}
 		if h.prog != nil {
-			h.prog.Send(thinkerDoneMsg{task: task, result: result, err: err})
+			h.prog.Send(thinkerDoneMsg{task: task, result: result})
 		}
 	}()
 }
@@ -2125,7 +2210,14 @@ func extractSearchQuery(task string) (query, domain string, ok bool) {
 }
 
 func executeThinkerTask(ws string, task string, history ...[]voice.LiveTurnRecord) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	return executeThinkerTaskWithContext(context.Background(), ws, task, history...)
+}
+
+func executeThinkerTaskWithContext(parentCtx context.Context, ws string, task string, history ...[]voice.LiveTurnRecord) (string, error) {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, 45*time.Second)
 	defer cancel()
 
 	// 1. Check if task is a web search

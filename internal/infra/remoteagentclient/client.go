@@ -691,6 +691,12 @@ func (c *Client) CloseTerminal(ctx context.Context, terminalID string) error {
 	return c.post(ctx, "closeTerminal", map[string]string{"terminalId": terminalID}, nil)
 }
 
+// TerminalSize describes terminal dimensions for resize requests.
+type TerminalSize struct {
+	Cols int32 `json:"cols"`
+	Rows int32 `json:"rows"`
+}
+
 // SendTerminalInput writes bytes (or a resize) to a terminal and returns
 // the acknowledged offset.
 func (c *Client) SendTerminalInput(ctx context.Context, terminalID string, input []byte, inputStreamID string, offset int64) (int64, error) {
@@ -705,6 +711,18 @@ func (c *Client) SendTerminalInput(ctx context.Context, terminalID string, input
 		return offset, err
 	}
 	return out.AckedOffset, nil
+}
+
+// ResizeTerminal sends a terminal resize request via sendTerminalInput.
+func (c *Client) ResizeTerminal(ctx context.Context, terminalID string, rows, cols int) error {
+	in := map[string]any{
+		"terminalId": terminalID,
+		"resize": TerminalSize{
+			Cols: int32(cols),
+			Rows: int32(rows),
+		},
+	}
+	return c.post(ctx, "sendTerminalInput", in, nil)
 }
 
 // StreamTerminalOutput streams a terminal's bytes from resumeOffset. The

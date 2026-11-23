@@ -72,6 +72,7 @@ func TestHiddenExtraFlags(t *testing.T) {
 		"alt-screen",
 		"backend",
 		"debug",
+		"debug-wire",
 		"desktop",
 		"diff-with-agy",
 		"experimental-rc-v2",

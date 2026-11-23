@@ -50,6 +50,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/historypanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/views/narration"
+	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
 	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
@@ -2173,8 +2174,65 @@ func (h *tuiLiveHandler) OnThinkerHandoff(invocationID string, task string) {
 	}
 }
 
+func (h *tuiLiveHandler) OnThinkerCancel(invocationID string) {
+	if h.m == nil {
+		return
+	}
+	activeID, cancelled := h.m.audio.cancelActiveThinker()
+	if invocationID == "" {
+		invocationID = activeID
+	}
+	if sess := h.m.audio.liveSession; sess != nil && sess.IsActive() {
+		_ = sess.SendTaskStopped()
+		if invocationID != "" {
+			_ = sess.CompleteHandoff(invocationID, map[string]any{"cancelled": true})
+		}
+	}
+	if cancelled && h.m.turn.prog != nil {
+		h.m.turn.prog.Send(voiceThinkerDoneMsg{
+			invocationID: invocationID,
+			err:          context.Canceled,
+		})
+	}
+}
+
+func formatPermissionForVoice(req permissionprompt.Request) string {
+	tool := strings.TrimSpace(req.Tool)
+	cmd := strings.TrimSpace(req.Command)
+	desc := strings.TrimSpace(req.Description)
+	switch {
+	case tool != "" && cmd != "":
+		return fmt.Sprintf("Approve %s: %s?", tool, cmd)
+	case desc != "" && desc != tool:
+		return fmt.Sprintf("Approve %s (%s)?", tool, desc)
+	case tool != "":
+		return fmt.Sprintf("Approve %s?", tool)
+	default:
+		return "Approve tool execution?"
+	}
+}
+
+func (m *RootModel) notifyVoiceWaitingOnUser(question string) {
+	if m == nil || m.audio.liveSession == nil || !m.audio.liveSession.IsActive() {
+		return
+	}
+	question = strings.TrimSpace(question)
+	if question == "" {
+		question = "Waiting for your confirmation."
+	}
+	_ = m.audio.liveSession.SendWaitingOnUser(question)
+}
+
 // RunThinkerTask executes a Thinker turn using the active turn engine and tools.
 func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string, error) {
+	return m.RunThinkerTaskWithContext(context.Background(), task, onProgress)
+}
+
+// RunThinkerTaskWithContext executes a Thinker turn using the active turn engine and tools under ctx.
+func (m *RootModel) RunThinkerTaskWithContext(ctx context.Context, task string, onProgress func(string)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	bridge := NewEngineBridge(BridgeOptions{
 		Engine:    m.turnEngine(),
 		Program:   m.turn.prog,
@@ -2185,6 +2243,9 @@ func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string
 				onProgress(voicebackend.HumanizeTool(f.Tool.Name, f.Tool.Args))
 			}
 		},
+		OnPermissionPrompt: func(req permissionprompt.Request) {
+			m.notifyVoiceWaitingOnUser(formatPermissionForVoice(req))
+		},
 		HookStart:    m.hookSessionStart,
 		HookPre:      m.hookPreInvocation,
 		HookStop:     m.hookStop,
@@ -2192,7 +2253,7 @@ func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string
 		SessionEpoch: func() uint64 { return m.session.epoch() },
 	})
 
-	turnCtx, endTurn := bridge.turns.Begin(context.Background())
+	turnCtx, endTurn := bridge.turns.Begin(ctx)
 	defer endTurn()
 	turnCtx = interaction.WithHost(turnCtx, m.turnInteractionHost())
 
@@ -2535,6 +2596,10 @@ func (m *RootModel) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, boo
 func (m *RootModel) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
 	if m.overlays.panel.kind == panelregistry.None {
 		return false, nil
+	}
+	if m.overlays.panel.kind == panelregistry.Help {
+		_, cmd, handled := m.handleHelpModeNavigation(key)
+		return handled, cmd
 	}
 	if handled, cmd, claimed := m.panelRegistry().HandleKey(m.overlays.panel.kind, key); claimed {
 		if m.overlays.panel.kind == panelregistry.Tasks && m.overlays.panel.tp != nil {

@@ -140,8 +140,26 @@ func (m *terminalManager) send(id string, input []byte) error {
 	if closed {
 		return fmt.Errorf("terminal %q is closed", id)
 	}
+	if len(input) == 0 {
+		return nil
+	}
 	_, err := ts.file.Write(input)
 	return err
+}
+
+// resize updates the PTY window dimensions.
+func (m *terminalManager) resize(id string, cols, rows int) error {
+	ts, ok := m.get(id)
+	if !ok {
+		return fmt.Errorf("terminal %q not found", id)
+	}
+	ts.mu.Lock()
+	closed := ts.closed
+	ts.mu.Unlock()
+	if closed {
+		return fmt.Errorf("terminal %q is closed", id)
+	}
+	return resizePTY(ts.file, cols, rows)
 }
 
 // readLoop copies the PTY into the scrollback.
@@ -302,9 +320,17 @@ func (s *Service) handleCloseTerminal(w http.ResponseWriter, body []byte) {
 func (s *Service) handleSendTerminalInput(w http.ResponseWriter, body []byte) {
 	var req SendTerminalInputRequest
 	_ = json.Unmarshal(body, &req)
-	if err := s.terminals.send(req.TerminalID, req.Input); err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
+	if req.Resize != nil && req.Resize.Cols > 0 && req.Resize.Rows > 0 {
+		if err := s.terminals.resize(req.TerminalID, int(req.Resize.Cols), int(req.Resize.Rows)); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+	}
+	if len(req.Input) > 0 || req.Resize == nil {
+		if err := s.terminals.send(req.TerminalID, req.Input); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 	}
 	writeJSON(w, map[string]any{"ackedOffset": req.InputOffset + int64(len(req.Input))})
 }

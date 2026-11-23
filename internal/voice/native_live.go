@@ -30,6 +30,12 @@ type NativeLiveHandler interface {
 	OnReconnected()
 }
 
+// ThinkerCancelHandler is an optional interface that NativeLiveHandler implementations
+// can implement to handle cancel_thinker_agent tool calls directly.
+type ThinkerCancelHandler interface {
+	OnThinkerCancel(invocationID string)
+}
+
 // LiveTurnRecord stores a recent user or model turn for context rehydration across reconnections.
 type LiveTurnRecord struct {
 	Role    string // "User", "Agent", or "User (Text)"
@@ -153,8 +159,9 @@ type NativeLiveSession struct {
 	maxHistory   int
 	compactor    *VoiceHistoryCompactor
 
-	toolCallsMu sync.Mutex
-	toolCalls   map[string]string
+	toolCallsMu            sync.Mutex
+	toolCalls              map[string]string
+	progressUpdatesEnabled atomic.Bool
 }
 
 // NewNativeLiveSession creates a new terminal native live session manager.
@@ -179,6 +186,7 @@ func NewNativeLiveSession(backend LiveBackend, handler NativeLiveHandler) *Nativ
 		toolCalls:  make(map[string]string),
 	}
 	n.state.Store(int32(StateDisconnected))
+	n.progressUpdatesEnabled.Store(true)
 	return n
 }
 
@@ -492,24 +500,42 @@ func (n *NativeLiveSession) receivePump(ctx context.Context, sess LiveSession) {
 					n.toolCalls[tc.ID] = tc.Name
 					n.toolCallsMu.Unlock()
 				}
-				if n.handler != nil {
-					n.handler.OnToolCall(tc)
-					if tc.Name == "hang_up" {
-						_ = n.HangUp()
-					} else if tc.Name == "cancel_thinker_agent" {
-						n.handler.OnThinkerHandoff(tc.ID, "cancel active task")
-					} else {
-						task, _ := tc.Args["task"].(string)
-						if task == "" {
-							task, _ = tc.Args["query"].(string)
+				switch tc.Name {
+				case "hang_up":
+					if n.handler != nil {
+						n.handler.OnToolCall(tc)
+					}
+					_ = n.HangUp()
+				case "cancel_thinker_agent":
+					if n.handler != nil {
+						if ch, ok := n.handler.(ThinkerCancelHandler); ok {
+							ch.OnThinkerCancel(tc.ID)
+						} else {
+							n.handler.OnToolCall(tc)
+							n.handler.OnThinkerHandoff(tc.ID, "cancel active task")
 						}
-						if task == "" {
-							task, _ = tc.Args["command"].(string)
-						}
-						if task == "" {
-							task, _ = tc.Args["path"].(string)
-						}
+					}
+				case "set_progress_updates":
+					enabled := true
+					if v, ok := tc.Args["enabled"].(bool); ok {
+						enabled = v
+					}
+					n.progressUpdatesEnabled.Store(enabled)
+					if n.handler != nil {
+						n.handler.OnToolCall(tc)
+					}
+					go func(id, name string, en bool) {
+						_ = n.SendToolResponse(id, name, map[string]any{"enabled": en})
+					}(tc.ID, tc.Name, enabled)
+				case "call_thinker_agent", "delegate_to_thinker":
+					n.progressUpdatesEnabled.Store(true)
+					if n.handler != nil {
+						task := extractThinkerTask(tc.Args)
 						n.handler.OnThinkerHandoff(tc.ID, task)
+					}
+				default:
+					if n.handler != nil {
+						n.handler.OnToolCall(tc)
 					}
 				}
 			}
@@ -700,8 +726,35 @@ func (n *NativeLiveSession) Speaking() bool {
 	return time.Now().UnixNano() < n.echoUntil.Load()
 }
 
+func extractThinkerTask(args map[string]any) string {
+	for _, key := range []string{"task", "query", "command", "path"} {
+		if v, ok := args[key].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// SetProgressUpdatesEnabled enables or disables spoken progress notes for the active task.
+func (n *NativeLiveSession) SetProgressUpdatesEnabled(enabled bool) {
+	if n != nil {
+		n.progressUpdatesEnabled.Store(enabled)
+	}
+}
+
+// ProgressUpdatesEnabled reports whether spoken progress notes are currently enabled.
+func (n *NativeLiveSession) ProgressUpdatesEnabled() bool {
+	if n == nil {
+		return false
+	}
+	return n.progressUpdatesEnabled.Load()
+}
+
 // SendThinkerNote relays an asynchronous Thinker progress note into the live talker session.
 func (n *NativeLiveSession) SendThinkerNote(note string) error {
+	if !n.progressUpdatesEnabled.Load() {
+		return nil
+	}
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	if !n.active.Load() || n.session == nil {

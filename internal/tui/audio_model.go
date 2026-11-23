@@ -10,6 +10,7 @@ package tui
 // Upstream: google3/third_party/jetski/cli/model/model.AudioModel.
 
 import (
+	"context"
 	"os"
 	"sync"
 
@@ -32,12 +33,56 @@ type AudioModel struct {
 	speaker     string
 	liveSession *voice.NativeLiveSession
 
+	thinkerMu         sync.Mutex
+	thinkerCancel     context.CancelFunc
+	thinkerInvID      string
+	thinkerCancelSent bool
+
 	// Dictation recording state
 	dictCapture *voice.AudioCapture
 	dictRemote  *voice.RemoteAudioStream
 	dictMu      sync.Mutex
 	dictPCM     []byte
 	transcriber rcaudio.Transcriber
+}
+
+func (a *AudioModel) setThinkerCancel(invID string, cancel context.CancelFunc) {
+	a.thinkerMu.Lock()
+	prev := a.thinkerCancel
+	a.thinkerCancel = cancel
+	a.thinkerInvID = invID
+	a.thinkerCancelSent = false
+	a.thinkerMu.Unlock()
+	if prev != nil {
+		prev()
+	}
+}
+
+func (a *AudioModel) clearThinkerCancel(invID string) bool {
+	a.thinkerMu.Lock()
+	defer a.thinkerMu.Unlock()
+	sent := a.thinkerCancelSent
+	if a.thinkerInvID == invID || invID == "" {
+		a.thinkerCancel = nil
+		a.thinkerInvID = ""
+		a.thinkerCancelSent = false
+	}
+	return sent
+}
+
+func (a *AudioModel) cancelActiveThinker() (invID string, cancelled bool) {
+	a.thinkerMu.Lock()
+	cancel := a.thinkerCancel
+	invID = a.thinkerInvID
+	if cancel != nil {
+		a.thinkerCancelSent = true
+		cancelled = true
+	}
+	a.thinkerMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return invID, cancelled
 }
 
 func (a *AudioModel) startDictationCapture() error {

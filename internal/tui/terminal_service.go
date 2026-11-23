@@ -8,11 +8,13 @@ import (
 	"github.com/justwasm/pigasus/rcterminal"
 )
 
-// TerminalEvent carries output or exit events from an active terminal.
+// TerminalEvent carries output, metadata, or exit events from an active terminal.
 type TerminalEvent struct {
 	Output   []byte
 	ExitCode *int32
 	Offset   int64
+	Title    string
+	Cwd      string
 }
 
 // TerminalInfo describes an active terminal session.
@@ -84,9 +86,9 @@ func (s *LocalTerminalService) SendTerminalInput(ctx context.Context, id string,
 	return s.reg.Write(id, data)
 }
 
-// StreamTerminal streams output frames from the local PTY.
+// StreamTerminal streams output frames from the local PTY starting at offset.
 func (s *LocalTerminalService) StreamTerminal(ctx context.Context, id string, offset int64) (<-chan TerminalEvent, error) {
-	frames, err := s.reg.StreamChannel(ctx, id)
+	frames, err := s.reg.StreamChannelFrom(ctx, id, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +98,11 @@ func (s *LocalTerminalService) StreamTerminal(ctx context.Context, id string, of
 		for f := range frames {
 			switch f.Kind {
 			case rcterminal.FrameOutput:
-				out <- TerminalEvent{Output: f.Output}
+				out <- TerminalEvent{Output: f.Output, Offset: f.Offset}
+			case rcterminal.FrameTitle:
+				out <- TerminalEvent{Title: f.Title}
+			case rcterminal.FrameCwd:
+				out <- TerminalEvent{Cwd: f.Cwd}
 			case rcterminal.FrameExitCode:
 				code := int32(f.ExitCode)
 				out <- TerminalEvent{ExitCode: &code}
@@ -177,6 +183,8 @@ func (s *RemoteAgentTerminalService) StreamTerminal(ctx context.Context, id stri
 				Output:   e.Output,
 				ExitCode: e.ExitCode,
 				Offset:   e.Offset,
+				Title:    e.Title,
+				Cwd:      e.Cwd,
 			}
 		}
 	}()
@@ -188,7 +196,7 @@ func (s *RemoteAgentTerminalService) CloseTerminal(ctx context.Context, id strin
 	return s.engine.CloseTerminal(ctx, id)
 }
 
-// Resize is a no-op on RemoteAgentEngine.
+// Resize updates the remote terminal window dimensions.
 func (s *RemoteAgentTerminalService) Resize(ctx context.Context, id string, rows, cols int) error {
-	return nil
+	return s.engine.ResizeTerminal(ctx, id, rows, cols)
 }

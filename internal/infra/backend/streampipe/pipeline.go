@@ -20,10 +20,17 @@ import (
 func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ctx context.Context) (T, error)) (T, error) {
 	var zero T
 	var lastErr error
-	maxAttempts := retry.MaxConnectionRetries + 1
+	maxRetries := retry.MaxConnectionRetries
+	if override, ok := backend.MaxRetriesFromContext(ctx); ok {
+		if override < 0 {
+			override = 0
+		}
+		maxRetries = override
+	}
+	maxAttempts := maxRetries + 1
 	notify := backend.RetryNotifierFromContext(ctx)
 
-	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			delay := retry.NextConnectionRetryDelay(attempt - 1)
 			if rDelay := apierror.RetryAfterDurationErr(lastErr); rDelay > 0 {
@@ -64,6 +71,12 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 				notify(backend.RetryProgress{})
 			}
 			return result, nil
+		}
+		if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
+			return zero, err
 		}
 		isRetryable := retry.IsConnectionDropped(err) || apierror.IsRetryableStatusErr(err)
 		if !isRetryable {
@@ -112,14 +125,23 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 	if maxRetries <= 0 {
 		maxRetries = retry.MaxConnectionRetries
 	}
+	if override, ok := backend.MaxRetriesFromContext(ctx); ok {
+		if override < 0 {
+			override = 0
+		}
+		maxRetries = override
+	}
 	maxAttempts := maxRetries + 1
 	notify := backend.RetryNotifierFromContext(ctx)
 
 	for attempt := 0; ; attempt++ {
 		err := p.ReadBody(ctx, resp, out)
-		if err == nil || !retry.IsConnectionDropped(err) {
+		if err == nil || !retry.IsConnectionDropped(err) || apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) {
 			if notify != nil {
 				notify(backend.RetryProgress{})
+			}
+			if err != nil && retry.IsConnectionDropped(err) && (apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err)) {
+				out <- backend.StreamChunk{Error: err, Done: true}
 			}
 			return
 		}
@@ -163,7 +185,7 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 
 		newResp, openErr := p.Open(ctx, req)
 		if openErr != nil {
-			if !retry.IsConnectionDropped(openErr) {
+			if apierror.IsQuotaReachedErr(openErr) || apierror.IsAuthFailureErr(openErr) || !retry.IsConnectionDropped(openErr) {
 				out <- backend.StreamChunk{Error: openErr, Done: true}
 				return
 			}

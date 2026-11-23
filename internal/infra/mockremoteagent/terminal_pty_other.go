@@ -12,3 +12,8 @@ import (
 func openPTY(*exec.Cmd) (*os.File, error) {
 	return nil, errors.New("mockremoteagent: terminals are not supported on this platform")
 }
+
+// resizePTY is unavailable on this platform.
+func resizePTY(*os.File, int, int) error {
+	return errors.New("mockremoteagent: terminals are not supported on this platform")
+}

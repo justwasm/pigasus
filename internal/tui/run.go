@@ -92,7 +92,8 @@ type permissionRunner struct {
 	// permission prompt; a headless caller passes a seam that answers
 	// without a user, so a Strict policy's Ask becomes the documented
 	// soft-deny instead of blocking forever.
-	ask func(ctx context.Context, call backend.ToolCall) (bool, error)
+	ask      func(ctx context.Context, call backend.ToolCall) (bool, error)
+	onPrompt func(permissionprompt.Request)
 }
 
 func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
@@ -135,6 +136,9 @@ func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 				Tool: call.Name,
 				Kind: kind,
 				Args: args,
+			}
+			if r.onPrompt != nil {
+				r.onPrompt(req)
 			}
 			p := RaisePermissionPrompt(req)
 			res, err := p.Wait(ctx)

@@ -25,6 +25,18 @@ type Metrics struct {
 	RecvPkts     int64
 	RecvBytes    int64
 	TokensPerSec float64
+
+	// Live voice wire telemetry
+	VoiceActive          bool
+	VoiceState           string
+	VoiceAudioSentBytes  int64
+	VoiceAudioSentChunks int64
+	VoiceAudioRecvBytes  int64
+	VoiceAudioRecvChunks int64
+	VoiceTextChunks      int64
+	VoiceTurnsCompleted  int64
+	VoiceInterrupted     int64
+	VoiceLastLatency     time.Duration
 }
 
 // HUD maintains the visibility state and real-time metrics for the wire overlay.
@@ -86,6 +98,25 @@ func (h *HUD) UpdateMetrics(m Metrics) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.metrics = m
+}
+
+// UpdateVoiceMetrics updates the live voice wire telemetry fields on the HUD.
+func (h *HUD) UpdateVoiceMetrics(active bool, state string, sentBytes, sentChunks, recvBytes, recvChunks, textChunks, turns, interrupted int64, lastLatency time.Duration) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.metrics.VoiceActive = active
+	h.metrics.VoiceState = state
+	h.metrics.VoiceAudioSentBytes = sentBytes
+	h.metrics.VoiceAudioSentChunks = sentChunks
+	h.metrics.VoiceAudioRecvBytes = recvBytes
+	h.metrics.VoiceAudioRecvChunks = recvChunks
+	h.metrics.VoiceTextChunks = textChunks
+	h.metrics.VoiceTurnsCompleted = turns
+	h.metrics.VoiceInterrupted = interrupted
+	h.metrics.VoiceLastLatency = lastLatency
 }
 
 // GetMetrics returns a copy of the current metrics.
@@ -165,6 +196,19 @@ func formatBytes(b int64) string {
 	return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
 }
 
+func hasVoiceTelemetry(m Metrics) bool {
+	return m.VoiceActive ||
+		m.VoiceState != "" ||
+		m.VoiceAudioSentBytes > 0 ||
+		m.VoiceAudioSentChunks > 0 ||
+		m.VoiceAudioRecvBytes > 0 ||
+		m.VoiceAudioRecvChunks > 0 ||
+		m.VoiceTextChunks > 0 ||
+		m.VoiceTurnsCompleted > 0 ||
+		m.VoiceInterrupted > 0 ||
+		m.VoiceLastLatency > 0
+}
+
 // RenderBox renders the HUD lines as a framed rectangular box.
 func (h *HUD) RenderBox(width int) []string {
 	if h == nil {
@@ -182,6 +226,10 @@ func (h *HUD) RenderBox(width int) []string {
 	lineFmt := func(label, val string) string {
 		content := fmt.Sprintf("%-10s %s", label, val)
 		cLen := ansi.StringWidth(content)
+		if cLen > innerW {
+			content = ansi.Truncate(content, innerW, "")
+			cLen = ansi.StringWidth(content)
+		}
 		pad := innerW - cLen
 		if pad < 0 {
 			pad = 0
@@ -219,8 +267,30 @@ func (h *HUD) RenderBox(width int) []string {
 		lineFmt("Tx Wire:", fmt.Sprintf("%d pkts (%s)", m.SentPkts, formatBytes(m.SentBytes))),
 		lineFmt("Rx Wire:", fmt.Sprintf("%d pkts (%s)", m.RecvPkts, formatBytes(m.RecvBytes))),
 		lineFmt("Rate:", rateStr),
-		botBorder,
 	}
+
+	if hasVoiceTelemetry(m) {
+		voiceState := m.VoiceState
+		if voiceState == "" {
+			if m.VoiceActive {
+				voiceState = "Connected"
+			} else {
+				voiceState = "Idle"
+			}
+		}
+		voiceLatStr := "-"
+		if m.VoiceLastLatency > 0 {
+			voiceLatStr = fmt.Sprintf("%dms", m.VoiceLastLatency.Milliseconds())
+		}
+		rawLines = append(rawLines,
+			lineFmt("Voice:", fmt.Sprintf("%s (t:%d int:%d)", voiceState, m.VoiceTurnsCompleted, m.VoiceInterrupted)),
+			lineFmt("Voice Tx:", fmt.Sprintf("%d ch (%s)", m.VoiceAudioSentChunks, formatBytes(m.VoiceAudioSentBytes))),
+			lineFmt("Voice Rx:", fmt.Sprintf("%d ch (%s) txt:%d", m.VoiceAudioRecvChunks, formatBytes(m.VoiceAudioRecvBytes), m.VoiceTextChunks)),
+			lineFmt("Voice Lat:", voiceLatStr),
+		)
+	}
+
+	rawLines = append(rawLines, botBorder)
 
 	// Apply distinct HUD styling with DimGray and Blue accents
 	styled := make([]string, len(rawLines))
@@ -236,7 +306,14 @@ func (h *HUD) OverlayOnRows(screenRows []string, screenWidth int) []string {
 		return screenRows
 	}
 
+	h.mu.RLock()
+	voiceOn := hasVoiceTelemetry(h.metrics)
+	h.mu.RUnlock()
+
 	boxW := 38
+	if voiceOn {
+		boxW = 44
+	}
 	boxLines := h.RenderBox(boxW)
 	if len(boxLines) == 0 {
 		return screenRows

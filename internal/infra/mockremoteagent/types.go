@@ -511,12 +511,19 @@ type ListTerminalsResponse struct {
 	Terminals []TerminalInfo `json:"terminals"`
 }
 
+// TerminalSize represents terminal dimensions in SendTerminalInputRequest.
+type TerminalSize struct {
+	Cols int32 `json:"cols"`
+	Rows int32 `json:"rows"`
+}
+
 // SendTerminalInputRequest represents the request to SendTerminalInput.
 type SendTerminalInputRequest struct {
-	TerminalID    string `json:"terminalId"`
-	Input         []byte `json:"input,omitempty"`
-	InputStreamID string `json:"inputStreamId,omitempty"`
-	InputOffset   int64  `json:"inputOffset,omitempty"`
+	TerminalID    string        `json:"terminalId"`
+	Input         []byte        `json:"input,omitempty"`
+	InputStreamID string        `json:"inputStreamId,omitempty"`
+	InputOffset   int64         `json:"inputOffset,omitempty"`
+	Resize        *TerminalSize `json:"resize,omitempty"`
 }
 
 // CloseTerminalRequest represents the request to CloseTerminal.

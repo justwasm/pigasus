@@ -121,7 +121,8 @@ func (a *AskQuestionModel) OpenParent() bool {
 // turnInteractionHost bridges interaction.Host requests (like ask_question)
 // from tool goroutines to the interactive TUI prompt.
 type turnInteractionHost struct {
-	prog func() *tea.Program
+	prog      func() *tea.Program
+	onWaiting func(string)
 }
 
 // errNoInteractiveHost is returned when no running program can show the
@@ -160,6 +161,10 @@ func (h *turnInteractionHost) Ask(ctx context.Context, req interaction.Request) 
 	}
 	if len(req.Questions) == 0 {
 		return interaction.Answer{Cancelled: true}, nil
+	}
+
+	if h.onWaiting != nil {
+		h.onWaiting(req.Questions[0].Prompt)
 	}
 
 	prog := h.prog()
@@ -201,6 +206,9 @@ func (m *RootModel) turnInteractionHost() interaction.Host {
 				return nil
 			}
 			return m.turn.prog
+		},
+		onWaiting: func(question string) {
+			m.notifyVoiceWaitingOnUser(question)
 		},
 	}
 }

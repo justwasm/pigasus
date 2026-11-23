@@ -167,3 +167,81 @@ func TestResolvConfNameservers_FiltersLoopbackAndKeepsNonLoopback(t *testing.T) 
 		}
 	}
 }
+
+// TestRacingConn_FallsBackWhenFirstUDPNameserverSilent verifies that when the first
+// nameserver does not answer UDP queries, racingConn picks up the answer from the
+// second nameserver without failing the lookup.
+func TestRacingConn_FallsBackWhenFirstUDPNameserverSilent(t *testing.T) {
+	// 1. Silent dead listener (accepts UDP but never replies)
+	deadListener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen dead: %v", err)
+	}
+	defer deadListener.Close()
+	deadAddr := deadListener.LocalAddr().String()
+
+	// 2. Responsive mock DNS server
+	liveListener, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen live: %v", err)
+	}
+	defer liveListener.Close()
+	liveAddr := liveListener.LocalAddr().String()
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			_ = liveListener.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			n, from, err := liveListener.ReadFrom(buf)
+			if err != nil {
+				select {
+				case <-stopCh:
+					return
+				default:
+					continue
+				}
+			}
+			t.Logf("liveListener received %d bytes from %v", n, from)
+			if n < 12 {
+				continue
+			}
+			// Construct standard RFC 1035 A record response
+			resp := append([]byte(nil), buf[:n]...)
+			resp[2] = 0x81 // Response, Recursion Desired
+			resp[3] = 0x80 // Recursion Available
+			resp[6] = 0x00 // Answer count = 1
+			resp[7] = 0x01
+			// Answer: Name pointer (0xc00c), Type A (1), Class IN (1), TTL (60), Len 4, IP 93.184.216.34
+			answer := []byte{
+				0xc0, 0x0c,
+				0x00, 0x01,
+				0x00, 0x01,
+				0x00, 0x00, 0x00, 0x3c,
+				0x00, 0x04,
+				93, 184, 216, 34,
+			}
+			resp = append(resp, answer...)
+			_, _ = liveListener.WriteTo(resp, from)
+		}
+	}()
+
+	r := &net.Resolver{
+		PreferGo: true,
+		Dial:     dialWithFallback([]string{deadAddr, liveAddr}),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ips, err := r.LookupIP(ctx, "ip4", "example.com")
+	if err != nil {
+		t.Fatalf("LookupIP failed when first server silent: %v", err)
+	}
+	if len(ips) == 0 || ips[0].String() != "93.184.216.34" {
+		t.Fatalf("LookupIP returned %v, want [93.184.216.34]", ips)
+	}
+}
+

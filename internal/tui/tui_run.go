@@ -48,6 +48,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/tuimodel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
 	"github.com/justwasm/pigasus/mcp"
 	"github.com/justwasm/pigasus/palette"
@@ -416,6 +417,9 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	// test), the load preserves the existing entries.
 	m.prompt.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	m.session.flags = fs
+	if cliflags.BoolValue(fs, "debug-wire") && m.overlays.wireHUD != nil {
+		m.overlays.wireHUD.SetVisible(true)
+	}
 	if unavailableFrom != "" {
 		m.session.fallbackFrom = unavailableFrom
 		m.session.fallbackTo = modelName
@@ -475,6 +479,9 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 		sandbox: sessionSandbox,
 		hook:    m.hookToolGate,
 		post:    m.hookPostToolUse,
+		onPrompt: func(req permissionprompt.Request) {
+			m.notifyVoiceWaitingOnUser(formatPermissionForVoice(req))
+		},
 	})
 	m.session.mode = sessionPolicy.Mode
 	m.session.startMode = sessionPolicy.Mode

@@ -95,6 +95,27 @@ func RetryNotifierFromContext(ctx context.Context) RetryNotifier {
 	return nil
 }
 
+type maxRetriesKey struct{}
+
+// ContextWithMaxRetries returns a context carrying an explicit transport retry
+// budget override (0 disables transport retries for fast failover).
+func ContextWithMaxRetries(ctx context.Context, maxRetries int) context.Context {
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	return context.WithValue(ctx, maxRetriesKey{}, maxRetries)
+}
+
+// MaxRetriesFromContext extracts an explicit transport retry budget override
+// from ctx, returning (n, true) when set or (0, false) when unset.
+func MaxRetriesFromContext(ctx context.Context) (int, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	n, ok := ctx.Value(maxRetriesKey{}).(int)
+	return n, ok
+}
+
 // ImagePart is one image a user attached to a message.
 //
 // The neutral shape is the mime type and the bytes: every transport

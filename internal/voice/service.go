@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -419,10 +420,15 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 			},
 		})
 	}
+	var playbackSpeedBits atomic.Uint64
+	playbackSpeedBits.Store(math.Float64bits(1.0))
+	var planModel atomic.Int32
+
 	if err == nil && liveSess != nil {
 		defer liveSess.Close()
 
 		var voiceSeq atomic.Int32
+
 		go func() {
 			for {
 				ev, err := liveSess.Receive()
@@ -444,12 +450,16 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 				if len(ev.Audio) > 0 {
 					seq := voiceSeq.Add(1)
 					audioMs := int32((len(ev.Audio) * 1000) / 48000) // 24kHz 16-bit mono = 48000 bytes/sec
+					speed := math.Float64frombits(playbackSpeedBits.Load())
+					if speed <= 0 {
+						speed = 1.0
+					}
 					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
 						Kind: &voicepb.VoiceServerMessage_AudioTiming_{
 							AudioTiming: &voicepb.VoiceServerMessage_AudioTiming{
 								Seq:           seq,
 								AudioMs:       audioMs,
-								PlaybackSpeed: 1.0,
+								PlaybackSpeed: speed,
 							},
 						},
 					})
@@ -501,6 +511,34 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 						},
 					})
 				}
+
+				if len(ev.ToolCalls) > 0 {
+					for _, tc := range ev.ToolCalls {
+						argsJSON, _ := json.Marshal(tc.Args)
+						_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+							Kind: &voicepb.VoiceServerMessage_Event{
+								Event: &voicepb.VoiceEvent{
+									EventName: "tool_call",
+									Attributes: []*voicepb.VoiceEvent_AttributesEntry{
+										{Key: "id", Value: tc.ID},
+										{Key: "name", Value: tc.Name},
+										{Key: "args", Value: string(argsJSON)},
+									},
+								},
+							},
+						})
+					}
+				}
+
+				if ev.TurnComplete {
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_Event{
+							Event: &voicepb.VoiceEvent{
+								EventName: "turn_complete",
+							},
+						},
+					})
+				}
 			}
 		}()
 	}
@@ -521,6 +559,14 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 
 		switch k := clientMsg.Kind.(type) {
 		case *voicepb.VoiceClientMessage_Setup_:
+			if k.Setup != nil {
+				if k.Setup.PlaybackSpeed > 0 {
+					playbackSpeedBits.Store(math.Float64bits(k.Setup.PlaybackSpeed))
+				}
+				if k.Setup.PlanModel != voicepb.Model_MODEL_UNSPECIFIED {
+					planModel.Store(int32(k.Setup.PlanModel))
+				}
+			}
 			status := &voicepb.VoiceServerMessage{
 				Kind: &voicepb.VoiceServerMessage_Status{
 					Status: &voicepb.VoiceServerMessage_SessionStatus{
@@ -568,14 +614,33 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 					},
 				}
 				_ = writer.write(sessCtx, speechEvent)
-
 				if liveSess != nil {
 					_ = liveSess.SendText(k.UserTranscript.Text)
 				}
 			}
 
 		case *voicepb.VoiceClientMessage_SettingsUpdate_:
-			// Acknowledge setting updates
+			if k.SettingsUpdate != nil {
+				if k.SettingsUpdate.PlaybackSpeed > 0 {
+					playbackSpeedBits.Store(math.Float64bits(k.SettingsUpdate.PlaybackSpeed))
+				}
+				if k.SettingsUpdate.PlanModel != voicepb.Model_MODEL_UNSPECIFIED {
+					planModel.Store(int32(k.SettingsUpdate.PlanModel))
+				}
+				curSpeed := math.Float64frombits(playbackSpeedBits.Load())
+				curModel := voicepb.Model(planModel.Load())
+				_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+					Kind: &voicepb.VoiceServerMessage_Event{
+						Event: &voicepb.VoiceEvent{
+							EventName: "settings_updated",
+							Attributes: []*voicepb.VoiceEvent_AttributesEntry{
+								{Key: "plan_model", Value: curModel.String()},
+								{Key: "playback_speed", Value: strconv.FormatFloat(curSpeed, 'f', -1, 64)},
+							},
+						},
+					},
+				})
+			}
 		}
 	}
 }

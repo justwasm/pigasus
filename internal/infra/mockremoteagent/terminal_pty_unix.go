@@ -13,3 +13,11 @@ import (
 func openPTY(cmd *exec.Cmd) (*os.File, error) {
 	return pty.Start(cmd)
 }
+
+// resizePTY updates the pseudoterminal window size.
+func resizePTY(f *os.File, cols, rows int) error {
+	return pty.Setsize(f, &pty.Winsize{
+		Cols: uint16(cols),
+		Rows: uint16(rows),
+	})
+}

@@ -352,6 +352,7 @@ func extraFlagsCore() []FlagSpec {
 		{Name: "max-thinking-budget", Type: "int", Def: "0", Hidden: true, Usage: "Cap thinking tokens per turn (integer); values <= 0 disable thinking entirely"},
 		{Name: "diff-with-agy", Type: "bool", Def: "false", Hidden: true, Usage: "Print AGY 1.4.2 feature parity (aligned / gap / diverged)"},
 		{Name: "debug", Type: "bool", Def: "false", Hidden: true, Usage: "Enable verbose debug logging"},
+		{Name: "debug-wire", Type: "bool", Def: "false", Hidden: true, Usage: "Show the live wire diagnostics HUD overlay on startup"},
 	}
 }
 

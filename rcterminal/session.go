@@ -47,10 +47,11 @@ type Session struct {
 	// nil on the platforms that have no pty.
 	waitExit func() int
 
-	mu       sync.Mutex
-	subs     map[*subscriber]struct{}
-	scroll   []byte
-	acked    map[string]int64
+	mu         sync.Mutex
+	subs       map[*subscriber]struct{}
+	scroll     []byte
+	totalBytes int64
+	acked      map[string]int64
 	exited   bool
 	exitCode int
 	closed   bool
@@ -96,6 +97,8 @@ func (s *Session) handleOutput(chunk []byte) {
 	if len(s.scroll) > scrollbackLimit {
 		s.scroll = s.scroll[len(s.scroll)-scrollbackLimit:]
 	}
+	s.totalBytes += int64(len(chunk))
+	offset := s.totalBytes
 	s.mu.Unlock()
 
 	if title != "" {
@@ -110,7 +113,7 @@ func (s *Session) handleOutput(chunk []byte) {
 		s.mu.Unlock()
 		s.broadcast(Frame{Kind: FrameCwd, Cwd: cwd})
 	}
-	s.broadcast(Frame{Kind: FrameOutput, Output: chunk})
+	s.broadcast(Frame{Kind: FrameOutput, Output: chunk, Offset: offset})
 }
 
 // broadcast hands a frame to every open stream.
@@ -234,6 +237,12 @@ func (s *Session) stream(emit func(Frame) error) error {
 // streamContext serves the terminal's output until ctx is canceled,
 // the terminal ends, or emit fails.
 func (s *Session) streamContext(ctx context.Context, emit func(Frame) error) error {
+	return s.streamContextFrom(ctx, 0, emit)
+}
+
+// streamContextFrom serves the terminal's output starting from resumeOffset
+// until ctx is canceled, the terminal ends, or emit fails.
+func (s *Session) streamContextFrom(ctx context.Context, resumeOffset int64, emit func(Frame) error) error {
 	sub := &subscriber{ch: make(chan Frame, subscriberQueue), done: make(chan struct{})}
 	s.mu.Lock()
 	if s.exited {
@@ -244,7 +253,12 @@ func (s *Session) streamContext(ctx context.Context, emit func(Frame) error) err
 	}
 	s.subs[sub] = struct{}{}
 	scroll := append([]byte(nil), s.scroll...)
-	title := s.title
+	totalBytes := s.totalBytes
+	title := s.titleNow
+	if title == "" {
+		title = s.title
+	}
+	cwd := s.cwdNow
 	s.mu.Unlock()
 
 	defer func() {
@@ -259,10 +273,28 @@ func (s *Session) streamContext(ctx context.Context, emit func(Frame) error) err
 	if err := emit(Frame{Kind: FrameTitle, Title: title}); err != nil {
 		return err
 	}
-	if len(scroll) > 0 {
-		if err := emit(Frame{Kind: FrameOutput, Output: scroll, IsScrollback: true}); err != nil {
+	if cwd != "" {
+		if err := emit(Frame{Kind: FrameCwd, Cwd: cwd}); err != nil {
 			return err
 		}
+	}
+	if resumeOffset < 0 {
+		resumeOffset = 0
+	}
+	lastSentOffset := resumeOffset
+	scrollStart := totalBytes - int64(len(scroll))
+	if len(scroll) > 0 && resumeOffset < totalBytes {
+		sliceFrom := int64(0)
+		if resumeOffset > scrollStart {
+			sliceFrom = resumeOffset - scrollStart
+		}
+		replay := scroll[sliceFrom:]
+		if len(replay) > 0 {
+			if err := emit(Frame{Kind: FrameOutput, Output: replay, Offset: totalBytes, IsScrollback: true}); err != nil {
+				return err
+			}
+		}
+		lastSentOffset = totalBytes
 	}
 	for {
 		select {
@@ -271,6 +303,20 @@ func (s *Session) streamContext(ctx context.Context, emit func(Frame) error) err
 		case frame, ok := <-sub.ch:
 			if !ok {
 				return nil
+			}
+			if frame.Kind == FrameOutput && frame.Offset > 0 {
+				if frame.Offset <= lastSentOffset {
+					continue
+				}
+				startOffset := frame.Offset - int64(len(frame.Output))
+				if startOffset < lastSentOffset {
+					trim := int(lastSentOffset - startOffset)
+					if trim >= len(frame.Output) {
+						continue
+					}
+					frame.Output = frame.Output[trim:]
+				}
+				lastSentOffset = frame.Offset
 			}
 			if err := emit(frame); err != nil {
 				return err

@@ -159,6 +159,20 @@ func WithNoteInterval(interval time.Duration) ThinkerBridgeOption {
 	}
 }
 
+// WithOnProgress registers an optional callback invoked when a progress note is emitted.
+func WithOnProgress(fn func(string)) ThinkerBridgeOption {
+	return func(b *ThinkerBridge) {
+		b.OnProgress = fn
+	}
+}
+
+// WithOnComplete registers an optional callback invoked when a dispatched Thinker task finishes.
+func WithOnComplete(fn func(answer string, err error)) ThinkerBridgeOption {
+	return func(b *ThinkerBridge) {
+		b.OnComplete = fn
+	}
+}
+
 // ThinkerBridge delegates complex reasoning or autonomous execution tasks triggered
 // by the real-time Talker (via `call_thinker_agent` or `delegate_to_thinker`) to the
 // background Actor loop (Thinker). It pipes progress notes back to the live session
@@ -170,6 +184,9 @@ type ThinkerBridge struct {
 	activeCancel context.CancelFunc
 	running      atomic.Bool
 	throttler    *NoteThrottler
+
+	OnProgress func(string)
+	OnComplete func(answer string, err error)
 }
 
 // NewThinkerBridge creates a ThinkerBridge backed by an Actor instance.
@@ -213,6 +230,18 @@ func (b *ThinkerBridge) CancelActive() error {
 	return nil
 }
 
+// NotifyWaitingOnUser relays an interactive question or approval prompt to the live talker.
+func (b *ThinkerBridge) NotifyWaitingOnUser(sess LiveSession, question string) error {
+	if sess == nil {
+		return errors.New("thinker bridge: live session is nil")
+	}
+	question = strings.TrimSpace(question)
+	if question == "" {
+		question = "Waiting for your input."
+	}
+	return sess.SendWaitingOnUser(question)
+}
+
 // Dispatch executes the delegated query on the Actor, streaming progress notes and
 // the final answer to the provided LiveSession. It runs asynchronously in the background
 // so it does not block the real-time audio pipeline.
@@ -240,6 +269,8 @@ func (b *ThinkerBridge) Dispatch(
 
 	turnCtx, cancel := context.WithCancel(ctx)
 	b.activeCancel = cancel
+	onProgress := b.OnProgress
+	onComplete := b.OnComplete
 
 	handle, err := b.act.Prompt(turnCtx, query)
 	if err != nil {
@@ -274,38 +305,74 @@ func (b *ThinkerBridge) Dispatch(
 				answerBuilder.WriteString(ev.Delta)
 			case actor.EventToolCallStarted:
 				toolCount++
-				if sess != nil && ev.ToolCall != nil {
+				if ev.ToolCall != nil {
 					note := HumanizeTool(ev.ToolCall.Name, ev.ToolCall.Input)
 					if b.throttler == nil || b.throttler.ShouldSend(time.Now(), note, false) {
-						_ = sess.SendThinkerNote(note)
+						if onProgress != nil {
+							onProgress(note)
+						}
+						if sess != nil {
+							_ = sess.SendThinkerNote(note)
+						}
 					}
 				}
-			case actor.EventCheckpoint:
+			case actor.EventApprovalRequired, actor.EventType("waiting_on_user"):
+				question := ""
+				if ev.Metadata != nil {
+					if q, ok := ev.Metadata["question"].(string); ok {
+						question = q
+					}
+				}
+				if question == "" && ev.ToolCall != nil {
+					question = fmt.Sprintf("Approve %s?", HumanizeToolCall(ev.ToolCall))
+				}
+				if question == "" {
+					question = strings.TrimSpace(ev.Delta)
+				}
 				if sess != nil {
-					note := "Compacting task context memory"
-					if b.throttler == nil || b.throttler.ShouldSend(time.Now(), note, true) {
+					_ = b.NotifyWaitingOnUser(sess, question)
+				}
+			case actor.EventCheckpoint:
+				note := "Compacting task context memory"
+				if b.throttler == nil || b.throttler.ShouldSend(time.Now(), note, true) {
+					if onProgress != nil {
+						onProgress(note)
+					}
+					if sess != nil {
 						_ = sess.SendThinkerNote(note)
 					}
 				}
 			}
 		}
 
-		if turnCtx.Err() != nil {
+		handleErr := handle.Err()
+		if turnCtx.Err() != nil || errors.Is(handleErr, actor.ErrTurnCancelled) {
 			if sess != nil {
-				_ = sess.SendThinkerNote("Task was cancelled by voice.")
+				_ = sess.SendTaskStopped()
 				_ = sess.SendToolResponse(invocationID, "call_thinker_agent", map[string]any{
-					"error": "task was cancelled",
+					"cancelled": true,
+					"error":     "task was cancelled",
 				})
+			}
+			if onComplete != nil {
+				cancelErr := turnCtx.Err()
+				if cancelErr == nil {
+					cancelErr = handleErr
+				}
+				onComplete("", cancelErr)
 			}
 			return
 		}
 
-		if err := handle.Err(); err != nil {
+		if handleErr != nil {
 			if sess != nil {
-				_ = sess.SendThinkerNote(fmt.Sprintf("Task encountered an error: %v", err))
+				_ = sess.SendThinkerNote(fmt.Sprintf("Task encountered an error: %v", handleErr))
 				_ = sess.SendToolResponse(invocationID, "call_thinker_agent", map[string]any{
-					"error": err.Error(),
+					"error": handleErr.Error(),
 				})
+			}
+			if onComplete != nil {
+				onComplete("", handleErr)
 			}
 			return
 		}
@@ -320,6 +387,9 @@ func (b *ThinkerBridge) Dispatch(
 			_ = sess.SendToolResponse(invocationID, "call_thinker_agent", map[string]any{
 				"answer": answer,
 			})
+		}
+		if onComplete != nil {
+			onComplete(answer, nil)
 		}
 	}()
 

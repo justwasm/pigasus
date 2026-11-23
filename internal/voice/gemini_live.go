@@ -254,36 +254,7 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		OutputAudioTranscription: &genai.AudioTranscriptionConfig{},
 		Tools: []*genai.Tool{
 			{
-				FunctionDeclarations: []*genai.FunctionDeclaration{
-					{
-						Name:        "call_thinker_agent",
-						Description: "Tool for code, files, profile/desk, calendar/reminders, docs/chat, pricing, weather, web, accounts, screen/links. Never call on cues ([task progress], [waiting on the user], answer/error, [stopped]/[stop failed], [The user just sent in chat]), open [waiting on the user] (questions about the choice, constraints, approvals), or local tools; skip chitchat, thanks, remarks, declines, resuming speech, mic tests, settings, omitted-part reads, and fresh-call status. Otherwise never refuse, say cannot/unable, cite missing tools/access, or repeat refusals on pushback/retries/calendar/desk/link/how-to asks (commit and call, even on open calls), and call on context-covered asks needing detail. Speak first (no agent, thinker, or tool mentions): verified fact (no UUIDs/guesses/general knowledge/refusals) in two sentences (present tense, subject first, no context note, plus varied 'I'll' commitment), else one warm 'I'll' sentence (never 'I will'/'I am') varying clause ('To <user goal>, I'll...', 'I'll' + diverse verb + target without 'the', or brief ack + 'I'll...') and verb (no -ing openers, execution verbs, promises, vague pronouns; edits/reminders/sends/approvals as lookups; pushback: ONLY one positive commitment), and emit the call same turn right after speaking (never narrating it, silent, stopping, or uncalled).",
-						Parameters: &genai.Schema{
-							Type: genai.TypeObject,
-							Properties: map[string]*genai.Schema{
-								"query": {
-									Type:        genai.TypeString,
-									Description: "Full request with context details, lookups read-only.",
-								},
-							},
-							Required: []string{"query"},
-						},
-					},
-					{
-						Name:        "cancel_thinker_agent",
-						Description: "Cancels the active task. Call immediately silently with zero words beforehand only to cancel, drop, or ignore the entire running task (never on a bare stop, wait, or hold-on request; a stop that names the task or its work does cancel; to stop one branch, narrow, or redirect work, call the thinker instead; to stop updates, stop repeating, or stay quiet until done, call set_progress_updates with enabled=false instead so the task keeps running); confirm in future tense on return, stopped only on [stopped].",
-						Parameters: &genai.Schema{
-							Type: genai.TypeObject,
-						},
-					},
-					{
-						Name:        "hang_up",
-						Description: "Ends the voice call and hangs up. Call with no arguments only on explicit hang-up requests, clear end-of-call farewells, or an [idle] note that says to hang up, not mid-call thanks: speak one brief farewell first in the same turn, call this function, and stay silent afterward. Active chat tasks keep running.",
-						Parameters: &genai.Schema{
-							Type: genai.TypeObject,
-						},
-					},
-				},
+				FunctionDeclarations: geminiLiveFunctionDeclarations(),
 			},
 		},
 	}
@@ -619,4 +590,51 @@ func (s *GeminiLiveSession) closeWithError(err error) error {
 // Close closes the session.
 func (s *GeminiLiveSession) Close() error {
 	return s.closeWithError(nil)
+}
+
+func geminiLiveFunctionDeclarations() []*genai.FunctionDeclaration {
+	return []*genai.FunctionDeclaration{
+		{
+			Name:        "call_thinker_agent",
+			Description: "Tool for code, files, profile/desk, calendar/reminders, docs/chat, pricing, weather, web, accounts, screen/links. Never call on cues ([task progress], [waiting on the user], answer/error, [stopped]/[stop failed], [The user just sent in chat]), open [waiting on the user] (questions about the choice, constraints, approvals), or local tools; skip chitchat, thanks, remarks, declines, resuming speech, mic tests, settings, omitted-part reads, and fresh-call status. Otherwise never refuse, say cannot/unable, cite missing tools/access, or repeat refusals on pushback/retries/calendar/desk/link/how-to asks (commit and call, even on open calls), and call on context-covered asks needing detail. Speak first (no agent, thinker, or tool mentions): verified fact (no UUIDs/guesses/general knowledge/refusals) in two sentences (present tense, subject first, no context note, plus varied 'I'll' commitment), else one warm 'I'll' sentence (never 'I will'/'I am') varying clause ('To <user goal>, I'll...', 'I'll' + diverse verb + target without 'the', or brief ack + 'I'll...') and verb (no -ing openers, execution verbs, promises, vague pronouns; edits/reminders/sends/approvals as lookups; pushback: ONLY one positive commitment), and emit the call same turn right after speaking (never narrating it, silent, stopping, or uncalled).",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"query": {
+						Type:        genai.TypeString,
+						Description: "Full request with context details, lookups read-only.",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+		{
+			Name:        "cancel_thinker_agent",
+			Description: "Cancels the active task. Call immediately silently with zero words beforehand only to cancel, drop, or ignore the entire running task (never on a bare stop, wait, or hold-on request; a stop that names the task or its work does cancel; to stop one branch, narrow, or redirect work, call the thinker instead; to stop updates, stop repeating, or stay quiet until done, call set_progress_updates with enabled=false instead so the task keeps running); confirm in future tense on return, stopped only on [stopped].",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+			},
+		},
+		{
+			Name:        "set_progress_updates",
+			Description: "Enables or disables spoken progress updates for the active background task without cancelling it.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"enabled": {
+						Type:        genai.TypeBoolean,
+						Description: "Whether spoken progress updates are enabled.",
+					},
+				},
+				Required: []string{"enabled"},
+			},
+		},
+		{
+			Name:        "hang_up",
+			Description: "Ends the voice call and hangs up. Call with no arguments only on explicit hang-up requests, clear end-of-call farewells, or an [idle] note that says to hang up, not mid-call thanks: speak one brief farewell first in the same turn, call this function, and stay silent afterward. Active chat tasks keep running.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+			},
+		},
+	}
 }

@@ -94,21 +94,23 @@ func (b *MockLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionConf
 
 // MockLiveSession is a mock implementation of LiveSession.
 type MockLiveSession struct {
-	mu         sync.Mutex
-	cfg        LiveSessionConfig
-	ctx        context.Context
-	cancel     context.CancelFunc
-	inAudio    [][]byte
-	inText     []string
-	inToolResp map[string]any
-	inNotes    []string
-	inAnswers  []string
-	eventsCh   chan *LiveServerEvent
-	closedCh   chan struct{}
-	closed     bool
-	speaking   bool
-	autoEcho   bool
-	injectErr  error
+	mu               sync.Mutex
+	cfg              LiveSessionConfig
+	ctx              context.Context
+	cancel           context.CancelFunc
+	inAudio          [][]byte
+	inText           []string
+	inToolResp       map[string]any
+	inNotes          []string
+	inAnswers        []string
+	inWaitingOnUser  []string
+	taskStoppedCount int
+	eventsCh         chan *LiveServerEvent
+	closedCh         chan struct{}
+	closed           bool
+	speaking         bool
+	autoEcho         bool
+	injectErr        error
 }
 
 // InjectedTexts returns all text messages sent to this mock session.
@@ -244,6 +246,22 @@ func (s *MockLiveSession) InAnswers() []string {
 	return res
 }
 
+// InWaitingOnUser returns a copy of waiting-on-user prompts sent to this mock session.
+func (s *MockLiveSession) InWaitingOnUser() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res := make([]string, len(s.inWaitingOnUser))
+	copy(res, s.inWaitingOnUser)
+	return res
+}
+
+// TaskStoppedCount returns the number of SendTaskStopped calls recorded by this mock session.
+func (s *MockLiveSession) TaskStoppedCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.taskStoppedCount
+}
+
 // SendThinkerNote records a thinker note and simulates a speech update.
 func (s *MockLiveSession) SendThinkerNote(note string) error {
 	s.mu.Lock()
@@ -291,6 +309,7 @@ func (s *MockLiveSession) SendWaitingOnUser(question string) error {
 	if s.closed {
 		return io.ErrClosedPipe
 	}
+	s.inWaitingOnUser = append(s.inWaitingOnUser, question)
 	s.inNotes = append(s.inNotes, "[waiting on the user] "+question)
 	select {
 	case s.eventsCh <- &LiveServerEvent{
@@ -310,6 +329,7 @@ func (s *MockLiveSession) SendTaskStopped() error {
 	if s.closed {
 		return io.ErrClosedPipe
 	}
+	s.taskStoppedCount++
 	s.inNotes = append(s.inNotes, "[stopped]")
 	select {
 	case s.eventsCh <- &LiveServerEvent{

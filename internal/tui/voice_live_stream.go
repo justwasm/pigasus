@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -177,22 +179,34 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
 
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	m.audio.setThinkerCancel(invocationID, taskCancel)
+
 	go func() {
+		defer taskCancel()
 		sess := m.audio.liveSession
 		throttler := voicebackend.NewNoteThrottler(endpoints.CurrentVoiceNoteInterval())
-		result, err := m.RunThinkerTask(task, func(note string) {
+		result, err := m.RunThinkerTaskWithContext(taskCtx, task, func(note string) {
 			if sess != nil && sess.IsActive() && throttler.ShouldSend(time.Now(), note, false) {
 				_ = sess.SendThinkerNote(note)
 			}
 		})
+		alreadySent := m.audio.clearThinkerCancel(invocationID)
 		if err != nil {
-			if sess != nil && sess.IsActive() {
+			if errors.Is(err, context.Canceled) {
+				if !alreadySent && sess != nil && sess.IsActive() {
+					_ = sess.SendTaskStopped()
+					if invocationID != "" {
+						_ = sess.CompleteHandoff(invocationID, map[string]any{"cancelled": true})
+					}
+				}
+			} else if sess != nil && sess.IsActive() {
 				_ = sess.SendThinkerNote("Task failed: " + err.Error())
 				if invocationID != "" {
 					_ = sess.CompleteHandoff(invocationID, map[string]any{"error": err.Error()})
 				}
 			}
-			if m.turn.prog != nil {
+			if !alreadySent && m.turn.prog != nil {
 				m.turn.prog.Send(voiceThinkerDoneMsg{
 					invocationID: invocationID,
 					err:          err,
@@ -203,9 +217,8 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 		if sess != nil && sess.IsActive() {
 			if invocationID != "" {
 				_ = sess.CompleteHandoff(invocationID, map[string]any{"answer": result})
-			} else {
-				_ = sess.SendThinkerAnswer(result)
 			}
+			_ = sess.SendThinkerAnswer(result)
 		}
 		if m.turn.prog != nil {
 			m.turn.prog.Send(voiceThinkerDoneMsg{
@@ -226,4 +239,29 @@ func (m *RootModel) handleVoiceThinkerDone(msg voiceThinkerDoneMsg) {
 	m.conversation.streaming = false
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
+}
+
+func (m *RootModel) syncVoiceWireHUD() {
+	if m == nil || m.overlays.wireHUD == nil {
+		return
+	}
+	sess := m.audio.liveSession
+	if sess == nil {
+		m.overlays.wireHUD.UpdateVoiceMetrics(false, "", 0, 0, 0, 0, 0, 0, 0, 0)
+		return
+	}
+	stats := sess.WireStats()
+	m.overlays.wireHUD.UpdateVoiceMetrics(
+		sess.IsActive(),
+		sess.ConnectionState().String(),
+		stats.AudioSentBytes,
+		stats.AudioSentChunks,
+		stats.AudioRecvBytes,
+		stats.AudioRecvChunks,
+		stats.TextChunksRecv,
+		stats.TurnsCompleted,
+		stats.InterruptedCount,
+		stats.LastTurnLatency,
+	)
 }
