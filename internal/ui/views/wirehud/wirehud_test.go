@@ -122,3 +122,55 @@ func TestHUD_OverlayOnRows(t *testing.T) {
 		t.Errorf("row 0 modified: got %q, want %q", overlaid[0], baseRows[0])
 	}
 }
+
+func TestHUD_RenderBox_VoiceTelemetry(t *testing.T) {
+	hud := New()
+	hud.SetVisible(true)
+	hud.UpdateMetrics(Metrics{
+		Protocol: "CloudCode/Live",
+		Status:   "STREAMING",
+	})
+	hud.UpdateVoiceMetrics(
+		true,
+		"Connected",
+		3200,
+		4,
+		4800,
+		6,
+		3,
+		2,
+		1,
+		85*time.Millisecond,
+	)
+
+	box := hud.RenderBox(44)
+	if len(box) != 11 {
+		t.Fatalf("expected 11 lines in voice-enabled box, got %d", len(box))
+	}
+
+	stripped := ansi.Strip(strings.Join(box, "\n"))
+	for _, want := range []string{
+		"Voice:",
+		"Connected (t:2 int:1)",
+		"Voice Tx:",
+		"4 ch (3.1 KB)",
+		"Voice Rx:",
+		"6 ch (4.7 KB) txt:3",
+		"Voice Lat:",
+		"85ms",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Errorf("rendered voice HUD missing %q:\n%s", want, stripped)
+		}
+	}
+
+	baseRows := make([]string, 14)
+	for i := range baseRows {
+		baseRows[i] = strings.Repeat(".", 90)
+	}
+	overlaid := hud.OverlayOnRows(baseRows, 90)
+	overlaidClean := ansi.Strip(strings.Join(overlaid, "\n"))
+	if !strings.Contains(overlaidClean, "Voice Tx:") || !strings.Contains(overlaidClean, "Voice Lat:") {
+		t.Fatalf("expected OverlayOnRows to render voice telemetry rows, got:\n%s", overlaidClean)
+	}
+}

@@ -164,6 +164,24 @@ func applyProvider(raw []byte, id string, p ProviderConfig) ([]byte, error) {
 	if raw, err = setOrDeleteInt(raw, pfx+"max_retries", p.MaxRetries); err != nil {
 		return nil, err
 	}
+	if raw, err = setOrDelete(raw, pfx+"active_account", p.ActiveAccount); err != nil {
+		return nil, err
+	}
+	if len(p.Accounts) > 0 {
+		if raw, err = sjson.SetBytes(raw, pfx+"accounts", p.Accounts); err != nil {
+			return nil, err
+		}
+	} else {
+		if raw, err = sjson.DeleteBytes(raw, pfx+"accounts"); err != nil {
+			return nil, err
+		}
+	}
+	if raw, err = setOrDeleteStringSlice(raw, pfx+"fallbacks", p.Fallbacks); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteStringSlice(raw, pfx+"fallback_chain", p.FallbackChain); err != nil {
+		return nil, err
+	}
 	if headers := p.EffectiveHeaders(); len(headers) > 0 {
 		return sjson.SetBytes(raw, pfx+"extra_headers", headers)
 	}
@@ -288,7 +306,19 @@ func updateModelFields(raw []byte, target string, m ProviderModel) ([]byte, erro
 	if raw, err = setOrDeleteBool(raw, target+".effort_supported", m.EffortSupported); err != nil {
 		return nil, err
 	}
+	if raw, err = setOrDeleteBool(raw, target+".supports_thinking", m.SupportsThinking); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteBool(raw, target+".supports_tool_calls", m.SupportsToolCalls); err != nil {
+		return nil, err
+	}
 	if raw, err = setOrDeleteStringSlice(raw, target+".reasoning_efforts", m.ReasoningEfforts); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteStringSlice(raw, target+".fallbacks", m.Fallbacks); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteStringSlice(raw, target+".fallback_chain", m.FallbackChain); err != nil {
 		return nil, err
 	}
 	return setOrDelete(raw, target+".reasoning_effort", m.ReasoningEffort)
@@ -346,6 +376,18 @@ func modelToMap(m ProviderModel) map[string]any {
 	}
 	if m.EffortSupported != nil {
 		out["effort_supported"] = *m.EffortSupported
+	}
+	if m.SupportsThinking != nil {
+		out["supports_thinking"] = *m.SupportsThinking
+	}
+	if m.SupportsToolCalls != nil {
+		out["supports_tool_calls"] = *m.SupportsToolCalls
+	}
+	if len(m.Fallbacks) > 0 {
+		out["fallbacks"] = m.Fallbacks
+	}
+	if len(m.FallbackChain) > 0 {
+		out["fallback_chain"] = m.FallbackChain
 	}
 	return out
 }

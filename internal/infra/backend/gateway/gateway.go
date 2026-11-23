@@ -126,6 +126,8 @@ type GatewayConfig struct {
 	ReasoningEffort   string
 	SupportsThinking  *bool
 	SupportsToolCalls *bool
+	Accounts          []KeyAccount
+	KeyPool           *KeyPool
 	HTTPClient        *http.Client
 }
 
@@ -170,6 +172,7 @@ type GatewayClient struct {
 	httpDo     func(*http.Request) (*http.Response, error) // overridable for tests
 	baseURL    string                                      // for status / logging
 	apiKey     string                                      // for status / logging
+	keyPool    *KeyPool
 	model      string
 	defaultMax int
 }
@@ -186,10 +189,19 @@ func NewGateway() backend.Client {
 // tests to inject a stub server).
 func NewGatewayWithConfig(cfg GatewayConfig) backend.Client {
 	cfg = cfg.withDefaults()
+	pool := cfg.KeyPool
+	if pool == nil && len(cfg.Accounts) > 0 {
+		accounts := append([]KeyAccount(nil), cfg.Accounts...)
+		if strings.TrimSpace(cfg.APIKey) != "" {
+			accounts = append(accounts, KeyAccount{ID: "default", APIKey: cfg.APIKey})
+		}
+		pool = NewKeyPool(accounts)
+	}
 	c := &GatewayClient{
 		cfg:        cfg,
 		baseURL:    cfg.URL,
 		apiKey:     cfg.APIKey,
+		keyPool:    pool,
 		model:      cfg.ExternalModel,
 		defaultMax: cfg.DefaultMaxTokens,
 	}
@@ -253,7 +265,7 @@ func (c *GatewayClient) Stream(ctx context.Context, req backend.StreamRequest) (
 		return nil, err
 	}
 
-	resp, err := c.openGatewayWithRetry(ctx, raw)
+	resp, usedKey, err := c.openGatewayWithRetry(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +273,7 @@ func (c *GatewayClient) Stream(ctx context.Context, req backend.StreamRequest) (
 	out := make(chan backend.StreamChunk, 16)
 	go func() {
 		defer close(out)
-		c.runGatewayStreamBodyWithRetry(ctx, resp, raw, externalModel, out)
+		c.runGatewayStreamBodyWithRetry(ctx, resp, raw, externalModel, usedKey, out)
 	}()
 	return out, nil
 }

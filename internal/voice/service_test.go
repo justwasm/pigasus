@@ -297,3 +297,92 @@ func TestWebSocketVoiceSession(t *testing.T) {
 	// Close websocket cleanly
 	_ = c.Close(websocket.StatusNormalClosure, "done")
 }
+
+func TestWebSocketVoiceSession_ToolCallsTurnCompleteAndSettingsUpdate(t *testing.T) {
+	mockBackend := NewMockLiveBackend()
+	mockBackend.SetCustomEvents([]*LiveServerEvent{
+		{
+			ToolCalls: []LiveToolCall{
+				{ID: "tc-ws-1", Name: "call_thinker_agent", Args: map[string]any{"task": "check build"}},
+			},
+		},
+		{
+			Audio:        make([]byte, 480),
+			TurnComplete: true,
+		},
+	})
+
+	svc := NewService(Config{LiveBackend: mockBackend})
+	ts := httptest.NewServer(http.HandlerFunc(svc.ServeHTTP))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws" + ts.URL[4:] + "/voice/ws?conversation_id=conv-ws-events"
+	c, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		Subprotocols: []string{Subprotocol},
+	})
+	if err != nil {
+		t.Fatalf("websocket.Dial failed: %v", err)
+	}
+	defer c.Close(websocket.StatusNormalClosure, "")
+
+	// Send SettingsUpdate first so playback speed is updated before audio timing arrives or verified via event.
+	settingsMsg := &voicepb.VoiceClientMessage{
+		Kind: &voicepb.VoiceClientMessage_SettingsUpdate_{
+			SettingsUpdate: &voicepb.VoiceClientMessage_SettingsUpdate{
+				PlaybackSpeed: 1.5,
+				PlanModel:     voicepb.Model_MODEL_GEMINI_2_5_PRO,
+			},
+		},
+	}
+	settingsBytes, _ := proto.Marshal(settingsMsg)
+	if err := c.Write(ctx, websocket.MessageBinary, settingsBytes); err != nil {
+		t.Fatalf("failed to write SettingsUpdate: %v", err)
+	}
+
+	var gotToolCallEvent bool
+	var gotTurnCompleteEvent bool
+	var gotSettingsUpdatedEvent bool
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && (!gotToolCallEvent || !gotTurnCompleteEvent || !gotSettingsUpdatedEvent) {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			t.Fatalf("c.Read failed: %v", err)
+		}
+		var msg voicepb.VoiceServerMessage
+		if err := proto.Unmarshal(data, &msg); err != nil {
+			t.Fatalf("proto.Unmarshal failed: %v", err)
+		}
+		if ev := msg.GetEvent(); ev != nil {
+			attrs := make(map[string]string, len(ev.Attributes))
+			for _, a := range ev.Attributes {
+				attrs[a.Key] = a.Value
+			}
+			switch ev.EventName {
+			case "tool_call":
+				if attrs["id"] == "tc-ws-1" && attrs["name"] == "call_thinker_agent" {
+					gotToolCallEvent = true
+				}
+			case "turn_complete":
+				gotTurnCompleteEvent = true
+			case "settings_updated":
+				if attrs["playback_speed"] == "1.5" && attrs["plan_model"] == voicepb.Model_MODEL_GEMINI_2_5_PRO.String() {
+					gotSettingsUpdatedEvent = true
+				}
+			}
+		}
+	}
+
+	if !gotToolCallEvent {
+		t.Fatal("expected tool_call VoiceEvent over /voice/ws")
+	}
+	if !gotTurnCompleteEvent {
+		t.Fatal("expected turn_complete VoiceEvent over /voice/ws")
+	}
+	if !gotSettingsUpdatedEvent {
+		t.Fatal("expected settings_updated VoiceEvent over /voice/ws")
+	}
+}

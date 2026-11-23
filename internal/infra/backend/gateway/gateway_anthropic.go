@@ -74,7 +74,8 @@ type anthropicTool struct {
 }
 
 type anthropicEvent struct {
-	Type    string `json:"type"`
+	Type    string           `json:"type"`
+	Error   *sseErrorPayload `json:"error,omitempty"`
 	Message struct {
 		ID    string `json:"id"`
 		Usage struct {
@@ -198,6 +199,14 @@ func (c *GatewayClient) buildAnthropicRequest(req backend.StreamRequest, externa
 	if maxTokens <= 0 {
 		maxTokens = c.defaultMaxTokens()
 	}
+	supportsToolCalls := c.cfg.SupportsToolCalls
+	if req.SupportsToolCalls != nil {
+		supportsToolCalls = req.SupportsToolCalls
+	}
+	var tools []anthropicTool
+	if supportsToolCalls == nil || *supportsToolCalls {
+		tools = formatAnthropicTools(req.Tools)
+	}
 	sys := req.SystemPrompt
 	body := anthropicRequestBody{
 		Model:     externalModel,
@@ -205,7 +214,7 @@ func (c *GatewayClient) buildAnthropicRequest(req backend.StreamRequest, externa
 		Stream:    true,
 		System:    sys,
 		Messages:  formatAnthropicMessages(req.Messages, &sys),
-		Tools:     formatAnthropicTools(req.Tools),
+		Tools:     tools,
 	}
 	body.System = sys
 	raw, err := json.Marshal(body)
@@ -368,18 +377,24 @@ func (c *GatewayClient) handleAnthropicSSELine(ctx context.Context, line string,
 	}
 	var ev anthropicEvent
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-		default:
-			out <- backend.StreamChunk{Error: fmt.Errorf("gateway: anthropic sse decode: %w", err), Done: true}
-		}
 		return true, fmt.Errorf("gateway: anthropic sse decode: %w", err)
 	}
 	return c.dispatchAnthropicEvent(ctx, ev, payload, tracker, thinkTracker, meta, externalModel, out)
 }
 
 func (c *GatewayClient) dispatchAnthropicEvent(ctx context.Context, ev anthropicEvent, payload string, tracker *anthropicToolTracker, thinkTracker *anthropicThinkingTracker, meta **backend.ChunkMeta, externalModel string, out chan<- backend.StreamChunk) (bool, error) {
+	if ev.Type == "error" || ev.Error != nil {
+		var errType, errCode, errMsg string
+		if ev.Error != nil {
+			errType = ev.Error.Type
+			errCode = formatSSEErrorCode(ev.Error.Code)
+			errMsg = ev.Error.Message
+		}
+		if errMsg == "" {
+			errMsg = payload
+		}
+		return true, sseErrorToHTTPError(errType, errCode, errMsg, []byte(payload), c.baseURL)
+	}
 	switch ev.Type {
 	case "message_start":
 		*meta = &backend.ChunkMeta{
@@ -410,10 +425,6 @@ func (c *GatewayClient) dispatchAnthropicEvent(ctx context.Context, ev anthropic
 		}
 		out <- backend.StreamChunk{Done: true, Meta: *meta, ThinkingBlocks: thinkTracker.assembled()}
 		return true, nil
-	case "error":
-		err := fmt.Errorf("gateway: anthropic stream error: %s", payload)
-		out <- backend.StreamChunk{Error: err, Done: true}
-		return true, err
 	}
 	return false, nil
 }

@@ -114,6 +114,8 @@ const (
 	NoticeSteerApplied NoticeKind = "steer_applied"
 	// NoticeModelRetry reports an in-progress model unavailable retry countdown.
 	NoticeModelRetry NoticeKind = "model_retry"
+	// NoticeFailover reports a live failover transition to a backup target/model.
+	NoticeFailover NoticeKind = "failover"
 )
 
 // Frame is one message on the wire.
@@ -269,6 +271,12 @@ type Notice struct {
 	MaxAttempts int `json:"max_attempts,omitempty"`
 	// RetryAtUnixMS is the millisecond timestamp when the retry will fire.
 	RetryAtUnixMS int64 `json:"retry_at_unix_ms,omitempty"`
+	// FromTarget is the failing target name on a failover notice.
+	FromTarget string `json:"from_target,omitempty"`
+	// ToTarget is the backup target name on a failover notice.
+	ToTarget string `json:"to_target,omitempty"`
+	// Model is the active model switched to on a failover notice.
+	Model string `json:"model,omitempty"`
 }
 
 // Usage is a turn's token accounting.

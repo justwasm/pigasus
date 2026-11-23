@@ -96,7 +96,7 @@ func (m *RootModel) isFullViewportPanel() bool {
 	if kind == panelregistry.None {
 		return false
 	}
-	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff {
+	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff || kind == panelregistry.Terminal {
 		return true
 	}
 	if kind == panelregistry.Tasks && m.overlays.panel.tp != nil && m.overlays.panel.tp.Detail() {

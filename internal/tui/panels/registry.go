@@ -139,6 +139,7 @@ var PanelSpecs = []PanelSpec{
 	makeStandardSpec(panelregistry.AddDir),
 	makeStandardSpec(panelregistry.Rename),
 	makeStandardSpec(panelregistry.History),
+	makeStandardSpec(panelregistry.Terminal),
 	{
 		Kind: panelregistry.Help,
 		Handler: func(h RegistryHost) panelregistry.Handler {

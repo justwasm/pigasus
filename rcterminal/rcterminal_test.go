@@ -6,6 +6,8 @@
 package rcterminal
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -13,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vito/midterm"
 )
 
 // waitForOutput reads frames until one carries the needle or the
@@ -395,5 +399,84 @@ func TestCreateWithoutWorkspaceStartsInTheHome(t *testing.T) {
 	want := workspaceURI(home)
 	if info.WorkspaceURI != want {
 		t.Fatalf("the workspace uri is %q, want %q", info.WorkspaceURI, want)
+	}
+}
+
+func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry()
+	reg.SetWorkspace(dir)
+
+	info, err := reg.Create(CreateRequest{WorkspaceURI: "file://" + dir})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer func() { _ = reg.Close(info.TerminalID, true) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ch, err := reg.StreamChannelFrom(ctx, info.TerminalID, 0)
+	if err != nil {
+		t.Fatalf("StreamChannelFrom: %v", err)
+	}
+
+	if err := reg.Write(info.TerminalID, []byte("printf '\\033[32mGREEN_PTY\\033[0m\\n'\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	vt := midterm.NewTerminal(24, 80)
+	var lastOffset int64
+	var rendered bytes.Buffer
+	deadline := time.After(8 * time.Second)
+	for {
+		rendered.Reset()
+		_ = vt.Render(&rendered)
+		if strings.Contains(rendered.String(), "GREEN_PTY") && strings.Contains(rendered.String(), "\x1b[32m") {
+			break
+		}
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				t.Fatalf("stream closed before GREEN_PTY rendered; got:\n%s", rendered.String())
+			}
+			if f.Kind == FrameOutput && len(f.Output) > 0 {
+				_, _ = vt.Write(f.Output)
+				if f.Offset > lastOffset {
+					lastOffset = f.Offset
+				}
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for GREEN_PTY in midterm render; got:\n%q", rendered.String())
+		}
+	}
+
+	// Resume from lastOffset and send a second marker; first marker must NOT replay.
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel2()
+	ch2, err := reg.StreamChannelFrom(ctx2, info.TerminalID, lastOffset)
+	if err != nil {
+		t.Fatalf("StreamChannelFrom(resume): %v", err)
+	}
+	if err := reg.Write(info.TerminalID, []byte("echo RESUME_SECOND_MARKER\n")); err != nil {
+		t.Fatalf("Write second: %v", err)
+	}
+	var resumed strings.Builder
+	deadline2 := time.After(8 * time.Second)
+	for !strings.Contains(resumed.String(), "RESUME_SECOND_MARKER") {
+		select {
+		case f, ok := <-ch2:
+			if !ok {
+				t.Fatalf("resumed stream closed early; got %q", resumed.String())
+			}
+			if f.Kind == FrameOutput {
+				resumed.Write(f.Output)
+			}
+		case <-deadline2:
+			t.Fatalf("timed out waiting for RESUME_SECOND_MARKER; got %q", resumed.String())
+		}
+	}
+	if strings.Contains(resumed.String(), "GREEN_PTY") {
+		t.Fatalf("resumed stream replayed old output before offset %d: %q", lastOffset, resumed.String())
 	}
 }

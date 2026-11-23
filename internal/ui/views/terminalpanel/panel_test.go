@@ -234,3 +234,132 @@ func TestTerminalPanel_PasteEncoding(t *testing.T) {
 		t.Errorf("EncodePaste got %q, want %q", string(encoded), want)
 	}
 }
+
+func TestTerminalPanel_VisibleCursorRendered(t *testing.T) {
+	p := terminalpanel.New(10, 40, terminalpanel.Seams{
+		Width:  func() int { return 44 },
+		Height: func() int { return 14 },
+	})
+	p.WriteOutput([]byte("$ hi"))
+	rendered := p.Render()
+	if !strings.Contains(rendered, "\x1b[7m") || !strings.Contains(rendered, "\x1b[0m") {
+		t.Fatalf("expected reverse-video cursor cell (\\x1b[7m...\\x1b[0m) in rendered output:\n%q", rendered)
+	}
+
+	// CSI ? 25 l hides cursor
+	p.WriteOutput([]byte("\x1b[?25l"))
+	hidden := p.Render()
+	if strings.Contains(hidden, "\x1b[7m") {
+		t.Fatalf("expected cursor reverse-video to be hidden after CSI ? 25 l, got:\n%q", hidden)
+	}
+
+	// CSI ? 25 h shows cursor again
+	p.WriteOutput([]byte("\x1b[?25h"))
+	shown := p.Render()
+	if !strings.Contains(shown, "\x1b[7m") {
+		t.Fatalf("expected cursor reverse-video to reappear after CSI ? 25 h, got:\n%q", shown)
+	}
+}
+
+func TestTerminalPanel_ScrollbackPreservesANSISGR(t *testing.T) {
+	p := terminalpanel.New(5, 30, terminalpanel.Seams{
+		Width:  func() int { return 34 },
+		Height: func() int { return 9 },
+	})
+	for i := 1; i <= 12; i++ {
+		p.WriteOutput([]byte("\x1b[31mred-line\x1b[0m " + strings.Repeat("W", 40) + "\r\n"))
+	}
+	sb := p.ScrollbackLines()
+	if len(sb) == 0 {
+		t.Fatal("expected scrollback lines")
+	}
+	if !strings.Contains(sb[0], "\x1b[31m") {
+		t.Fatalf("expected scrollback line to preserve ANSI SGR \\x1b[31m, got %q", sb[0])
+	}
+
+	p.HandleKey(tea.Key{Code: tea.KeyPgUp})
+	rendered := p.Render()
+	if !strings.Contains(rendered, "\x1b[31m") {
+		t.Fatalf("expected rendered scrollback view to preserve ANSI SGR \\x1b[31m, got %q", rendered)
+	}
+	for _, row := range strings.Split(rendered, "\n") {
+		if !strings.HasSuffix(row, "╮") && !strings.HasSuffix(row, "│\x1b[0m") && !strings.HasSuffix(row, "╯") {
+			t.Fatalf("row overflowed right border: %q", row)
+		}
+	}
+}
+
+func TestTerminalPanel_CopyModeNavigationSelectAndYank(t *testing.T) {
+	var yanked string
+	p := terminalpanel.New(6, 40, terminalpanel.Seams{
+		Width:    func() int { return 44 },
+		Height:   func() int { return 10 },
+		CopyText: func(s string) error { yanked = s; return nil },
+	})
+	p.WriteOutput([]byte("alpha beta\r\ngamma delta\r\nepsilon zeta"))
+
+	// Enter copy mode with Alt+C
+	p.HandleKey(tea.Key{Code: 'c', Mod: tea.ModAlt, Text: "c"})
+	if !p.InCopyMode() {
+		t.Fatal("expected Alt+C to enter copy mode")
+	}
+	rendered := p.Render()
+	if !strings.Contains(rendered, "COPY MODE") {
+		t.Fatalf("expected COPY MODE badge in render:\n%s", rendered)
+	}
+
+	// Move up to "gamma delta", go to col 0, move right 6 ("delta"), visual select 5 chars, yank
+	p.HandleKey(tea.Key{Code: 'k', Text: "k"})
+	p.HandleKey(tea.Key{Code: '0', Text: "0"})
+	for i := 0; i < 6; i++ {
+		p.HandleKey(tea.Key{Code: 'l', Text: "l"})
+	}
+	p.HandleKey(tea.Key{Code: 'v', Text: "v"})
+	for i := 0; i < 4; i++ {
+		p.HandleKey(tea.Key{Code: 'l', Text: "l"})
+	}
+	selRendered := p.Render()
+	if !strings.Contains(selRendered, "\x1b[7mdelta\x1b[0m") {
+		t.Fatalf("expected reverse-video selection highlight around 'delta', got:\n%q", selRendered)
+	}
+
+	p.HandleKey(tea.Key{Code: 'y', Text: "y"})
+	if p.InCopyMode() {
+		t.Fatal("expected y to exit copy mode")
+	}
+	if yanked != "delta" {
+		t.Fatalf("yanked = %q, want %q", yanked, "delta")
+	}
+
+	// Line visual mode (V) + Enter
+	yanked = ""
+	p.HandleKey(tea.Key{Code: 'c', Mod: tea.ModAlt, Text: "c"})
+	p.HandleKey(tea.Key{Code: 'g', Text: "g"})
+	p.HandleKey(tea.Key{Code: 'V', Text: "V"})
+	p.HandleKey(tea.Key{Code: 'j', Text: "j"})
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if yanked != "alpha beta\ngamma delta" {
+		t.Fatalf("line-mode yanked = %q, want %q", yanked, "alpha beta\ngamma delta")
+	}
+}
+
+func TestTerminalPanel_MultiSessionTabBar(t *testing.T) {
+	p := terminalpanel.New(10, 60, terminalpanel.Seams{
+		Width:  func() int { return 64 },
+		Height: func() int { return 14 },
+		Tabs: func() []terminalpanel.TabInfo {
+			return []terminalpanel.TabInfo{
+				{ID: "t1", Title: "bash", Active: true},
+				{ID: "t2", Title: "zsh", Active: false},
+			}
+		},
+	})
+	rendered := p.Render()
+	if !strings.Contains(rendered, "1:bash") || !strings.Contains(rendered, "2:zsh") {
+		t.Fatalf("expected tab bar with 1:bash and 2:zsh, got:\n%s", rendered)
+	}
+	lines := strings.Split(rendered, "\n")
+	if len(lines) > 13 {
+		t.Fatalf("expected rendered lines (%d) to fit inside viewport height 14 minus status line", len(lines))
+	}
+}

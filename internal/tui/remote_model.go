@@ -14,9 +14,25 @@ package tui
 // engine; the clone gives that runtime a named owner.
 
 import (
+	"context"
+
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 )
+
+// terminalSessionState holds persistent state for one interactive /terminal session.
+type terminalSessionState struct {
+	id        string
+	title     string
+	cwd       string
+	panel     *terminalpanel.Panel
+	cancel    context.CancelFunc
+	streaming bool
+	exited    bool
+	exitCode  int
+	exitErr   error
+}
 
 // RemoteModel owns the attached-engine and remote-control runtime.
 type RemoteModel struct {
@@ -25,8 +41,14 @@ type RemoteModel struct {
 	attachedEngine bool
 	// files backs the @ picker in a --remote-agent session.
 	files *remoteFileCache
-	// terminalID is the last terminal /terminal created.
+	// terminalID is the active interactive /terminal session ID.
 	terminalID string
+	// terminals maps session ID -> persistent terminal session state.
+	terminals map[string]*terminalSessionState
+	// terminalOrder preserves creation order of interactive terminal sessions.
+	terminalOrder []string
+	// runTerminals tracks /terminal run <cmd> transcript-only terminal IDs.
+	runTerminals map[string]bool
 	// termService is the active TerminalService (local, remote agent, or server).
 	termService TerminalService
 	// controlStop stops the in-process remote-control server if one was

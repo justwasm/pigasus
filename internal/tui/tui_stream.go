@@ -370,7 +370,23 @@ func (c *turnCollector) notice(n *agentlink.Notice) {
 				retryAtUnixMS: n.RetryAtUnixMS,
 			})
 		}
+	case agentlink.NoticeFailover:
+		if c.prog != nil {
+			c.prog.Send(failoverNoticeMsg{
+				fromTarget: n.FromTarget,
+				toTarget:   n.ToTarget,
+				model:      n.Model,
+				text:       n.Text,
+			})
+		}
 	}
+}
+
+type failoverNoticeMsg struct {
+	fromTarget string
+	toTarget   string
+	model      string
+	text       string
 }
 
 type modelRetryStatusMsg struct {

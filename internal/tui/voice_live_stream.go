@@ -79,6 +79,7 @@ func (m *RootModel) handleVoiceUserSpeech(text string) tea.Cmd {
 	m.conversation.streaming = true
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
 	if wasWorking {
 		return nil
 	}
@@ -109,6 +110,7 @@ func (m *RootModel) handleVoiceAgentDelta(delta string) tea.Cmd {
 	m.conversation.voiceTextLines = len(lines)
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
 	return tickCmd
 }
 
@@ -141,6 +143,7 @@ func (m *RootModel) handleVoiceAgentDone(text string) {
 	}
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
 }
 
 func (m *RootModel) handleVoiceInterrupted() {
@@ -166,6 +169,7 @@ func (m *RootModel) handleVoiceInterrupted() {
 	}
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
 }
 
 func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) tea.Cmd {
@@ -178,6 +182,7 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 	m.conversation.streaming = true
 	m.viewport.autoScroll = true
 	m.viewport.rowsCacheDirty = true
+	m.syncVoiceWireHUD()
 
 	taskCtx, taskCancel := context.WithCancel(context.Background())
 	m.audio.setThinkerCancel(invocationID, taskCancel)

@@ -90,11 +90,22 @@ func (c *GatewayClient) buildRequest(req backend.StreamRequest, externalModel st
 // buildOpenAIRequest renders the Chat Completions body.
 func (c *GatewayClient) buildOpenAIRequest(req backend.StreamRequest, externalModel string) ([]byte, error) {
 	reasoningEffort := strings.TrimSpace(c.cfg.ReasoningEffort)
-	if c.cfg.SupportsThinking != nil && !*c.cfg.SupportsThinking {
+	if strings.TrimSpace(req.ReasoningEffort) != "" {
+		reasoningEffort = strings.TrimSpace(req.ReasoningEffort)
+	}
+	supportsThinking := c.cfg.SupportsThinking
+	if req.SupportsThinking != nil {
+		supportsThinking = req.SupportsThinking
+	}
+	if supportsThinking != nil && !*supportsThinking {
 		reasoningEffort = ""
 	}
+	supportsToolCalls := c.cfg.SupportsToolCalls
+	if req.SupportsToolCalls != nil {
+		supportsToolCalls = req.SupportsToolCalls
+	}
 	var tools []gatewayTool
-	if c.cfg.SupportsToolCalls == nil || *c.cfg.SupportsToolCalls {
+	if supportsToolCalls == nil || *supportsToolCalls {
 		tools = formatOpenAITools(req)
 	}
 	body := gatewayRequestBody{
@@ -196,15 +207,28 @@ func formatOpenAITools(req backend.StreamRequest) []gatewayTool {
 // applyProtocolHeaders sets the credential and version headers the
 // configured protocol expects.
 func (c *GatewayClient) applyProtocolHeaders(req *http.Request) {
+	c.applyProtocolHeadersWithKey(req, c.activeAPIKey())
+}
+
+func (c *GatewayClient) activeAPIKey() string {
+	if c.keyPool != nil {
+		if _, k := c.keyPool.CurrentKey(); k != "" {
+			return k
+		}
+	}
+	return c.apiKey
+}
+
+func (c *GatewayClient) applyProtocolHeadersWithKey(req *http.Request, key string) {
 	if c.cfg.protocol() == GatewayProtocolAnthropic {
-		if c.apiKey != "" {
-			req.Header.Set("x-api-key", c.apiKey)
+		if key != "" {
+			req.Header.Set("x-api-key", key)
 		}
 		req.Header.Set("anthropic-version", "2023-06-01")
 		return
 	}
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 }
 

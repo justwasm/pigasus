@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/internal/ui/livechat"
 )
 

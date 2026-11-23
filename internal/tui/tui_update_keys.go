@@ -71,6 +71,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, tea.ClearScreen, true
 		}
 	case "cli.exit":
+		m.CloseAllTerminals()
 		return m, tea.Quit, true
 	case "edit.open_editor":
 		if !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
@@ -344,6 +345,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: 'y', Text: "y"}, m.viewport.height), true
 		}
 		if m.display.exitConfirm {
+			m.CloseAllTerminals()
 			return m, tea.Quit, true
 		}
 	case "confirm.no":
@@ -529,6 +531,13 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 		}
 		return m, nil, true
 	}
+	if m.overlays.panel.kind == panelregistry.Terminal {
+		if mod, cmd, handled := m.handleTerminalPanelShortcuts(key); handled {
+			return mod, cmd, true
+		}
+		handled, cmd := m.handlePanelKey(key)
+		return m, cmd, handled
+	}
 	if m.prompt.keybindings != nil {
 		if act := m.prompt.keybindings.ActionForKey(key); act != "" {
 			if act == "cli.escape" && key.Code == 'c' && key.Mod.Contains(tea.ModCtrl) {
@@ -539,6 +548,7 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 					m.cancelBashCommand()
 					if m.display.exitConfirm {
 						m.display.quitting = true
+						m.CloseAllTerminals()
 						return m, tea.Quit, true
 					}
 					m.display.exitConfirm = true
@@ -551,6 +561,7 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 				}
 				if m.display.exitConfirm {
 					m.display.quitting = true
+					m.CloseAllTerminals()
 					return m, tea.Quit, true
 				}
 				m.display.exitConfirm = true
@@ -1013,6 +1024,7 @@ func (m *RootModel) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool)
 		}
 		if m.display.exitConfirm {
 			m.display.quitting = true
+			m.CloseAllTerminals()
 			return m, tea.Quit, true
 		}
 		m.display.exitConfirm = true
@@ -1030,6 +1042,7 @@ func (m *RootModel) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool)
 		}
 		if m.prompt.input.Value() == "" {
 			m.display.quitting = true
+			m.CloseAllTerminals()
 			return m, tea.Quit, true
 		}
 	}
@@ -1124,14 +1137,15 @@ func (m *RootModel) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Global exit: Ctrl+D on empty input exits immediately.
-	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) && m.prompt.input.Value() == "" {
+	// Global exit: Ctrl+D on empty input exits immediately (unless terminal modal owns Ctrl+D).
+	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) && m.prompt.input.Value() == "" && m.overlays.panel.kind != panelregistry.Terminal {
 		m.display.quitting = true
+		m.CloseAllTerminals()
 		return m, tea.Quit
 	}
 
-	// Wire diagnostics toggle: Ctrl+Shift+W or Alt+W
-	if (key.Code == 'w' || key.Code == 'W') && ((key.Mod.Contains(tea.ModCtrl) && key.Mod.Contains(tea.ModShift)) || key.Mod.Contains(tea.ModAlt)) {
+	// Wire diagnostics toggle: Ctrl+Shift+W or Alt+W (Alt+W closes terminal session when terminal panel is open).
+	if (key.Code == 'w' || key.Code == 'W') && ((key.Mod.Contains(tea.ModCtrl) && key.Mod.Contains(tea.ModShift)) || (key.Mod.Contains(tea.ModAlt) && m.overlays.panel.kind != panelregistry.Terminal)) {
 		if m.overlays.wireHUD == nil {
 			m.overlays.wireHUD = wirehud.New()
 		}
@@ -1158,8 +1172,10 @@ func (m *RootModel) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// (agy ActiveItemsModel.Update). This runs before the keybinding
 	// dispatch on purpose — otherwise cli.enter submits the prompt and
 	// the block never sees the Enter that opens the detail view.
-	if handled, cmd := m.activeItems.Panel.HandleKey(key); handled {
-		return m, cmd
+	if m.overlays.panel.kind != panelregistry.Terminal {
+		if handled, cmd := m.activeItems.Panel.HandleKey(key); handled {
+			return m, cmd
+		}
 	}
 	if mod, cmd, handled := m.handleGlobalOrModalKeys(key); handled {
 		return mod, cmd
@@ -1477,8 +1493,8 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 		}
 		return true, syncCmd
 	}
-	if cleanCmd == "clear" {
-		_, cmd := m.handleSlashCommand("/clear")
+	if cleanCmd == "clear" || cleanCmd == "terminal" {
+		_, cmd := m.handleSlashCommand(strings.TrimSpace(completedText))
 		return true, cmd
 	}
 	return true, nil
@@ -1642,6 +1658,7 @@ func (m *RootModel) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd)
 		m.viewport.rowsView = composedRows{}
 	}
 	m.activeItems.Panel.Clamp()
+	m.resizeAllTerminalPanels()
 	return m, nil
 }
 
@@ -2005,6 +2022,12 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 	case voice.DictationDoneMsg:
 		return m, m.audio.Surface.HandleDictationDone(msg), true
 	case tea.PasteMsg:
+		if m.overlays.panel.kind == panelregistry.Terminal {
+			if tp := m.terminalPanel(); tp != nil {
+				tp.HandlePaste(msg.Content)
+			}
+			return m, nil, true
+		}
 		// The question form owns the input area while it is up. A paste
 		// goes to its write-in field (when that field has the focus)
 		// instead of the hidden composer behind it.

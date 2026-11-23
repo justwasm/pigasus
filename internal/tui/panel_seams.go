@@ -19,6 +19,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/endpoints"
@@ -71,6 +72,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/rcaudio"
@@ -2444,6 +2446,9 @@ func (m *RootModel) openSlashPanelArgs(cmd, args string) bool {
 	if cmd == "projects" && strings.TrimSpace(args) != "" {
 		return false
 	}
+	if cmd == "terminal" {
+		return false
+	}
 	if !m.openSlashPanel(cmd) {
 		return false
 	}
@@ -2516,7 +2521,54 @@ func (m *RootModel) panelSelectionText() string {
 		return ""
 	}
 	lines := m.rawPanelLines()
+	if m.overlays.panel.kind == panelregistry.Terminal {
+		return terminalPanelSelectionText(lines, sr, sc, er, ec, len(m.remote.terminalOrder) > 1)
+	}
 	return tuiviewport.SelectionText(lines, sr, sc, er, ec)
+}
+
+func terminalPanelSelectionText(lines []string, sr, sc, er, ec int, hasTabs bool) string {
+	if sr < 0 || sr >= len(lines) || er < 0 || er >= len(lines) {
+		return ""
+	}
+	firstBody := 1
+	if hasTabs {
+		firstBody = 2
+	}
+	lastBody := len(lines) - 2
+	var out []string
+	for r := sr; r <= er; r++ {
+		if r < firstBody || r > lastBody {
+			continue
+		}
+		plain := ansi.Strip(lines[r])
+		rw := ansi.StringWidth(plain)
+		innerStart := 2
+		innerEnd := rw - 2
+		if innerEnd < innerStart {
+			continue
+		}
+		from := innerStart
+		to := innerEnd
+		if r == sr && sc > from {
+			from = sc
+		}
+		if r == er && ec+1 < to {
+			to = ec + 1
+		}
+		if from > innerEnd {
+			from = innerEnd
+		}
+		if to < innerStart {
+			to = innerStart
+		}
+		if from > to {
+			from = to
+		}
+		seg := ansi.Cut(plain, from, to)
+		out = append(out, strings.TrimRight(seg, " "))
+	}
+	return strings.Join(out, "\n")
 }
 
 func (m *RootModel) closePanel() tea.Cmd {
@@ -2993,44 +3045,52 @@ func (m *RootModel) contextPanel() *contextpanel.Panel {
 }
 
 func (m *RootModel) terminalPanel() *terminalpanel.Panel {
+	if sess := m.activeTerminalSession(); sess != nil && sess.panel != nil {
+		m.overlays.panel.term = sess.panel
+		return sess.panel
+	}
 	if m.overlays.panel.term == nil {
-		m.overlays.panel.term = m.newTerminalPanel()
+		m.overlays.panel.term = m.newTerminalPanelForSession(m.remote.terminalID)
 	}
 	return m.overlays.panel.term
 }
 
 func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
-	h := m.viewport.height
-	if h < 10 {
-		h = 24
+	return m.newTerminalPanelForSession(m.remote.terminalID)
+}
+
+func (m *RootModel) newTerminalPanelForSession(sessionID string) *terminalpanel.Panel {
+	rows, cols := m.terminalInnerDimensions()
+	resolveID := func() string {
+		if sessionID != "" {
+			return sessionID
+		}
+		return m.remote.terminalID
 	}
-	w := m.viewport.width
-	if w < 20 {
-		w = 80
-	}
-	return terminalpanel.New(h, w, terminalpanel.Seams{
+	return terminalpanel.New(rows, cols, terminalpanel.Seams{
 		WriteInput: func(data []byte) error {
-			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
+			id := resolveID()
+			if svc := m.terminalService(); svc != nil && id != "" {
 				ctx, cancel := remoteTerminalContext()
 				defer cancel()
-				return svc.SendTerminalInput(ctx, m.remote.terminalID, data)
+				return svc.SendTerminalInput(ctx, id, data)
 			}
 			return nil
 		},
 		Resize: func(rows, cols int) error {
-			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
+			id := resolveID()
+			if svc := m.terminalService(); svc != nil && id != "" {
 				ctx, cancel := remoteTerminalContext()
 				defer cancel()
-				return svc.Resize(ctx, m.remote.terminalID, rows, cols)
+				return svc.Resize(ctx, id, rows, cols)
 			}
 			return nil
 		},
 		Close: func() tea.Cmd {
-			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
-				ctx, cancel := remoteTerminalContext()
-				defer cancel()
-				_ = svc.CloseTerminal(ctx, m.remote.terminalID)
-				m.remote.terminalID = ""
+			id := resolveID()
+			if id != "" {
+				cmd, _ := m.killTerminalSession(id)
+				return cmd
 			}
 			return m.closePanel()
 		},
@@ -3038,13 +3098,28 @@ func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
 			return m.closePanel()
 		},
 		Title: func() string {
-			if m.remote.terminalID != "" {
-				return "Terminal (" + m.remote.terminalID + ")"
+			id := resolveID()
+			if id != "" {
+				if sess := m.remote.terminals[id]; sess != nil && sess.title != "" {
+					return sess.title
+				}
+				return "Terminal (" + id + ")"
 			}
 			return "Terminal"
 		},
-		Height: func() int { return m.viewport.height },
-		Width:  func() int { return m.viewport.width },
+		Cwd: func() string {
+			id := resolveID()
+			if id != "" {
+				if sess := m.remote.terminals[id]; sess != nil && sess.cwd != "" {
+					return sess.cwd
+				}
+			}
+			return m.session.cwd
+		},
+		CopyText: clipboard.Write,
+		Tabs:     m.terminalTabs,
+		Height:   func() int { return m.viewport.height },
+		Width:    func() int { return m.viewport.width },
 	})
 }
 

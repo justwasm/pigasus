@@ -78,6 +78,26 @@ func isTransientNetworkError(err error) bool {
 	return false
 }
 
+func shouldRecover(cfg TurnConfig, err error) bool {
+	if err == nil {
+		return false
+	}
+	if isTransientNetworkError(err) {
+		return true
+	}
+	if cfg.ShouldRecover != nil {
+		return cfg.ShouldRecover(err)
+	}
+	return false
+}
+
+func maxRecoveries(cfg TurnConfig) int {
+	if cfg.MaxRecoveries > 0 {
+		return cfg.MaxRecoveries
+	}
+	return AutoContMaxDepth
+}
+
 func (a *Actor) executeTurn(env *turnEnvelope) {
 	h := env.handle
 	cfg := env.config
@@ -283,7 +303,7 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 			if err == nil {
 				break
 			}
-			if !isTransientNetworkError(err) || turnCtx.Err() != nil {
+			if !shouldRecover(cfg, err) || turnCtx.Err() != nil {
 				break
 			}
 			select {
@@ -301,14 +321,14 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 			case turnCtx.Err() != nil:
 				turnStatus = "cancelled"
 				turnErr = ErrTurnCancelled
-			case isTransientNetworkError(err) && autoContinueDepth < AutoContMaxDepth:
+			case shouldRecover(cfg, err) && autoContinueDepth < maxRecoveries(cfg):
 				// The reference recovers a transport interruption with the
 				// same recovery copy, on the same turn.
 				autoContinueDepth++
 				a.injectRecovery()
 				stepIndex++
 				continue
-			case isTransientNetworkError(err):
+			case shouldRecover(cfg, err):
 				turnStatus = "error"
 				turnErr = fmt.Errorf("%w after %d attempts: %v", ErrAutoContinueLimit, autoContinueDepth, err)
 				a.emitError(h, turnErr)
@@ -359,8 +379,14 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 					turnErr = ErrTurnCancelled
 				case stepCtx.Err() != nil:
 					// Step generation was interrupted by dynamic steering.
-				case isTransientNetworkError(rErr):
-					interrupted = true
+				case shouldRecover(cfg, rErr):
+					if autoContinueDepth < maxRecoveries(cfg) {
+						interrupted = true
+					} else {
+						turnStatus = "error"
+						turnErr = fmt.Errorf("%w after %d attempts: %v", ErrAutoContinueLimit, autoContinueDepth, rErr)
+						a.emitError(h, turnErr)
+					}
 				default:
 					turnStatus = "error"
 					turnErr = rErr

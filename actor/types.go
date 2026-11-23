@@ -115,6 +115,14 @@ type TurnConfig struct {
 	// ToolPruningTurns sets the number of recent turns that retain full tool outputs (0 = no pruning).
 	ToolPruningTurns int
 
+	// ShouldRecover optionally classifies additional stream/open errors as
+	// recoverable via auto-continue (e.g. transient network errors or
+	// mid-stream failover errors). Nil uses actor's built-in transient check.
+	ShouldRecover func(error) bool
+	// MaxRecoveries optionally overrides AutoContMaxDepth for recoverable
+	// stream/open errors (0 uses AutoContMaxDepth).
+	MaxRecoveries int
+
 	// tools is the resolved snapshot a turn executes against. It is set when
 	// the request is submitted, never by a caller.
 	tools *ToolRegistry

@@ -104,12 +104,13 @@ type ProviderConfig struct {
 
 // ProviderAccount represents one account, token, or API key under a multi-account provider.
 type ProviderAccount struct {
-	ID     string `json:"id"`
-	Email  string `json:"email,omitempty"`
-	Label  string `json:"label,omitempty"`
-	APIKey string `json:"api_key,omitempty"`
-	Token  string `json:"token,omitempty"`
-	Active bool   `json:"active,omitempty"`
+	ID       string `json:"id"`
+	Email    string `json:"email,omitempty"`
+	Label    string `json:"label,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Active   bool   `json:"active,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
 }
 
 // ProviderModel is one model a provider serves.
@@ -425,6 +426,38 @@ func (p ProviderConfig) ResolvedAPIKey() string {
 	return ExpandEnvRef(p.EffectiveAPIKey())
 }
 
+// ResolvedAccounts returns enabled accounts with environment references expanded,
+// ordered with the active account first.
+func (p ProviderConfig) ResolvedAccounts() []ProviderAccount {
+	if len(p.Accounts) == 0 {
+		return nil
+	}
+	var active []ProviderAccount
+	var rest []ProviderAccount
+	activeID := strings.TrimSpace(p.ActiveAccount)
+	for _, acc := range p.Accounts {
+		if acc.Disabled {
+			continue
+		}
+		resolved := acc
+		resolved.APIKey = strings.TrimSpace(ExpandEnvRef(acc.APIKey))
+		resolved.Token = strings.TrimSpace(ExpandEnvRef(acc.Token))
+		if resolved.APIKey == "" && resolved.Token == "" {
+			continue
+		}
+		isActive := (activeID != "" && resolved.ID == activeID) || (activeID == "" && resolved.Active)
+		if isActive {
+			active = append(active, resolved)
+		} else {
+			rest = append(rest, resolved)
+		}
+	}
+	out := make([]ProviderAccount, 0, len(active)+len(rest))
+	out = append(out, active...)
+	out = append(out, rest...)
+	return out
+}
+
 // ExpandEnvRef expands a "$NAME" or "${NAME}" reference to the environment
 // value. Anything else — including an empty string and a literal that
 // merely contains a dollar sign — is returned unchanged.
@@ -529,6 +562,8 @@ func (p ProviderConfig) Flatten() []Model {
 			MaxRetries:                 p.MaxRetries,
 			ExtraHeaders:               copyHeaders(p.EffectiveHeaders()),
 			Fallbacks:                  copyStrings(fallbacks),
+			Accounts:                   p.ResolvedAccounts(),
+			ActiveAccount:              strings.TrimSpace(p.ActiveAccount),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

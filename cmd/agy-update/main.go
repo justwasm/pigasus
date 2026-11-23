@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/internal/agyupdate"
 	"github.com/justwasm/pigasus/internal/cli"
 )

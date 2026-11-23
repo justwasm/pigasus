@@ -79,7 +79,7 @@ func PickWithLog(fs *flag.FlagSet, modelName string, logWriter io.Writer, gatewa
 // providers or models are configured, either per-model or through OPENAGY_FALLBACK_CHAIN.
 func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Client, primaryName string, gatewayTimeout int, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
 	targets := []failover.Target{
-		{Name: primaryName, Client: primary},
+		{Name: primaryName, Client: primary, LogicalModel: strings.TrimSpace(modelName)},
 	}
 	seenModels := map[string]bool{
 		strings.ToLower(strings.TrimSpace(modelName)): true,
@@ -163,22 +163,12 @@ func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Clie
 			if m.TimeoutSeconds > 0 {
 				timeout = m.TimeoutSeconds
 			}
-			client := gateway.NewGatewayWithConfig(gateway.GatewayConfig{
-				URL:               strings.TrimSpace(m.APIURL),
-				APIKey:            strings.TrimSpace(m.APIKey),
-				ExternalModel:     strings.TrimSpace(m.ExternalModelName),
-				Type:              strings.TrimSpace(m.Type),
-				Headers:           m.ExtraHeaders,
-				TimeoutSeconds:    timeout,
-				DefaultMaxTokens:  m.DefaultMaxTokens,
-				ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
-				SupportsThinking:  m.SupportsThinking,
-				SupportsToolCalls: m.SupportsToolCalls,
-			})
+			client := newGatewayClientForModel(m, timeout)
 			wireModel := strings.TrimSpace(m.ExternalModelName)
 			targets = append(targets, failover.Target{
-				Name:   targetName,
-				Client: client,
+				Name:         targetName,
+				Client:       client,
+				LogicalModel: fbClean,
 				ModelMap: func(string) string {
 					if wireModel != "" {
 						return wireModel
@@ -198,8 +188,9 @@ func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Clie
 			client := newOfficialBackend(fbClean, logWriter, catalogueID)
 			refSlug := catalogueSlug(fbClean, catalogueID)
 			targets = append(targets, failover.Target{
-				Name:   targetName,
-				Client: client,
+				Name:         targetName,
+				Client:       client,
+				LogicalModel: fbClean,
 				ModelMap: func(string) string {
 					if refSlug != "" {
 						return refSlug
@@ -299,6 +290,63 @@ func catalogueSlug(name string, catalogueID CatalogueIDFunc) string {
 // model nobody configured has no endpoint, and the caller gets the shim
 // instead — with a warning, because a model that silently answers from the
 // shim would look like a working model.
+func newGatewayClientForModel(m models.Model, timeout int) backend.Client {
+	accounts := gatewayAccountsFromModel(m)
+	var pool *gateway.KeyPool
+	if len(accounts) > 0 {
+		var keyParts []string
+		for _, a := range accounts {
+			keyParts = append(keyParts, a.ID+":"+a.APIKey)
+		}
+		cacheKey := strings.TrimSpace(m.ProviderID) + "|" + strings.TrimSpace(m.APIURL) + "|" + strings.Join(keyParts, ",")
+		pool = gateway.SharedKeyPool(cacheKey, accounts)
+	}
+	return gateway.NewGatewayWithConfig(gateway.GatewayConfig{
+		URL:               strings.TrimSpace(m.APIURL),
+		APIKey:            strings.TrimSpace(m.APIKey),
+		ExternalModel:     strings.TrimSpace(m.ExternalModelName),
+		Type:              strings.TrimSpace(m.Type),
+		Headers:           m.ExtraHeaders,
+		TimeoutSeconds:    timeout,
+		DefaultMaxTokens:  m.DefaultMaxTokens,
+		ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
+		SupportsThinking:  m.SupportsThinking,
+		SupportsToolCalls: m.SupportsToolCalls,
+		Accounts:          accounts,
+		KeyPool:           pool,
+	})
+}
+
+func gatewayAccountsFromModel(m models.Model) []gateway.KeyAccount {
+	if len(m.Accounts) == 0 {
+		return nil
+	}
+	out := make([]gateway.KeyAccount, 0, len(m.Accounts)+1)
+	for _, acc := range m.Accounts {
+		if acc.Disabled {
+			continue
+		}
+		k := strings.TrimSpace(acc.APIKey)
+		if k == "" {
+			k = strings.TrimSpace(acc.Token)
+		}
+		if k == "" {
+			continue
+		}
+		out = append(out, gateway.KeyAccount{
+			ID:     strings.TrimSpace(acc.ID),
+			APIKey: k,
+		})
+	}
+	if len(out) > 0 && strings.TrimSpace(m.APIKey) != "" {
+		out = append(out, gateway.KeyAccount{
+			ID:     "default",
+			APIKey: strings.TrimSpace(m.APIKey),
+		})
+	}
+	return out
+}
+
 func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
 	m, ok := resolveConfigured(modelName, catalogueID)
 	if !ok {
@@ -309,21 +357,7 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 	if m.TimeoutSeconds > 0 {
 		timeout = m.TimeoutSeconds
 	}
-	return gateway.NewGatewayWithConfig(gateway.GatewayConfig{
-		URL:              strings.TrimSpace(m.APIURL),
-		APIKey:           strings.TrimSpace(m.APIKey),
-		ExternalModel:    strings.TrimSpace(m.ExternalModelName),
-		Type:             strings.TrimSpace(m.Type),
-		Headers:          m.ExtraHeaders,
-		TimeoutSeconds:   timeout,
-		DefaultMaxTokens: m.DefaultMaxTokens,
-		// The reasoning level the model runs at. On a tier row
-		// ("minimax-m3.1-flash-xhigh") this is the tier itself, so
-		// the tier rides the row into the request.
-		ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
-		SupportsThinking:  m.SupportsThinking,
-		SupportsToolCalls: m.SupportsToolCalls,
-	})
+	return newGatewayClientForModel(m, timeout)
 }
 
 // fallbackConfiguredBackend checks if a configured fallback backend exists for a reference model.
@@ -333,19 +367,7 @@ func fallbackConfiguredBackend(modelName string, gatewayTimeout int, logWriter i
 		if m.TimeoutSeconds > 0 {
 			timeout = m.TimeoutSeconds
 		}
-		c := gateway.NewGatewayWithConfig(gateway.GatewayConfig{
-			URL:               strings.TrimSpace(m.APIURL),
-			APIKey:            strings.TrimSpace(m.APIKey),
-			ExternalModel:     strings.TrimSpace(m.ExternalModelName),
-			Type:              strings.TrimSpace(m.Type),
-			Headers:           m.ExtraHeaders,
-			TimeoutSeconds:    timeout,
-			DefaultMaxTokens:  m.DefaultMaxTokens,
-			ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
-			SupportsThinking:  m.SupportsThinking,
-			SupportsToolCalls: m.SupportsToolCalls,
-		})
-		return c, true
+		return newGatewayClientForModel(m, timeout), true
 	}
 	return nil, false
 }

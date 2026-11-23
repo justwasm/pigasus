@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -195,21 +196,16 @@ type job struct {
 	err              error
 }
 
-// New builds a policy for a model. A model without a catalogue profile gets a
-// conservative fallback: hard-limit checkpoints only, with the session model.
-func New(cfg Config) *Policy {
-	if cfg.Now == nil {
-		cfg.Now = time.Now
-	}
-	profile, ok := modelctx.ProfileFor(cfg.Model)
+func resolveProfileAndLimit(model string) (modelctx.Profile, modelctx.Limit) {
+	limit := modelctx.For(model)
+	profile, ok := modelctx.ProfileFor(model)
 	if !ok {
-		limit := modelctx.For(cfg.Model)
 		defaultThreshold := limit.ContextWindow - limit.ReserveTokens
 		if defaultThreshold <= 0 {
 			defaultThreshold = 50000
 		}
 		threshold := defaultThreshold
-		if cp, ok := modelctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
+		if cp, ok := modelctx.ConfiguredCompactThreshold(model); ok && cp > 0 {
 			threshold = cp
 		}
 		profile = modelctx.Profile{
@@ -218,18 +214,28 @@ func New(cfg Config) *Policy {
 			MaxOutputTokens:            limit.ReserveTokens,
 			TokenThreshold:             threshold,
 			Enabled:                    true,
-			CheckpointModel:            cfg.Model,
+			CheckpointModel:            model,
 			IsSync:                     true,
 			MaxUserRequests:            compaction.MaxUserRequests,
 			MovingWindowSize:           1,
 			UseModelReportedTokenCount: true,
 		}
 	}
+	return profile, limit
+}
+
+// New builds a policy for a model. A model without a catalogue profile gets a
+// conservative fallback: hard-limit checkpoints only, with the session model.
+func New(cfg Config) *Policy {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	profile, limit := resolveProfileAndLimit(cfg.Model)
 	baseCtx, cancel := context.WithCancel(context.Background())
 	return &Policy{
 		cfg:        cfg,
 		profile:    profile,
-		limit:      modelctx.For(cfg.Model),
+		limit:      limit,
 		baseCtx:    baseCtx,
 		baseCancel: cancel,
 		snap: Snapshot{
@@ -240,6 +246,35 @@ func New(cfg Config) *Policy {
 			ParentMessagesMostRecent: cfg.ParentMessagesMostRecent,
 		},
 	}
+}
+
+// SetModel dynamically updates the policy's active model, profile, and context
+// limit (e.g. when failover switches to a backup model mid-turn) while
+// preserving priorRequests and snapshot state.
+func (p *Policy) SetModel(model string) {
+	if p == nil {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	profile, limit := resolveProfileAndLimit(model)
+	p.mu.Lock()
+	p.cfg.Model = model
+	p.profile = profile
+	p.limit = limit
+	p.mu.Unlock()
+}
+
+// Model returns the policy's current active model.
+func (p *Policy) Model() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cfg.Model
 }
 
 // SetSnapshot replaces the dynamic sections the next checkpoint renders.
@@ -296,14 +331,28 @@ func (p *Policy) Close() {
 }
 
 // Profile returns the resolved profile (for tests and diagnostics).
-func (p *Policy) Profile() modelctx.Profile { return p.profile }
+func (p *Policy) Profile() modelctx.Profile {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.profile
+}
 
 // Limit returns the resolved context budget.
-func (p *Policy) Limit() modelctx.Limit { return p.limit }
+func (p *Policy) Limit() modelctx.Limit {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.limit
+}
 
 // BeforeStep is the actor's checkpoint callback.
 func (p *Policy) BeforeStep(ctx context.Context, act *actor.Actor, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
-	if p == nil || !p.profile.Enabled || act == nil {
+	if p == nil || act == nil {
+		return actor.CheckpointDecision{}, nil
+	}
+	p.mu.Lock()
+	enabled := p.profile.Enabled
+	p.mu.Unlock()
+	if !enabled {
 		return actor.CheckpointDecision{}, nil
 	}
 

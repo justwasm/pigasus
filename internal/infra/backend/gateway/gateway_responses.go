@@ -68,16 +68,36 @@ func (c *GatewayClient) buildResponsesRequest(req backend.StreamRequest, externa
 		temp = &t
 	}
 
+	supportsToolCalls := c.cfg.SupportsToolCalls
+	if req.SupportsToolCalls != nil {
+		supportsToolCalls = req.SupportsToolCalls
+	}
+	var tools []responsesToolDef
+	if supportsToolCalls == nil || *supportsToolCalls {
+		tools = formatResponsesTools(req)
+	}
+
 	body := responsesRequestBody{
 		Model:           externalModel,
 		Instructions:    strings.TrimSpace(req.SystemPrompt),
 		Stream:          true,
 		MaxOutputTokens: maxTokens,
 		Temperature:     temp,
-		Tools:           formatResponsesTools(req),
+		Tools:           tools,
 	}
 
-	if effort := strings.TrimSpace(c.cfg.ReasoningEffort); effort != "" {
+	effort := strings.TrimSpace(c.cfg.ReasoningEffort)
+	if strings.TrimSpace(req.ReasoningEffort) != "" {
+		effort = strings.TrimSpace(req.ReasoningEffort)
+	}
+	supportsThinking := c.cfg.SupportsThinking
+	if req.SupportsThinking != nil {
+		supportsThinking = req.SupportsThinking
+	}
+	if supportsThinking != nil && !*supportsThinking {
+		effort = ""
+	}
+	if effort != "" {
 		body.Reasoning = &responsesReasoning{Effort: effort}
 	}
 
@@ -269,10 +289,7 @@ type responsesSSEEvent struct {
 	OutputIndex int                   `json:"output_index,omitempty"`
 	Item        *responsesSSEItem     `json:"item,omitempty"`
 	Response    *responsesSSEResponse `json:"response,omitempty"`
-	Error       *struct {
-		Message string `json:"message"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	Error       *sseErrorPayload      `json:"error,omitempty"`
 }
 
 type responsesSSEItem struct {
@@ -284,11 +301,8 @@ type responsesSSEItem struct {
 }
 
 type responsesSSEResponse struct {
-	ID    string `json:"id,omitempty"`
-	Error *struct {
-		Message string `json:"message"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	ID    string           `json:"id,omitempty"`
+	Error *sseErrorPayload `json:"error,omitempty"`
 	Usage *struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
@@ -340,24 +354,26 @@ func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string,
 		return false, nil
 	}
 
-	var errMsg string
+	var errPayload *sseErrorPayload
 	if ev.Error != nil {
-		errMsg = ev.Error.Message
-		if errMsg == "" {
-			errMsg = ev.Error.Code
-		}
+		errPayload = ev.Error
 	} else if ev.Response != nil && ev.Response.Error != nil {
-		errMsg = ev.Response.Error.Message
-		if errMsg == "" {
-			errMsg = ev.Response.Error.Code
-		}
-	} else if ev.Type == "response.failed" {
-		errMsg = "responses api call failed"
+		errPayload = ev.Response.Error
 	}
-	if errMsg != "" {
-		err := fmt.Errorf("gateway: %s", errMsg)
-		out <- backend.StreamChunk{Error: err, Done: true}
-		return true, err
+	if errPayload != nil || ev.Type == "response.failed" || ev.Type == "error" {
+		var errType, errCode, errMsg string
+		if errPayload != nil {
+			errType = errPayload.Type
+			errCode = formatSSEErrorCode(errPayload.Code)
+			errMsg = errPayload.Message
+		}
+		if errMsg == "" && errCode != "" {
+			errMsg = errCode
+		}
+		if errMsg == "" {
+			errMsg = "responses api call failed"
+		}
+		return true, sseErrorToHTTPError(errType, errCode, errMsg, []byte(payload), c.baseURL)
 	}
 
 	switch ev.Type {

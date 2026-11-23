@@ -22,6 +22,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 	"github.com/justwasm/pigasus/internal/ui/transcript"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
@@ -195,19 +196,88 @@ func (m *RootModel) saveSessionStreamDebounced() {
 func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case terminalStartedMsg:
-		m.remote.terminalID = msg.Info.TerminalID
+		if msg.RunOnly && msg.Info.TerminalID != "" {
+			if m.remote.runTerminals == nil {
+				m.remote.runTerminals = make(map[string]bool)
+			}
+			m.remote.runTerminals[msg.Info.TerminalID] = true
+		} else if msg.Info.TerminalID != "" {
+			m.remote.terminalID = msg.Info.TerminalID
+		}
 		m.conversation.response = append(m.conversation.response,
 			"  ⎿  Terminal "+msg.Info.TerminalID+" created in "+msg.Info.Cwd)
 		return m, nil, true
+	case terminalMetaMsg:
+		if sess := m.remote.terminals[msg.TerminalID]; sess != nil {
+			if msg.Title != "" {
+				sess.title = msg.Title
+				if sess.panel != nil {
+					sess.panel.SetTitle(msg.Title)
+				}
+			}
+			if msg.Cwd != "" {
+				sess.cwd = msg.Cwd
+				if sess.panel != nil {
+					sess.panel.SetCwd(msg.Cwd)
+				}
+			}
+		}
+		return m, nil, true
 	case terminalChunkMsg:
-		if m.overlays.panel.term != nil {
-			m.overlays.panel.term.WriteOutput([]byte(msg.Text))
+		if msg.RunOnly || (msg.TerminalID != "" && m.remote.runTerminals[msg.TerminalID]) {
+			m.conversation.response = append(m.conversation.response, terminalOutputRows(msg.Text)...)
+			return m, nil, true
+		}
+		if msg.TerminalID != "" {
+			if sess := m.remote.terminals[msg.TerminalID]; sess != nil && sess.panel != nil {
+				sess.panel.WriteOutput([]byte(msg.Text))
+			} else if msg.TerminalID == m.remote.terminalID && m.overlays.panel.term != nil {
+				m.overlays.panel.term.WriteOutput([]byte(msg.Text))
+			}
+			return m, nil, true
+		}
+		if m.overlays.panel.kind == panelregistry.Terminal || m.remote.terminalID != "" {
+			if tp := m.terminalPanel(); tp != nil {
+				tp.WriteOutput([]byte(msg.Text))
+			}
+			return m, nil, true
 		}
 		m.conversation.response = append(m.conversation.response, terminalOutputRows(msg.Text)...)
 		return m, nil, true
 	case terminalExitMsg:
-		if m.overlays.panel.term != nil {
-			m.overlays.panel.term.SetExitStatus(msg.Code, msg.Err)
+		if msg.RunOnly || (msg.TerminalID != "" && m.remote.runTerminals[msg.TerminalID]) {
+			if msg.TerminalID != "" {
+				delete(m.remote.runTerminals, msg.TerminalID)
+			}
+			if msg.Err != nil {
+				m.conversation.response = append(m.conversation.response, "  ⎿  terminal: "+msg.Err.Error())
+			} else if msg.Code != 0 {
+				m.conversation.response = append(m.conversation.response, "  ⎿  Process exited with code "+itoaTerminal(msg.Code)+".")
+			} else {
+				m.conversation.response = append(m.conversation.response, "  ⎿  Process exited with code 0.")
+			}
+			return m, nil, true
+		}
+		if msg.TerminalID != "" {
+			if sess := m.remote.terminals[msg.TerminalID]; sess != nil {
+				sess.streaming = false
+				sess.cancel = nil
+				sess.exited = true
+				sess.exitCode = msg.Code
+				sess.exitErr = msg.Err
+				if sess.panel != nil {
+					sess.panel.SetExitStatus(msg.Code, msg.Err)
+				}
+			} else if msg.TerminalID == m.remote.terminalID && m.overlays.panel.term != nil {
+				m.overlays.panel.term.SetExitStatus(msg.Code, msg.Err)
+			}
+			return m, nil, true
+		}
+		if m.overlays.panel.kind == panelregistry.Terminal || m.remote.terminalID != "" {
+			if tp := m.terminalPanel(); tp != nil {
+				tp.SetExitStatus(msg.Code, msg.Err)
+			}
+			return m, nil, true
 		}
 		if msg.Err != nil {
 			m.conversation.response = append(m.conversation.response, "  ⎿  terminal: "+msg.Err.Error())
@@ -215,6 +285,12 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			m.conversation.response = append(m.conversation.response, "  ⎿  Process exited with code "+itoaTerminal(msg.Code)+".")
 		} else {
 			m.conversation.response = append(m.conversation.response, "  ⎿  Process exited with code 0.")
+		}
+		return m, nil, true
+	case terminalStreamEndedMsg:
+		if sess := m.remote.terminals[msg.TerminalID]; sess != nil {
+			sess.streaming = false
+			sess.cancel = nil
 		}
 		return m, nil, true
 	case remoteInteractionRaisedMsg:
@@ -298,6 +374,29 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case steerAppliedMsg:
 		m.updateSteerAppliedMsg(msg)
+		return m, nil, true
+	case failoverNoticeMsg:
+		banner := strings.TrimSpace(msg.text)
+		if banner == "" {
+			if msg.model != "" {
+				banner = fmt.Sprintf("↻ Failover: %s → %s (model: %s)", msg.fromTarget, msg.toTarget, msg.model)
+			} else {
+				banner = fmt.Sprintf("↻ Failover: %s → %s", msg.fromTarget, msg.toTarget)
+			}
+		}
+		if m.conversation.liveStart >= 0 && m.conversation.liveStart <= len(m.conversation.response) {
+			idx := m.conversation.liveStart
+			m.conversation.response = append(m.conversation.response[:idx], append([]string{banner}, m.conversation.response[idx:]...)...)
+			m.conversation.liveStart++
+			if m.conversation.replyStart >= idx {
+				m.conversation.replyStart++
+			}
+		} else {
+			m.conversation.response = append(m.conversation.response, banner)
+		}
+		m.viewport.rowsCacheDirty = true
+		m.viewport.rowsGen++
+		m.invalidateViewCache()
 		return m, nil, true
 	case modelRetryStatusMsg:
 		if msg.attempt == 0 {

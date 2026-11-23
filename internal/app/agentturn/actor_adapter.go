@@ -14,20 +14,43 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/modelctx"
+	"github.com/justwasm/pigasus/internal/infra/backend/failover"
 	"github.com/justwasm/pigasus/internal/infra/memtrim"
 )
 
+const autoContMaxNetworkDepth = 8
+
 // backendProviderAdapter adapts a backend.Client into an actor.Provider.
 type backendProviderAdapter struct {
-	client backend.Client
-	model  string
+	client       backend.Client
+	initialModel string
+
+	mu          sync.Mutex
+	activeModel string
+	switched    bool
 }
 
 func newBackendProviderAdapter(client backend.Client, model string) *backendProviderAdapter {
 	return &backendProviderAdapter{
-		client: client,
-		model:  model,
+		client:       client,
+		initialModel: model,
+		activeModel:  model,
 	}
+}
+
+// SetActiveModel updates the active model used for subsequent Generate calls
+// (e.g. after failover switches to a backup target).
+func (p *backendProviderAdapter) SetActiveModel(model string) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	p.mu.Lock()
+	p.activeModel = model
+	p.switched = model != p.initialModel
+	p.mu.Unlock()
 }
 
 // NewBackendProviderAdapter adapts a backend.Client into an actor.Provider.
@@ -35,14 +58,40 @@ func NewBackendProviderAdapter(client backend.Client, model string) actor.Provid
 	return newBackendProviderAdapter(client, model)
 }
 
+func resolveModelMetadata(model string) (maxTokens int, reasoningEffort string, supportsThinking, supportsToolCalls *bool) {
+	if reg := models.CachedRegistry(); reg != nil {
+		if m, ok := reg.GetByName(model); ok && m != nil {
+			return m.DefaultMaxTokens, strings.TrimSpace(m.ReasoningEffort), m.SupportsThinking, m.SupportsToolCalls
+		}
+		want := strings.ToLower(strings.TrimSpace(model))
+		for _, m := range reg.List() {
+			if strings.ToLower(strings.TrimSpace(m.ExternalModelName)) == want ||
+				strings.ToLower(strings.TrimSpace(m.DisplayName)) == want {
+				return m.DefaultMaxTokens, strings.TrimSpace(m.ReasoningEffort), m.SupportsThinking, m.SupportsToolCalls
+			}
+		}
+	}
+	if limit := modelctx.For(model); limit.ReserveTokens > 0 {
+		maxTokens = limit.ReserveTokens
+	}
+	return maxTokens, "", nil, nil
+}
+
 func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
 	if p.client == nil {
 		return nil, ErrNoTransport
 	}
 
+	p.mu.Lock()
+	activeModel := p.activeModel
+	switched := p.switched
+	p.mu.Unlock()
+
 	model := req.Model
-	if model == "" {
-		model = p.model
+	if switched && activeModel != "" {
+		model = activeModel
+	} else if model == "" {
+		model = activeModel
 	}
 
 	// Convert actor messages to backend messages
@@ -89,6 +138,21 @@ func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.Generat
 		Messages:     backendMsgs,
 		Tools:        backendTools,
 		MaxTokens:    req.MaxTokens,
+	}
+	if switched {
+		maxTok, effort, supThink, supTools := resolveModelMetadata(model)
+		if maxTok > 0 {
+			streamReq.MaxTokens = maxTok
+		}
+		if effort != "" {
+			streamReq.ReasoningEffort = effort
+		}
+		if supThink != nil {
+			streamReq.SupportsThinking = supThink
+		}
+		if supTools != nil {
+			streamReq.SupportsToolCalls = supTools
+		}
 	}
 	if req.Temperature != nil {
 		streamReq.Temperature = float64(*req.Temperature)
@@ -754,13 +818,41 @@ func RunActorTurnOnActorWithPermHandler(
 	}
 
 	sink := NewFrameSink(emit, permHandler)
-	_ = ExecuteActorTurnRequest(ctx, act, actor.TurnRequest{
+	turnCtx := failover.ContextWithNotifier(ctx, func(ev failover.Event) {
+		nextModel := strings.TrimSpace(ev.LogicalModel)
+		if nextModel == "" {
+			nextModel = strings.TrimSpace(ev.Model)
+		}
+		if nextModel != "" {
+			provider.SetActiveModel(nextModel)
+			if policy != nil {
+				policy.SetModel(nextModel)
+			}
+		}
+		if emit != nil {
+			emit(agentlink.Frame{
+				Kind: agentlink.KindNotice,
+				Notice: &agentlink.Notice{
+					Kind:       agentlink.NoticeFailover,
+					FromTarget: ev.FromTarget,
+					ToTarget:   ev.ToTarget,
+					Model:      ev.Model,
+					Text:       formatFailoverNotice(ev),
+				},
+			})
+		}
+	})
+	_ = ExecuteActorTurnRequest(turnCtx, act, actor.TurnRequest{
 		Prompt: lastPrompt,
 		TurnConfig: actor.TurnConfig{
 			Model:        model,
 			SystemPrompt: env.SystemPrompt,
 			Provider:     provider,
 			Tools:        actorTools,
+			ShouldRecover: func(err error) bool {
+				return IsTransientNetworkErr(err) || failover.IsMidStreamRecoverable(err)
+			},
+			MaxRecoveries: autoContMaxNetworkDepth,
 			Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
 				return policy.BeforeStep(stepCtx, act, probe)
 			},
@@ -769,6 +861,13 @@ func RunActorTurnOnActorWithPermHandler(
 
 	resultFrame := sink.ResultFrame(act, ctx.Err())
 	emitResult(ch, resultFrame)
+}
+
+func formatFailoverNotice(ev failover.Event) string {
+	if ev.Model != "" {
+		return "↻ Failover: " + ev.FromTarget + " → " + ev.ToTarget + " (model: " + ev.Model + ")"
+	}
+	return "↻ Failover: " + ev.FromTarget + " → " + ev.ToTarget
 }
 
 // emitCheckpointEvent maps a checkpoint progress event to a Compact frame.

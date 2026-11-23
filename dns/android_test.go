@@ -204,16 +204,30 @@ func TestRacingConn_FallsBackWhenFirstUDPNameserverSilent(t *testing.T) {
 					continue
 				}
 			}
-			t.Logf("liveListener received %d bytes from %v", n, from)
 			if n < 12 {
 				continue
 			}
+			// Find end of Question section: Header is 12 bytes.
+			// QNAME ends with null byte (0x00).
+			qEnd := 12
+			for qEnd < n && buf[qEnd] != 0 {
+				qEnd += int(buf[qEnd]) + 1
+			}
+			qEnd += 1 + 4 // null byte + QTYPE (2) + QCLASS (2)
+			if qEnd > n {
+				continue
+			}
+
 			// Construct standard RFC 1035 A record response
-			resp := append([]byte(nil), buf[:n]...)
+			resp := append([]byte(nil), buf[:qEnd]...)
 			resp[2] = 0x81 // Response, Recursion Desired
 			resp[3] = 0x80 // Recursion Available
 			resp[6] = 0x00 // Answer count = 1
 			resp[7] = 0x01
+			resp[8] = 0x00 // NSCOUNT = 0
+			resp[9] = 0x00
+			resp[10] = 0x00 // ARCOUNT = 0
+			resp[11] = 0x00
 			// Answer: Name pointer (0xc00c), Type A (1), Class IN (1), TTL (60), Len 4, IP 93.184.216.34
 			answer := []byte{
 				0xc0, 0x0c,
@@ -244,4 +258,3 @@ func TestRacingConn_FallsBackWhenFirstUDPNameserverSilent(t *testing.T) {
 		t.Fatalf("LookupIP returned %v, want [93.184.216.34]", ips)
 	}
 }
-

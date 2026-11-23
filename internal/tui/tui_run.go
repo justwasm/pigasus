@@ -631,6 +631,7 @@ func runTUIProgram(m *RootModel, fs *flag.FlagSet, altScreen bool, canonicalCwd 
 	// nothing of that size to give back.
 	cancelMemTrim := memtrim.After(memtrim.Delay)
 	defer cancelMemTrim()
+	defer m.CloseAllTerminals()
 	_, err := prog.Run()
 	printTUIExitBanner(m, canonicalCwd)
 	return err

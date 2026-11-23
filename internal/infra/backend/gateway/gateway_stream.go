@@ -20,6 +20,7 @@ import (
 
 // gatewaySSEChunk is the subset of the gateway's chunk shape that we consume.
 type gatewaySSEChunk struct {
+	Error   *sseErrorPayload `json:"error,omitempty"`
 	Choices []struct {
 		Delta        gatewayDelta `json:"delta"`
 		FinishReason string       `json:"finish_reason"`
@@ -112,21 +113,54 @@ func (a *gatewayToolAccumulator) emit(ctx context.Context, out chan<- backend.St
 }
 
 // openGatewayWithRetry performs one synchronous HTTP open and retries on
-// connection drops and retryable 429/5xx errors, honoring Retry-After.
-func (c *GatewayClient) openGatewayWithRetry(ctx context.Context, raw []byte) (*http.Response, error) {
-	return streampipe.ExecuteWithRetry(ctx, c.baseURL, func(ctx context.Context) (*http.Response, error) {
-		return c.openGatewayOnce(ctx, raw)
-	})
+// connection drops and retryable 429/5xx errors, honoring Retry-After, and
+// rotating across healthy keys in KeyPool on 401/403/429/quota errors.
+func (c *GatewayClient) openGatewayWithRetry(ctx context.Context, raw []byte) (*http.Response, string, error) {
+	if c.keyPool == nil {
+		resp, err := streampipe.ExecuteWithRetry(ctx, c.baseURL, func(ctx context.Context) (*http.Response, error) {
+			return c.openGatewayOnce(ctx, raw)
+		})
+		return resp, c.apiKey, err
+	}
+
+	maxRotations := c.keyPool.Len()
+	if maxRotations < 1 {
+		maxRotations = 1
+	}
+	var lastErr error
+	for rot := 0; rot < maxRotations; rot++ {
+		_, key := c.keyPool.CurrentKey()
+		if key == "" {
+			key = c.apiKey
+		}
+		resp, err := streampipe.ExecuteWithRetry(ctx, c.baseURL, func(ctx context.Context) (*http.Response, error) {
+			return c.openGatewayOnceWithKey(ctx, raw, key)
+		})
+		if err == nil {
+			c.keyPool.MarkSuccess(key)
+			return resp, key, nil
+		}
+		lastErr = err
+		if c.keyPool.MarkFailure(key, err) {
+			continue
+		}
+		return nil, key, err
+	}
+	return nil, "", lastErr
 }
 
-// openGatewayOnce performs one HTTP attempt.
+// openGatewayOnce performs one HTTP attempt using the active API key.
 func (c *GatewayClient) openGatewayOnce(ctx context.Context, raw []byte) (*http.Response, error) {
+	return c.openGatewayOnceWithKey(ctx, raw, c.activeAPIKey())
+}
+
+func (c *GatewayClient) openGatewayOnceWithKey(ctx context.Context, raw []byte, key string) (*http.Response, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("content-type", "application/json")
-	c.applyProtocolHeaders(httpReq)
+	c.applyProtocolHeadersWithKey(httpReq, key)
 	ua := GatewayUserAgent
 	if c.cfg.protocol() == GatewayProtocolResponses {
 		ua = "opencode/2.3.2"
@@ -149,12 +183,28 @@ func (c *GatewayClient) openGatewayOnce(ctx context.Context, raw []byte) (*http.
 }
 
 // runGatewayStreamBodyWithRetry owns the async body read and retry loop.
-func (c *GatewayClient) runGatewayStreamBodyWithRetry(ctx context.Context, resp *http.Response, raw []byte, externalModel string, out chan<- backend.StreamChunk) {
+func (c *GatewayClient) runGatewayStreamBodyWithRetry(ctx context.Context, resp *http.Response, raw []byte, externalModel, usedKey string, out chan<- backend.StreamChunk) {
+	activeKey := usedKey
 	p := streampipe.Pipeline[[]byte]{
 		EndpointURL: c.baseURL,
-		Open:        c.openGatewayOnce,
+		Open: func(ctx context.Context, body []byte) (*http.Response, error) {
+			if c.keyPool != nil {
+				if _, k := c.keyPool.CurrentKey(); k != "" {
+					activeKey = k
+				}
+			}
+			return c.openGatewayOnceWithKey(ctx, body, activeKey)
+		},
 		ReadBody: func(ctx context.Context, r *http.Response, ch chan<- backend.StreamChunk) error {
-			return c.readGatewayBodyOnce(ctx, r, externalModel, ch)
+			err := c.readGatewayBodyOnce(ctx, r, externalModel, ch)
+			if c.keyPool != nil {
+				if err == nil {
+					c.keyPool.MarkSuccess(activeKey)
+				} else {
+					c.keyPool.MarkFailure(activeKey, err)
+				}
+			}
+			return err
 		},
 	}
 	p.Run(ctx, resp, raw, out)
@@ -213,13 +263,17 @@ func (c *GatewayClient) handleOpenAISSELine(ctx context.Context, line string, ac
 	}
 	var chunk gatewaySSEChunk
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-		default:
-			out <- backend.StreamChunk{Error: fmt.Errorf("gateway: sse decode: %w", err), Done: true}
-		}
 		return true, fmt.Errorf("gateway: sse decode: %w", err)
+	}
+	if chunk.Error != nil {
+		httpErr := sseErrorToHTTPError(
+			chunk.Error.Type,
+			formatSSEErrorCode(chunk.Error.Code),
+			chunk.Error.Message,
+			[]byte(payload),
+			c.baseURL,
+		)
+		return true, httpErr
 	}
 	if chunk.Usage != nil {
 		*meta = &backend.ChunkMeta{

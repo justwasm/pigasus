@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/internal/infra/agyproxy"
 )
 

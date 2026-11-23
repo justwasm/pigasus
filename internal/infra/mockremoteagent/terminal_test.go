@@ -113,3 +113,52 @@ func TestCloseTerminalKillsThePTY(t *testing.T) {
 		t.Error("CloseTerminal on an unknown id should fail")
 	}
 }
+
+func TestTerminalResizeRoundTrip(t *testing.T) {
+	if openPTYUnsupported() {
+		t.Skip("terminals are not supported on this platform")
+	}
+	dir := t.TempDir()
+	srv, err := NewServer(WithAddr("127.0.0.1:0"))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer srv.Close()
+	srv.service.cascades.CreateSession("c1", "", "m", []string{"file://" + dir}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client := remoteagentclient.New(remoteagentclient.Config{BaseURL: srv.URL()})
+
+	info, err := client.CreateTerminal(ctx, "c1", "req-resize")
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
+	}
+	defer func() { _ = client.CloseTerminal(ctx, info.TerminalID) }()
+
+	if err := client.ResizeTerminal(ctx, info.TerminalID, 42, 132); err != nil {
+		t.Fatalf("ResizeTerminal: %v", err)
+	}
+
+	events, err := client.StreamTerminalOutput(ctx, info.TerminalID, 0)
+	if err != nil {
+		t.Fatalf("StreamTerminalOutput: %v", err)
+	}
+	if _, err := client.SendTerminalInput(ctx, info.TerminalID, []byte("stty size\n"), "", 0); err != nil {
+		t.Fatalf("SendTerminalInput: %v", err)
+	}
+
+	var output strings.Builder
+	deadline := time.After(10 * time.Second)
+	for !strings.Contains(output.String(), "42 132") {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatalf("stream closed before stty size output; got %q", output.String())
+			}
+			output.Write(event.Output)
+		case <-deadline:
+			t.Fatalf("timed out waiting for '42 132'; got %q", output.String())
+		}
+	}
+}

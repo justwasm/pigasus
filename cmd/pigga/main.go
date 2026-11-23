@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	_ "github.com/justwasm/pigasus/dns"
 	_ "github.com/justwasm/pigasus/internal/app/engine/stream"
 	_ "github.com/justwasm/pigasus/internal/app/subcommands/accounts"
 	_ "github.com/justwasm/pigasus/internal/app/subcommands/agent"

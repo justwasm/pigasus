@@ -67,6 +67,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	_ "github.com/justwasm/pigasus/dns"
 )
 
 func main() {

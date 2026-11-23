@@ -905,3 +905,213 @@ func TestNativeLiveSession_VisualAndTerminalFrame(t *testing.T) {
 		t.Fatalf("SendMedia failed: %v", err)
 	}
 }
+
+type mockCancelAwareHandler struct {
+	mockLiveHandler
+	cancels []string
+}
+
+func (h *mockCancelAwareHandler) OnThinkerCancel(invocationID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancels = append(h.cancels, invocationID)
+}
+
+func TestNativeLiveSession_NonDuplicateToolAndHandoffDispatch(t *testing.T) {
+	t.Run("direct tools vs thinker handoffs vs cancel_thinker_agent with ThinkerCancelHandler", func(t *testing.T) {
+		mockBackend := NewMockLiveBackend()
+		mockBackend.SetCustomEvents([]*LiveServerEvent{
+			{
+				ToolCalls: []LiveToolCall{
+					{ID: "tc-search", Name: "search_web", Args: map[string]any{"query": "golang"}},
+					{ID: "tc-fetch", Name: "fetch_url", Args: map[string]any{"url": "https://example.com"}},
+					{ID: "tc-cmd", Name: "run_command", Args: map[string]any{"command": "go test ./..."}},
+					{ID: "tc-read", Name: "read_file", Args: map[string]any{"path": "main.go"}},
+					{ID: "tc-think", Name: "call_thinker_agent", Args: map[string]any{"task": "refactor auth"}},
+					{ID: "tc-delegate", Name: "delegate_to_thinker", Args: map[string]any{"query": "inspect tests"}},
+					{ID: "tc-cancel", Name: "cancel_thinker_agent", Args: map[string]any{}},
+				},
+			},
+		})
+
+		handler := &mockCancelAwareHandler{}
+		sess := NewNativeLiveSession(mockBackend, handler)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := sess.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			handler.mu.Lock()
+			done := len(handler.toolCalls) == 4 && len(handler.handoffs) == 2 && len(handler.cancels) == 1
+			handler.mu.Unlock()
+			if done {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = sess.HangUp()
+
+		handler.mu.Lock()
+		defer handler.mu.Unlock()
+
+		if len(handler.toolCalls) != 4 {
+			t.Fatalf("expected 4 direct tool calls (no handoff tools), got %d: %+v", len(handler.toolCalls), handler.toolCalls)
+		}
+		for _, tc := range handler.toolCalls {
+			if tc.Name == "call_thinker_agent" || tc.Name == "delegate_to_thinker" || tc.Name == "cancel_thinker_agent" {
+				t.Fatalf("unexpected handoff/cancel tool in OnToolCall: %+v", tc)
+			}
+		}
+
+		if len(handler.handoffs) != 2 {
+			t.Fatalf("expected 2 thinker handoffs, got %d: %v", len(handler.handoffs), handler.handoffs)
+		}
+		if handler.handoffs[0] != "refactor auth" || handler.handoffs[1] != "inspect tests" {
+			t.Fatalf("unexpected handoff tasks: %v", handler.handoffs)
+		}
+
+		if len(handler.cancels) != 1 || handler.cancels[0] != "tc-cancel" {
+			t.Fatalf("expected OnThinkerCancel('tc-cancel'), got %v", handler.cancels)
+		}
+	})
+
+	t.Run("cancel_thinker_agent fallback without ThinkerCancelHandler", func(t *testing.T) {
+		mockBackend := NewMockLiveBackend()
+		mockBackend.SetCustomEvents([]*LiveServerEvent{
+			{
+				ToolCalls: []LiveToolCall{
+					{ID: "tc-cancel-fb", Name: "cancel_thinker_agent", Args: map[string]any{}},
+				},
+			},
+		})
+
+		handler := &mockLiveHandler{}
+		sess := NewNativeLiveSession(mockBackend, handler)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := sess.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			handler.mu.Lock()
+			done := len(handler.toolCalls) == 1 && len(handler.handoffs) == 1
+			handler.mu.Unlock()
+			if done {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = sess.HangUp()
+
+		handler.mu.Lock()
+		defer handler.mu.Unlock()
+		if len(handler.toolCalls) != 1 || handler.toolCalls[0].Name != "cancel_thinker_agent" {
+			t.Fatalf("expected fallback OnToolCall for cancel_thinker_agent, got %+v", handler.toolCalls)
+		}
+		if len(handler.handoffs) != 1 || handler.handoffs[0] != "cancel active task" {
+			t.Fatalf("expected fallback OnThinkerHandoff('cancel active task'), got %v", handler.handoffs)
+		}
+	})
+
+	t.Run("set_progress_updates toggles SendThinkerNote and hang_up closes session", func(t *testing.T) {
+		mockBackend := NewMockLiveBackend()
+		mockBackend.SetCustomEvents([]*LiveServerEvent{
+			{
+				ToolCalls: []LiveToolCall{
+					{ID: "tc-prog-off", Name: "set_progress_updates", Args: map[string]any{"enabled": false}},
+				},
+			},
+		})
+
+		handler := &mockLiveHandler{}
+		sess := NewNativeLiveSession(mockBackend, handler)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := sess.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+
+		deadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if !sess.ProgressUpdatesEnabled() {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if sess.ProgressUpdatesEnabled() {
+			t.Fatal("expected ProgressUpdatesEnabled() == false after set_progress_updates(false)")
+		}
+
+		// SendThinkerNote should be suppressed while disabled
+		if err := sess.SendThinkerNote("suppressed note"); err != nil {
+			t.Fatalf("SendThinkerNote failed: %v", err)
+		}
+		last := mockBackend.LastSession()
+		if len(last.InNotes()) != 0 {
+			t.Fatalf("expected 0 notes sent while progress updates disabled, got %v", last.InNotes())
+		}
+
+		// Re-enable and verify note passes
+		sess.SetProgressUpdatesEnabled(true)
+		if err := sess.SendThinkerNote("active note"); err != nil {
+			t.Fatalf("SendThinkerNote failed: %v", err)
+		}
+		if len(last.InNotes()) != 1 || last.InNotes()[0] != "active note" {
+			t.Fatalf("expected 'active note' after re-enabling, got %v", last.InNotes())
+		}
+
+		// Verify hang_up tool call terminates session
+		mockBackend2 := NewMockLiveBackend()
+		mockBackend2.SetCustomEvents([]*LiveServerEvent{
+			{
+				ToolCalls: []LiveToolCall{
+					{ID: "tc-hangup", Name: "hang_up", Args: map[string]any{}},
+				},
+			},
+		})
+		handler2 := &mockLiveHandler{}
+		sess2 := NewNativeLiveSession(mockBackend2, handler2)
+		if err := sess2.Start(ctx, LiveSessionConfig{Voice: "Aoede"}); err != nil {
+			t.Fatalf("Start failed: %v", err)
+		}
+		deadline = time.Now().Add(1 * time.Second)
+		for time.Now().Before(deadline) {
+			if !sess2.IsActive() {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if sess2.IsActive() {
+			t.Fatal("expected hang_up tool call to terminate session")
+		}
+		handler2.mu.Lock()
+		defer handler2.mu.Unlock()
+		if len(handler2.toolCalls) != 1 || handler2.toolCalls[0].Name != "hang_up" {
+			t.Fatalf("expected hang_up OnToolCall, got %+v", handler2.toolCalls)
+		}
+		if len(handler2.handoffs) != 0 {
+			t.Fatalf("expected 0 handoffs for hang_up, got %v", handler2.handoffs)
+		}
+	})
+}
+
+func TestGeminiLiveFunctionDeclarations(t *testing.T) {
+	decls := geminiLiveFunctionDeclarations()
+	names := make(map[string]bool, len(decls))
+	for _, d := range decls {
+		names[d.Name] = true
+	}
+	for _, want := range []string{"call_thinker_agent", "cancel_thinker_agent", "set_progress_updates", "hang_up"} {
+		if !names[want] {
+			t.Fatalf("expected Gemini Live declaration %q, got %v", want, names)
+		}
+	}
+}

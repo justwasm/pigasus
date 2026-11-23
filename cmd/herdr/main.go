@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/herdr"
 	"golang.org/x/term"
 )

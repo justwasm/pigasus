@@ -1713,3 +1713,45 @@ func TestLiveChat_AltBackendProxyIntegration(t *testing.T) {
 		t.Errorf("be.Endpoint() = %q, want http://127.0.0.1:8080", be.Endpoint())
 	}
 }
+
+func TestLiveChatHandlerBridge_OnThinkerCancel(t *testing.T) {
+	mockBackend := voice.NewMockLiveBackend()
+	sess := voice.NewNativeLiveSession(mockBackend, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voice.LiveSessionConfig{Voice: "Aoede"}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	defer taskCancel()
+
+	bridge := &liveChatHandlerBridge{
+		sess:          sess,
+		thinkerCancel: taskCancel,
+		thinkerInvID:  "inv-active-1",
+	}
+
+	bridge.OnThinkerCancel("inv-cancel-lc")
+
+	if taskCtx.Err() != context.Canceled {
+		t.Fatalf("expected active thinker context to be cancelled, got %v", taskCtx.Err())
+	}
+
+	last := mockBackend.LastSession()
+	if last == nil {
+		t.Fatal("expected mock backend session")
+	}
+	if last.TaskStoppedCount() != 1 {
+		t.Fatalf("expected SendTaskStopped() count == 1, got %d", last.TaskStoppedCount())
+	}
+	resp, ok := last.ToolResponses()["inv-cancel-lc"]
+	if !ok {
+		t.Fatalf("expected tool response for inv-cancel-lc, got %+v", last.ToolResponses())
+	}
+	respMap, ok := resp.(map[string]any)
+	if !ok || respMap["cancelled"] != true {
+		t.Fatalf("expected cancelled=true tool response, got %+v", resp)
+	}
+}

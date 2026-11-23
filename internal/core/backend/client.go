@@ -231,6 +231,11 @@ type StreamRequest struct {
 	// RequestType is the request type passed to CloudCode / upstream backend
 	// (e.g. "agent", "checkpoint").
 	RequestType string `json:"request_type,omitempty"`
+	// Optional per-request model capability overrides (used when failover
+	// switches to a backup model mid-turn).
+	ReasoningEffort   string `json:"reasoning_effort,omitempty"`
+	SupportsThinking  *bool  `json:"supports_thinking,omitempty"`
+	SupportsToolCalls *bool  `json:"supports_tool_calls,omitempty"`
 }
 
 // Client is the minimal interface shims need. NewMock is the default in the

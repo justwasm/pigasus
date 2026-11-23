@@ -429,6 +429,11 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 		l.sessionEpoch = t.SessionEpoch
 		l.fedMessages = len(t.History)
 	}
+	if l.checkpoint != nil {
+		if m := l.checkpoint.Model(); m != "" {
+			l.checkpointModel = m
+		}
+	}
 	l.mu.Unlock()
 }
 

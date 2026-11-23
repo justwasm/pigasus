@@ -144,6 +144,10 @@ type Model struct {
 	// Fallbacks is the list of secondary provider or model handles to failover
 	// to when this model encounters quota limits (429), 5xx server outage, or fatal network failure.
 	Fallbacks []string `json:"fallbacks,omitempty"`
+	// Accounts holds resolved enabled accounts/API keys for multi-account rotation.
+	Accounts []ProviderAccount `json:"accounts,omitempty"`
+	// ActiveAccount names the preferred active account ID.
+	ActiveAccount string `json:"active_account,omitempty"`
 }
 
 // Validate checks the fields needed for a usable Model. It's called by

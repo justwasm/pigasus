@@ -318,8 +318,8 @@ func dialWithFallback(nameservers []string) func(context.Context, string, string
 }
 
 // racingConn coordinates a single DNS query across multiple candidate nameservers.
-// When Write is called, it sends the query to all candidate sockets simultaneously.
-// When Read is called, it returns the first valid response (>= 12 bytes RFC 1035).
+// It implements both net.Conn and net.PacketConn so Go's pure-Go resolver recognizes
+// it as a datagram connection adhering to RFC 1035 UDP usage.
 type racingConn struct {
 	conns   []net.Conn
 	primary net.Conn
@@ -345,6 +345,10 @@ func (r *racingConn) Write(b []byte) (int, error) {
 		return len(b), nil
 	}
 	return 0, lastErr
+}
+
+func (r *racingConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	return r.Write(p)
 }
 
 func (r *racingConn) Read(b []byte) (int, error) {
@@ -393,6 +397,11 @@ func (r *racingConn) Read(b []byte) (int, error) {
 		return 0, lastErr
 	}
 	return 0, io.ErrUnexpectedEOF
+}
+
+func (r *racingConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	n, err := r.Read(p)
+	return n, r.RemoteAddr(), err
 }
 
 func (r *racingConn) Close() error {

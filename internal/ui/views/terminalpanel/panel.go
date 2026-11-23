@@ -1,6 +1,6 @@
 // Package terminalpanel implements an interactive virtual terminal panel
 // powered by vito/midterm. It provides full screen emulation, scrollback
-// navigation, key encoding (arrows, Ctrl+A..Z, Alt, paste), and modal isolation.
+// navigation, copy mode, key encoding (arrows, Ctrl+A..Z, Alt, paste), and modal isolation.
 package terminalpanel
 
 import (
@@ -12,6 +12,14 @@ import (
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/vito/midterm"
 )
+
+// TabInfo describes one terminal session tab in the panel header.
+type TabInfo struct {
+	ID     string
+	Title  string
+	Active bool
+	Exited bool
+}
 
 // Seams connects the terminal panel to the backend PTY or session host.
 type Seams struct {
@@ -30,12 +38,29 @@ type Seams struct {
 	// Title returns the title or ID of the active terminal session.
 	Title func() string
 
+	// Cwd returns the current working directory of the active terminal session.
+	Cwd func() string
+
+	// CopyText writes yanked text to the clipboard.
+	CopyText func(string) error
+
+	// Tabs returns the open terminal sessions for the multi-session tab bar.
+	Tabs func() []TabInfo
+
 	// Height returns the total available viewport height.
 	Height func() int
 
 	// Width returns the total available viewport width.
 	Width func() int
 }
+
+type copyVisualKind int
+
+const (
+	copyVisualNone copyVisualKind = iota
+	copyVisualChar
+	copyVisualLine
+)
 
 // Panel represents an interactive virtual terminal view.
 type Panel struct {
@@ -55,7 +80,16 @@ type Panel struct {
 	exitCode           *int
 	exitErr            error
 	status             string
+	title              string
+	cwd                string
 	maxScrollbackLines int
+
+	copyMode      bool
+	copyRow       int
+	copyCol       int
+	copyVisual    copyVisualKind
+	copyAnchorRow int
+	copyAnchorCol int
 }
 
 // New creates a new interactive terminal panel.
@@ -76,10 +110,12 @@ func New(rows, cols int, seams Seams) *Panel {
 
 	term := midterm.NewTerminal(rows, cols)
 	term.Raw = false
+	term.CursorVisible = true
 	term.OnScrollback(func(line midterm.Line) {
+		styled := renderStyledLine(line)
 		p.scrollbackMu.Lock()
 		defer p.scrollbackMu.Unlock()
-		p.scrollback = append(p.scrollback, line.Display())
+		p.scrollback = append(p.scrollback, styled)
 		if len(p.scrollback) > p.maxScrollbackLines {
 			p.scrollback = p.scrollback[len(p.scrollback)-p.maxScrollbackLines:]
 		}
@@ -87,6 +123,65 @@ func New(rows, cols int, seams Seams) *Panel {
 
 	p.term = term
 	return p
+}
+
+// renderStyledLine converts a midterm.Line into an ANSI SGR-preserving string
+// without leaking attributes past the end of the line.
+func renderStyledLine(line midterm.Line) string {
+	end := len(line.Content)
+	for end > 0 {
+		r := line.Content[end-1]
+		var f midterm.Format
+		if end-1 < len(line.Format) {
+			f = line.Format[end-1]
+		}
+		if r == ' ' && f == (midterm.Format{}) {
+			end--
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	var lastFormat midterm.Format
+	for col := 0; col < end; col++ {
+		var f midterm.Format
+		if col < len(line.Format) {
+			f = line.Format[col]
+		}
+		if f != lastFormat {
+			if formatLeaks(lastFormat, f) {
+				b.WriteString("\x1b[0m")
+			}
+			b.WriteString(f.Render())
+			lastFormat = f
+		}
+		b.WriteRune(line.Content[col])
+	}
+	if lastFormat != (midterm.Format{}) && !lastFormat.IsReset() {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
+}
+
+func formatLeaks(prev, f midterm.Format) bool {
+	if f.IsReset() || f == (midterm.Format{}) {
+		return false
+	}
+	const attrs = midterm.BoldBit | midterm.FaintBit | midterm.ItalicBit | midterm.UnderlineBit | midterm.BlinkBit | midterm.ReverseBit | midterm.ConcealBit
+	if (prev.Properties&attrs)&^f.Properties != 0 {
+		return true
+	}
+	if prev.Fg != nil && f.Fg == nil {
+		return true
+	}
+	if prev.Bg != nil && f.Bg == nil {
+		return true
+	}
+	return false
 }
 
 // WriteOutput receives raw byte chunks from the terminal output stream and
@@ -99,6 +194,90 @@ func (p *Panel) WriteOutput(data []byte) {
 		_, _ = p.term.Write(data)
 		p.resumeOffset += int64(len(data))
 	}
+}
+
+// HandlePaste encodes pasted text with bracketed paste delimiters and writes it to the PTY.
+func (p *Panel) HandlePaste(text string) {
+	if p == nil || text == "" {
+		return
+	}
+	p.mu.Lock()
+	if p.copyMode {
+		p.copyMode = false
+		p.copyVisual = copyVisualNone
+	}
+	if p.isScrollbackMode {
+		p.isScrollbackMode = false
+		p.scrollOffset = 0
+	}
+	writeFn := p.seams.WriteInput
+	p.mu.Unlock()
+
+	if writeFn != nil {
+		_ = writeFn(EncodePaste(text))
+	}
+}
+
+// SetTitle updates the terminal session title.
+func (p *Panel) SetTitle(title string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.title = title
+}
+
+// Title returns the terminal session title.
+func (p *Panel) Title() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.title != "" {
+		return p.title
+	}
+	if p.seams.Title != nil {
+		return p.seams.Title()
+	}
+	return ""
+}
+
+// SetCwd updates the terminal session working directory.
+func (p *Panel) SetCwd(cwd string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cwd = cwd
+}
+
+// Cwd returns the terminal session working directory.
+func (p *Panel) Cwd() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cwd != "" {
+		return p.cwd
+	}
+	if p.seams.Cwd != nil {
+		return p.seams.Cwd()
+	}
+	return ""
+}
+
+// InCopyMode reports whether keyboard copy mode is currently active.
+func (p *Panel) InCopyMode() bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.copyMode
 }
 
 // ResumeOffset returns the acknowledged stream byte offset for resumption.
@@ -176,8 +355,6 @@ func (p *Panel) copyScrollback() []string {
 // Resize updates the terminal dimensions and notifies the backend PTY.
 func (p *Panel) Resize(rows, cols int) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if rows < 4 {
 		rows = 4
 	}
@@ -189,8 +366,11 @@ func (p *Panel) Resize(rows, cols int) {
 	if p.term != nil {
 		p.term.Resize(rows, cols)
 	}
-	if p.seams.Resize != nil {
-		_ = p.seams.Resize(rows, cols)
+	resizeFn := p.seams.Resize
+	p.mu.Unlock()
+
+	if resizeFn != nil {
+		_ = resizeFn(rows, cols)
 	}
 }
 
