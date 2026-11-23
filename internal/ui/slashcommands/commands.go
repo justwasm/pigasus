@@ -219,8 +219,10 @@ var Hidden = []Command{
 	{Name: "/branch", Dispatched: true},
 	{Name: "/login", Dispatched: true},
 	{Name: "/narration", Dispatched: true},
+	{Name: "/persona", Dispatched: true},
 	{Name: "/quote", Dispatched: true},
 	{Name: "/share", Dispatched: true},
+	{Name: "/skin", Dispatched: true},
 	// openagy-only host surfaces. They are remote-agent commands; the
 	// reference has no CLI equivalent, so they stay off the picker.
 	{Name: "/upload", Dispatched: true},

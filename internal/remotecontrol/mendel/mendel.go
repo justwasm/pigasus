@@ -364,6 +364,15 @@ func DesktopExperiments() []Experiment {
 			KeyString: "enable-pdf-viewer",
 			Source:    experimentSourceLanguageServer,
 		},
+		{
+			KeyString: "enable-project-4k",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "project-4k-mode-copy",
+			String:    stringPtr(`{"project4k":{"title":"Knowledge Work","description":"Simplified interface for research, writing, and everyday tasks."},"default":{"title":"Software Engineering","description":"Full interface for coding, developer tools, and managing agents."}}`),
+			Source:    experimentSourceLanguageServer,
+		},
 	}
 }
 

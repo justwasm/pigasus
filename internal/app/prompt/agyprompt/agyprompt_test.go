@@ -229,3 +229,28 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+func TestKnowledgeWorkMode_PromptRendering(t *testing.T) {
+	opts := DefaultOptions(t.TempDir(), t.TempDir(), "kw-conv-1")
+	opts.Persona = "knowledge-work"
+	opts.ProductSkin = 2
+
+	prompt := Build(opts)
+
+	if !strings.Contains(prompt, "Knowledge Work Deliverables & Workflow") {
+		t.Error("prompt should contain Knowledge Work Deliverables & Workflow section")
+	}
+	if !strings.Contains(prompt, "Bookmarking URLs with URL Artifacts") {
+		t.Error("prompt should contain URL Artifacts instructions")
+	}
+	if !strings.Contains(prompt, "You are Antigravity, a powerful agentic AI assistant designed by the Google Deepmind team.") {
+		t.Error("prompt should contain generic system prompt identity")
+	}
+	// Software Engineering specific lines should be omitted in generic system prompt
+	if strings.Contains(prompt, "pair programming with") {
+		t.Error("prompt should not contain pair programming in Knowledge Work mode")
+	}
+	if strings.Contains(prompt, "Code changes formatted as diffs") {
+		t.Error("prompt should not contain Code changes formatted as diffs in Knowledge Work mode")
+	}
+}

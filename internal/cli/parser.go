@@ -353,6 +353,8 @@ func extraFlagsCore() []FlagSpec {
 		{Name: "diff-with-agy", Type: "bool", Def: "false", Hidden: true, Usage: "Print AGY 1.4.2 feature parity (aligned / gap / diverged)"},
 		{Name: "debug", Type: "bool", Def: "false", Hidden: true, Usage: "Enable verbose debug logging"},
 		{Name: "debug-wire", Type: "bool", Def: "false", Hidden: true, Usage: "Show the live wire diagnostics HUD overlay on startup"},
+		{Name: "persona", Type: "string", Def: "", Hidden: true, Usage: "Persona profile for the session (engineering|knowledge-work|data|science|design)"},
+		{Name: "skin", Type: "string", Def: "", Hidden: true, Usage: "Product skin tier (developer|non-technical)"},
 	}
 }
 

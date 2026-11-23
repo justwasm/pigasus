@@ -56,6 +56,8 @@ type actorPrintConfig struct {
 	JSONSchema     json.RawMessage
 	AgentBody      string
 	SystemPrompt   string
+	Persona        string
+	ProductSkin    int
 	Definitions    *subagenttools.Store
 	Registry       *subagenttools.Registry
 	Supervisor     *supervisor.Supervisor
@@ -151,6 +153,8 @@ func buildPrintSystemPrompt(cfg actorPrintConfig) string {
 	skillPaths := agyprompt.AgySkillPaths(cfg.AgentDir, cfg.Workspace)
 	promptOpts := agyprompt.DefaultOptions(cfg.Workspace, cfg.AgentDir, convID)
 	promptOpts.Sandboxed = cfg.Sandbox.Enabled
+	promptOpts.Persona = cfg.Persona
+	promptOpts.ProductSkin = cfg.ProductSkin
 	if len(cfg.Workspaces) > 0 {
 		promptOpts.Workspaces = cfg.Workspaces
 	}

@@ -79,8 +79,10 @@ func TestHiddenExtraFlags(t *testing.T) {
 		"fallback-chain",
 		"max-thinking-budget",
 		"no-alt-screen",
+		"persona",
 		"remote-control-socket",
 		"remote-control-tcp",
+		"skin",
 		"trust-cwd",
 	}
 	var got []string

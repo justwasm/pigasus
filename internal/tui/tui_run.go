@@ -31,6 +31,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
@@ -196,7 +197,13 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // currentVerbosity returns the active verbosity level.
 func (m *RootModel) currentVerbosity() toolsteps.Verbosity {
-	if m == nil || m.display.verbosity == "" {
+	if m == nil {
+		return toolsteps.VerbosityMedium
+	}
+	if m.IsKnowledgeWork() && m.display.verbosity == "" && settings.String("verbosity") == "" {
+		return toolsteps.VerbosityLow
+	}
+	if m.display.verbosity == "" {
 		v := settings.String("verbosity")
 		if v == "" {
 			return toolsteps.VerbosityMedium
@@ -421,6 +428,46 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	// test), the load preserves the existing entries.
 	m.prompt.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	m.session.flags = fs
+	if pFlag := cliflags.StringValue(fs, "persona"); pFlag != "" {
+		if pInfo, ok := personas.Resolve(pFlag); ok {
+			m.session.persona = pInfo.ID
+			m.session.productSkin = pInfo.Skin
+		}
+	} else if p := settings.String("persona"); p != "" {
+		if pInfo, ok := personas.Resolve(p); ok {
+			m.session.persona = pInfo.ID
+			m.session.productSkin = pInfo.Skin
+		}
+	}
+	if sFlag := cliflags.StringValue(fs, "skin"); sFlag != "" {
+		if skinVal, ok := personas.ResolveSkin(sFlag); ok {
+			m.session.productSkin = skinVal
+		}
+	} else if m.session.productSkin == 0 {
+		if s := settings.String("productSkin"); s != "" {
+			if skinVal, ok := personas.ResolveSkin(s); ok {
+				m.session.productSkin = skinVal
+			}
+		} else if v, err := settings.Field("project4kMode"); err == nil {
+			if skinVal, ok := personas.SkinFromWire(v); ok && skinVal > 0 {
+				m.session.productSkin = skinVal
+			}
+		} else if js, err := auth.LoadJetboxState(); err == nil {
+			if js.ProductSkin != "" {
+				if skinVal, ok := personas.ResolveSkin(js.ProductSkin); ok {
+					m.session.productSkin = skinVal
+				}
+			}
+			if js.OnboardingPersonaID != "" && m.session.persona == "" {
+				if pInfo, ok := personas.Resolve(js.OnboardingPersonaID); ok {
+					m.session.persona = pInfo.ID
+					if m.session.productSkin == 0 {
+						m.session.productSkin = pInfo.Skin
+					}
+				}
+			}
+		}
+	}
 	if cliflags.BoolValue(fs, "debug-wire") && m.overlays.wireHUD != nil {
 		m.overlays.wireHUD.SetVisible(true)
 	}

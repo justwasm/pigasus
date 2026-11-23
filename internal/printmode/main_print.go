@@ -27,6 +27,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 )
@@ -218,6 +219,49 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		}
 	})
 
+	var resolvedPersona string
+	var resolvedSkin int
+	if pFlag := flagStringValue(fs, "persona"); pFlag != "" {
+		if pInfo, ok := personas.Resolve(pFlag); ok {
+			resolvedPersona = pInfo.ID
+			resolvedSkin = pInfo.Skin
+		}
+	} else if p := settings.String("persona"); p != "" {
+		if pInfo, ok := personas.Resolve(p); ok {
+			resolvedPersona = pInfo.ID
+			resolvedSkin = pInfo.Skin
+		}
+	}
+	if sFlag := flagStringValue(fs, "skin"); sFlag != "" {
+		if skinVal, ok := personas.ResolveSkin(sFlag); ok {
+			resolvedSkin = skinVal
+		}
+	} else if resolvedSkin == 0 {
+		if s := settings.String("productSkin"); s != "" {
+			if skinVal, ok := personas.ResolveSkin(s); ok {
+				resolvedSkin = skinVal
+			}
+		} else if v, err := settings.Field("project4kMode"); err == nil {
+			if skinVal, ok := personas.SkinFromWire(v); ok && skinVal > 0 {
+				resolvedSkin = skinVal
+			}
+		} else if js, err := auth.LoadJetboxState(); err == nil {
+			if js.ProductSkin != "" {
+				if skinVal, ok := personas.ResolveSkin(js.ProductSkin); ok {
+					resolvedSkin = skinVal
+				}
+			}
+			if js.OnboardingPersonaID != "" && resolvedPersona == "" {
+				if pInfo, ok := personas.Resolve(js.OnboardingPersonaID); ok {
+					resolvedPersona = pInfo.ID
+					if resolvedSkin == 0 {
+						resolvedSkin = pInfo.Skin
+					}
+				}
+			}
+		}
+	}
+
 	denials, runErr := runActorPrintTurn(ctx, actorPrintConfig{
 		Backend:        be,
 		Model:          cfg.modelName,
@@ -233,6 +277,8 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		Effort:         flagStringValue(fs, "effort"),
 		JSONSchema:     printInitJSONSchema(fs),
 		AgentBody:      agents.AgentBody(agents.CustomAgentFromFlags(fs)),
+		Persona:        resolvedPersona,
+		ProductSkin:    int(resolvedSkin),
 		Definitions:    rehydratePrintConversation(cfg.sel, cfg.conversationID),
 		Sandbox:        printModeSandbox(fs, workspace, cfg.conversationID),
 		Supervisor:     cfg.sel.Supervisor,

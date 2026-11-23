@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/features/plugins/sidecars"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
@@ -261,7 +262,7 @@ func (d *Dispatcher) routeLSTelemetryAndMisc(method string, params json.RawMessa
 	case "SubmitLoginAuthCode", "submitLoginAuthCode":
 		return map[string]any{"accepted": true, "retryError": ""}, nil, true
 	case "GetOnboardingPersonas", "getOnboardingPersonas":
-		return map[string]any{"personas": []any{}}, nil, true
+		return personas.GetOnboardingPersonasResponse(), nil, true
 	case "SearchGcpProjects", "searchGcpProjects":
 		return map[string]any{"projects": []any{}, "nextPageToken": ""}, nil, true
 	case "StartBattleMode", "startBattleMode",

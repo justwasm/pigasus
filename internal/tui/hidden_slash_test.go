@@ -20,8 +20,8 @@ import (
 // does not list.
 func TestHiddenSlashCommands(t *testing.T) {
 	for _, name := range []string{
-		"login", "narration", "quote", "share",
-		"upload", "triggers",
+		"login", "narration", "persona", "quote", "share",
+		"skin", "upload", "triggers",
 	} {
 		if _, ok := slashHandlers[name]; !ok {
 			t.Errorf("slashHandlers[%q] is missing; the command would fall through to the model", name)
@@ -53,8 +53,8 @@ func TestHiddenSlashCommandsAreNotTheCatalog(t *testing.T) {
 	}
 	sort.Strings(hidden)
 	want := []string{
-		"login", "narration", "quote", "share",
-		"triggers", "upload",
+		"login", "narration", "persona", "quote", "share",
+		"skin", "triggers", "upload",
 	}
 	if len(hidden) != len(want) {
 		t.Fatalf("hidden slash commands = %v\nwant %v", hidden, want)

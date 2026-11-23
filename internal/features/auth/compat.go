@@ -59,9 +59,11 @@ type JetboxState struct {
 	AgentEnvironment   string `json:"agent_environment"`    // "local" / "managed" / "remote"
 	ThemeMode          string `json:"theme_mode"`           // "dark" / "light" / "system"
 	ConversationWidth  string `json:"conversation_width"`   // "wide" / "narrow"
-	TerminalPlacement  string `json:"terminal_placement"`   // "below_input" / "right" / etc
-	PostOnboardingStep string `json:"post_onboarding_step"` // "agent_configuration" / etc
-	UserNuxEvent       string `json:"user_nux_event"`       // "first_run" / etc
+	TerminalPlacement   string `json:"terminal_placement"`              // "below_input" / "right" / etc
+	PostOnboardingStep  string `json:"post_onboarding_step"`            // "agent_configuration" / etc
+	UserNuxEvent        string `json:"user_nux_event"`                  // "first_run" / etc
+	ProductSkin         string `json:"product_skin,omitempty"`          // "PRODUCT_SKIN_DEVELOPER" / "PRODUCT_SKIN_NON_TECHNICAL"
+	OnboardingPersonaID string `json:"onboarding_persona_id,omitempty"` // "engineering" / "knowledge-work" / etc
 }
 
 // LoadJetboxState reads ~/.gemini/antigravity-cli/jetbox_state.json

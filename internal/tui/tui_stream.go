@@ -54,6 +54,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
@@ -664,10 +665,84 @@ func (m *RootModel) promptOptions() agyprompt.Options {
 	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, m.session.cwd))
 	opts.Sandboxed = cliflags.BoolValue(m.session.flags, "sandbox")
 	opts.PlanningMode = (m.session.mode == permissions.ModePlan)
+	opts.Persona = m.Persona()
+	opts.ProductSkin = m.ProductSkin()
 	if m.session.agentBody == "" {
 		opts.Subagents = append(opts.Subagents, setup.CustomSubagents()...)
 	}
 	return opts
+}
+
+// Persona reports the active onboarding persona profile for this session.
+func (m *RootModel) Persona() string {
+	if m == nil {
+		return personas.PersonaEngineering
+	}
+	if m.session.persona != "" {
+		return m.session.persona
+	}
+	if m.session.productSkin == personas.ProductSkinNonTechnical {
+		return personas.PersonaKnowledgeWork
+	}
+	return personas.PersonaEngineering
+}
+
+// ProductSkin reports the active product skin tier (1: DEVELOPER, 2: NON_TECHNICAL).
+func (m *RootModel) ProductSkin() int {
+	if m == nil {
+		return personas.ProductSkinDeveloper
+	}
+	if m.session.productSkin != 0 {
+		return m.session.productSkin
+	}
+	if pInfo, ok := personas.Resolve(m.Persona()); ok {
+		return pInfo.Skin
+	}
+	return personas.ProductSkinDeveloper
+}
+
+// IsKnowledgeWork reports whether the session operates under Knowledge Work mode.
+func (m *RootModel) IsKnowledgeWork() bool {
+	return m.ProductSkin() == personas.ProductSkinNonTechnical || m.Persona() == personas.PersonaKnowledgeWork
+}
+
+// SetPersona sets the active persona, synchronizing skin tier and persistence.
+func (m *RootModel) SetPersona(name string) (personas.PersonaInfo, bool) {
+	pInfo, ok := personas.Resolve(name)
+	if !ok {
+		return personas.PersonaInfo{}, false
+	}
+	m.session.persona = pInfo.ID
+	m.session.productSkin = pInfo.Skin
+	settings.SetString("persona", pInfo.ID)
+	settings.SetString("productSkin", personas.SkinWire(pInfo.Skin))
+	settings.SetField("project4kMode", pInfo.Skin)
+	if js, err := auth.LoadJetboxState(); err == nil {
+		js.ProductSkin = personas.SkinWire(pInfo.Skin)
+		js.OnboardingPersonaID = pInfo.ID
+		_ = auth.SaveJetboxState(js)
+	}
+	return pInfo, true
+}
+
+// SetProductSkin sets the active product skin tier, synchronizing persona and persistence.
+func (m *RootModel) SetProductSkin(skin int) bool {
+	if skin != personas.ProductSkinDeveloper && skin != personas.ProductSkinNonTechnical {
+		return false
+	}
+	m.session.productSkin = skin
+	if skin == personas.ProductSkinNonTechnical && (m.session.persona == "" || m.session.persona == personas.PersonaEngineering) {
+		m.session.persona = personas.PersonaKnowledgeWork
+	} else if skin == personas.ProductSkinDeveloper && m.session.persona == personas.PersonaKnowledgeWork {
+		m.session.persona = personas.PersonaEngineering
+	}
+	settings.SetString("productSkin", personas.SkinWire(skin))
+	settings.SetField("project4kMode", skin)
+	if js, err := auth.LoadJetboxState(); err == nil {
+		js.ProductSkin = personas.SkinWire(skin)
+		_ = auth.SaveJetboxState(js)
+	}
+	return true
 }
 
 // promptSectionTokens splits the reference prompt into the three

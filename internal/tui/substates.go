@@ -81,6 +81,10 @@ type sessionState struct {
 	modelWarning string
 	// flags is the parsed top-level flag set. Cycle 102: the TUI reuses the
 	flags *flag.FlagSet
+	// persona is the active persona profile ("engineering", "knowledge-work", "data", "science", "design").
+	persona string
+	// productSkin is the active product skin (1: DEVELOPER, 2: NON_TECHNICAL).
+	productSkin int
 	// mode is the agent execution mode for this session ("", "accept-edits",
 	mode   string
 	policy *permissions.Policy

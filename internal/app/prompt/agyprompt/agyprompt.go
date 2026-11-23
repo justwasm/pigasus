@@ -111,6 +111,12 @@ type Options struct {
 	// PlanningMode enables /plan mode prompt artifacts (task.md,
 	// implementation_plan.md, walkthrough.md) appended to <artifacts>.
 	PlanningMode bool
+	// Persona configures the active persona profile ("engineering", "knowledge-work", "data", "science", "design").
+	Persona string
+	// ProductSkin configures the product skin:
+	// 1: PRODUCT_SKIN_DEVELOPER (Software Engineering)
+	// 2: PRODUCT_SKIN_NON_TECHNICAL (Knowledge Work)
+	ProductSkin int
 	// Experiments maps an experiment name to its enabled state. The only one
 	// the recovered templates ask about is "enable-url-artifacts".
 	Experiments map[string]bool
@@ -196,6 +202,20 @@ func Build(o Options) string {
 	return b.String()
 }
 
+// KnowledgeWorkArtifactsText is the guidance appended to <artifacts> when Knowledge Work mode is active.
+const KnowledgeWorkArtifactsText = `# Knowledge Work Deliverables & Workflow
+
+When operating in Knowledge Work mode, prioritize high-value research, structured analysis, and publication-ready written deliverables:
+- **Comprehensive Reports**: Format research findings, project proposals, and meeting takeaways as polished Markdown documents with clear executive summaries, key findings, and actionable recommendations.
+- **Visual Artifacts**: Use mermaid diagrams (flowcharts, sequence diagrams, timelines) and carousels to present workflows, process progressions, and visual comparisons.
+- **Actionable Bookmarks**: Create .url.json artifacts for any shared documents (Google Docs, Sheets, Slides, Drive folders), external research sources, dashboards, or web applications referenced or modified during the task.
+- **Data Synthesis**: For quantitative data or table analysis, write focused Python or analysis scripts in scratch files to compute exact metrics rather than estimating.`
+
+// isKnowledgeWork reports whether the prompt options request Knowledge Work mode.
+func (o Options) isKnowledgeWork() bool {
+	return o.ProductSkin == 2 || o.Persona == "knowledge-work" || o.Persona == "kw" || o.Persona == "non-technical"
+}
+
 // sectionBodies renders every section body once. Build and SectionBody share
 // it so the /context token breakdown measures exactly the bytes Build emits.
 //
@@ -206,6 +226,14 @@ func Build(o Options) string {
 //	  reference binary, with no template next to it;
 //	user_rules, user_information — assembled from the host, not from a file.
 func sectionBodies(o Options) map[string]string {
+	if o.isKnowledgeWork() {
+		if o.Experiments == nil {
+			o.Experiments = make(map[string]bool)
+		}
+		o.Experiments["generic-system-prompt"] = true
+		o.Experiments["enable-url-artifacts"] = true
+	}
+
 	data := o.templateOptions()
 	set := newTemplateSet(data)
 
@@ -221,7 +249,7 @@ func sectionBodies(o Options) map[string]string {
 	return map[string]string{
 		"identity":                framed(renderTemplate(set, "system_prompts/identity.tmpl", data)),
 		"terminal_sandbox":        mustSection("terminal_sandbox.txt"),
-		"artifacts":               framed(renderArtifacts(set, data, o.PlanningMode)),
+		"artifacts":               framed(renderArtifacts(set, data, o.PlanningMode, o.isKnowledgeWork())),
 		"conversation_transcript": framed(renderTemplate(set, "system_prompts/conversation_transcript.tmpl", data)),
 		"guidelines":              framed(renderTemplate(set, "system_prompts/guidelines.tmpl", data)),
 		"work_efficiently":        framed(WorkEfficientlyText),
@@ -236,17 +264,26 @@ func sectionBodies(o Options) map[string]string {
 }
 
 // renderArtifacts renders the <artifacts> section, appending planning mode
-// artifacts (task.md, implementation_plan.md, walkthrough.md) when planningMode is true.
-func renderArtifacts(set *template.Template, data templateData, planningMode bool) string {
+// artifacts (task.md, implementation_plan.md, walkthrough.md) when planningMode is true,
+// and knowledge work deliverables guidance when isKnowledgeWork is true.
+func renderArtifacts(set *template.Template, data templateData, planningMode bool, isKnowledgeWork bool) string {
 	base := renderTemplate(set, "system_prompts/artifacts.tmpl", data)
-	if !planningMode {
-		return base
+	if planningMode {
+		planning := renderTemplate(set, "system_prompts/planning_mode_artifacts.tmpl", data)
+		if strings.HasSuffix(base, "\n") {
+			base = base + "\n" + planning
+		} else {
+			base = base + "\n\n" + planning
+		}
 	}
-	planning := renderTemplate(set, "system_prompts/planning_mode_artifacts.tmpl", data)
-	if strings.HasSuffix(base, "\n") {
-		return base + "\n" + planning
+	if isKnowledgeWork {
+		if strings.HasSuffix(base, "\n") {
+			base = base + "\n" + KnowledgeWorkArtifactsText
+		} else {
+			base = base + "\n\n" + KnowledgeWorkArtifactsText
+		}
 	}
-	return base + "\n\n" + planning
+	return base
 }
 
 // framed is how the reference assembles a section: the opening tag, a
@@ -306,7 +343,7 @@ func BuildAgent(body string, o Options) string {
 		"user_rules":          renderUserRules(o.UserRules),
 		"skills":              renderSkills(set, o, skills),
 		"messaging":           mustSection("agent_messaging.txt"),
-		"artifacts":           framed(renderArtifacts(set, data, o.PlanningMode)),
+		"artifacts":           framed(renderArtifacts(set, data, o.PlanningMode, o.isKnowledgeWork())),
 		"guidelines":          framed(renderTemplate(set, "system_prompts/guidelines.tmpl", data)),
 		"communication_style": framed(renderTemplate(set, "system_prompts/communication_style.tmpl", data)),
 	}

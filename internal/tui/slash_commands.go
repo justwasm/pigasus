@@ -34,6 +34,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/compat/agy"
 	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/features/tools/isolation"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
@@ -230,6 +231,8 @@ func init() {
 		"share":            (*RootModel).slashShare,
 		"swarm":            (*RootModel).slashSwarm,
 		"wire":             (*RootModel).slashWire,
+		"persona":          (*RootModel).slashPersona,
+		"skin":             (*RootModel).slashSkin,
 	}
 }
 
@@ -1556,6 +1559,78 @@ func (m *RootModel) slashWire(args string) (bool, tea.Cmd) {
 	} else {
 		m.slashRespond("/wire", "Wire diagnostics HUD disabled.")
 	}
+	return true, nil
+}
+
+// slashPersona shows or changes the active onboarding persona profile.
+func (m *RootModel) slashPersona(args string) (bool, tea.Cmd) {
+	if m == nil {
+		return true, nil
+	}
+	target := strings.TrimSpace(args)
+	if target == "" {
+		active := m.Persona()
+		skin := m.ProductSkin()
+		skinName := "Developer (Software Engineering)"
+		if skin == personas.ProductSkinNonTechnical {
+			skinName = "Non-Technical (Knowledge Work)"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Active persona: %s [Skin: %s]\n\nAvailable personas:\n", active, skinName)
+		for _, p := range personas.All() {
+			marker := "  "
+			if p.ID == active {
+				marker = "▶ "
+			}
+			fmt.Fprintf(&b, "%s%-15s — %s: %s\n", marker, p.ID, p.DisplayName, p.Description)
+		}
+		b.WriteString("\nUsage: /persona <name> (e.g. /persona knowledge-work, /persona engineering)")
+		m.slashRespond("/persona", b.String())
+		return true, nil
+	}
+
+	pInfo, ok := m.SetPersona(target)
+	if !ok {
+		m.slashRespond("/persona", fmt.Sprintf("Unknown persona: %q. Available: engineering, knowledge-work, data, science, design", target))
+		return true, nil
+	}
+
+	skinDesc := "Full developer tooling enabled"
+	if pInfo.Skin == personas.ProductSkinNonTechnical {
+		skinDesc = "Simplified Knowledge Work interface enabled"
+	}
+	m.slashRespond("/persona", fmt.Sprintf("Switched to persona %s (%s). %s.", pInfo.ID, pInfo.DisplayName, skinDesc))
+	return true, nil
+}
+
+// slashSkin shows or changes the active product skin tier.
+func (m *RootModel) slashSkin(args string) (bool, tea.Cmd) {
+	if m == nil {
+		return true, nil
+	}
+	target := strings.TrimSpace(args)
+	if target == "" {
+		skin := m.ProductSkin()
+		skinDesc := "developer (Software Engineering)"
+		if skin == personas.ProductSkinNonTechnical {
+			skinDesc = "non-technical (Knowledge Work)"
+		}
+		m.slashRespond("/skin", fmt.Sprintf("Active product skin: %s\n\nOptions:\n  • developer     — Full interface for coding, developer tools, and managing agents.\n  • non-technical — Simplified interface for research, writing, and everyday tasks.\n\nUsage: /skin <developer|non-technical>", skinDesc))
+		return true, nil
+	}
+
+	skinVal, ok := personas.ResolveSkin(target)
+	if !ok || (skinVal != personas.ProductSkinDeveloper && skinVal != personas.ProductSkinNonTechnical) {
+		m.slashRespond("/skin", fmt.Sprintf("Unknown skin: %q. Available: developer, non-technical", target))
+		return true, nil
+	}
+
+	m.SetProductSkin(skinVal)
+	skinName := "developer (Software Engineering)"
+	if skinVal == personas.ProductSkinNonTechnical {
+		skinName = "non-technical (Knowledge Work)"
+	}
+	m.slashRespond("/skin", fmt.Sprintf("Switched product skin to %s.", skinName))
 	return true, nil
 }
 

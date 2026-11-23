@@ -155,6 +155,41 @@ func TestStateStoreAcceptsTheEnumName(t *testing.T) {
 	}
 }
 
+func TestStateStore_ProductSkinAndProject4kMode(t *testing.T) {
+	store := newStateStore()
+
+	// 1. Write productSkin as proto string "PRODUCT_SKIN_NON_TECHNICAL"
+	store.write(json.RawMessage(`{"appState":{"productSkin":"PRODUCT_SKIN_NON_TECHNICAL"}}`))
+
+	store.mu.Lock()
+	skinStored := store.appState["productSkin"]
+	userCfg := store.userConfig
+	store.mu.Unlock()
+
+	if skinStored != 2 {
+		t.Fatalf("stored productSkin = %v (%T), want 2", skinStored, skinStored)
+	}
+	us, _ := userCfg["userSettings"].(map[string]any)
+	if mode := us["project4kMode"]; mode != 2 {
+		t.Fatalf("userSettings.project4kMode = %v, want 2", mode)
+	}
+
+	snap := store.snapshot()
+	appState, _ := snap["appState"].(map[string]any)
+	if wire := appState["productSkin"]; wire != "PRODUCT_SKIN_NON_TECHNICAL" {
+		t.Errorf("read back productSkin = %v, want PRODUCT_SKIN_NON_TECHNICAL", wire)
+	}
+
+	// 2. Write project4kMode as 1 in userConfig
+	store.write(json.RawMessage(`{"userConfig":{"userSettings":{"project4kMode":1}}}`))
+	store.mu.Lock()
+	skinStored2 := store.appState["productSkin"]
+	store.mu.Unlock()
+	if skinStored2 != 1 {
+		t.Fatalf("after userSettings update, productSkin = %v, want 1", skinStored2)
+	}
+}
+
 // TestStartCascadeResolvesTheEnumName pins the cascade path: the
 // picker sends the name, the dispatcher turns it back into the
 // catalogue id.

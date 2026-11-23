@@ -36,6 +36,7 @@ import (
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -288,9 +289,32 @@ func (s *stateStore) write(params json.RawMessage) {
 	if len(req.AppState) > 0 {
 		s.appState = mergeState(s.appState, req.AppState)
 		normalizeAppStateEnums(s.appState)
+		if skinRaw, ok := req.AppState["productSkin"]; ok {
+			if skinVal, ok := personas.SkinFromWire(skinRaw); ok {
+				if s.userConfig == nil {
+					s.userConfig = make(map[string]any)
+				}
+				us, _ := s.userConfig["userSettings"].(map[string]any)
+				if us == nil {
+					us = make(map[string]any)
+					s.userConfig["userSettings"] = us
+				}
+				us["project4kMode"] = skinVal
+			}
+		}
 	}
 	if len(req.UserConfig) > 0 {
 		s.userConfig = mergeState(s.userConfig, req.UserConfig)
+		if us, ok := req.UserConfig["userSettings"].(map[string]any); ok {
+			if mode, ok := us["project4kMode"]; ok {
+				if skinVal, ok := personas.SkinFromWire(mode); ok {
+					if s.appState == nil {
+						s.appState = make(map[string]any)
+					}
+					s.appState["productSkin"] = skinVal
+				}
+			}
+		}
 	}
 }
 
@@ -308,15 +332,21 @@ func (s *stateStore) write(params json.RawMessage) {
 // message) and marshals the name back out on the read path, which is
 // what normalizeAppStateEnums and the read path below mirror.
 func normalizeAppStateEnums(appState map[string]any) {
-	raw, ok := appState["lastSelectedAgentModel"]
-	if !ok {
-		return
+	if raw, ok := appState["lastSelectedAgentModel"]; ok {
+		if value, ok := modelValueFromJSON(raw); ok {
+			appState["lastSelectedAgentModel"] = value
+		}
 	}
-	value, ok := modelValueFromJSON(raw)
-	if !ok {
-		return
+	if raw, ok := appState["productSkin"]; ok {
+		if value, ok := personas.SkinFromWire(raw); ok {
+			appState["productSkin"] = value
+		}
+	} else if raw, ok := appState["product_skin"]; ok {
+		if value, ok := personas.SkinFromWire(raw); ok {
+			appState["productSkin"] = value
+			delete(appState, "product_skin")
+		}
 	}
-	appState["lastSelectedAgentModel"] = value
 }
 
 // snapshot returns the app state and the user config as the Web UI
@@ -346,6 +376,11 @@ func (s *stateStore) appStateWire() map[string]any {
 	}
 	if raw, ok := out["agentOnboardingCompleted"]; ok {
 		out["agentOnboardingCompleted"] = agentOnboardingStateWire(raw)
+	}
+	if raw, ok := out["productSkin"]; ok {
+		if value, ok := personas.SkinFromWire(raw); ok {
+			out["productSkin"] = personas.SkinWire(value)
+		}
 	}
 	return out
 }
