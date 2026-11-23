@@ -43,6 +43,7 @@ func TestHasUpstreamCatalog(t *testing.T) {
 // catalogue has been seen, a broken refresh answers with that catalogue plus
 // the custom models instead of a custom-models-only document.
 func TestFetchAvailableModelsServesLastGoodCatalogue(t *testing.T) {
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	var broken atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -110,6 +111,7 @@ func TestFetchAvailableModelsServesLastGoodCatalogue(t *testing.T) {
 // wrong falls back to the last good catalogue, not just a plain connection
 // error.
 func TestFetchAvailableModelsFailureModes(t *testing.T) {
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	cases := []struct {
 		name string
 		fail func(http.ResponseWriter)
@@ -172,6 +174,7 @@ func TestFetchAvailableModelsFailureModes(t *testing.T) {
 // catalogue to remember, the custom models are still advertised (the proxy is
 // useful while Google is unreachable), and the header says why.
 func TestFetchAvailableModelsNeverSucceeded(t *testing.T) {
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	s := newTestServer(t, "http://127.0.0.1:1", miniMax())
 	resp := post(t, s, "/v1internal:fetchAvailableModels", `{}`)
 	defer resp.Body.Close()

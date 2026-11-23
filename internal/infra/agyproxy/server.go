@@ -238,11 +238,20 @@ func (s *Server) balanceActive() bool {
 	return s.balanceEnabled()
 }
 
-// models returns the custom models supplied in Config — the operator's
-// registry models for `pigasus agy` and the reference backend. A caller that
-// supplies none leaves the vendor binary with Google's own catalogue.
+// models returns the custom models supplied in Config plus any verified
+// undocumented upstream models (e.g. Gemini 4 Hydrogen Sonar) offered to the vendor binary.
 func (s *Server) models() []models.Model {
-	return s.cfg.Models
+	base := s.cfg.Models
+	undoc := UndocumentedGoogleModels()
+	if len(undoc) == 0 {
+		return base
+	}
+	out := make([]models.Model, len(base), len(base)+len(undoc))
+	copy(out, base)
+	for _, u := range undoc {
+		out = appendUniqueModel(out, u)
+	}
+	return out
 }
 
 // Start binds the listener and serves in the background. It returns the
@@ -485,9 +494,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, i
 		if info.custom {
 			s.handleCustom(w, r, info.tuned, body, true, info.wrapped)
 		} else {
+			targetModel := info.model
+			if info.upstreamRewrite != "" {
+				targetModel = info.upstreamRewrite
+			}
 			body = sanitizeUpstreamBody(body, info)
 			if s.balanceActive() {
-				s.handleBalancedPassthrough(w, r, body, true, info.model)
+				s.handleBalancedPassthrough(w, r, body, true, targetModel)
 			} else {
 				s.passthrough(w, r, body)
 			}
@@ -496,9 +509,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, i
 		if info.custom {
 			s.handleCustom(w, r, info.tuned, body, false, info.wrapped)
 		} else {
+			targetModel := info.model
+			if info.upstreamRewrite != "" {
+				targetModel = info.upstreamRewrite
+			}
 			body = sanitizeUpstreamBody(body, info)
 			if s.balanceActive() {
-				s.handleBalancedPassthrough(w, r, body, false, info.model)
+				s.handleBalancedPassthrough(w, r, body, false, targetModel)
 			} else {
 				s.passthrough(w, r, body)
 			}

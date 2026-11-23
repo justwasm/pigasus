@@ -59,6 +59,11 @@ const (
 	// SonarModelLabel is the display label, in the reference's own
 	// "Family (Variant)" shape.
 	SonarModelLabel = "Gemini 4 Hydrogen (Sonar)"
+
+	SonarModelXHighID = "gemini-4-hydrogen-sonar-xhigh"
+	SonarModelHighID  = "gemini-4-hydrogen-sonar-high"
+	SonarModelMedID   = "gemini-4-hydrogen-sonar-medium"
+	SonarModelLowID   = "gemini-4-hydrogen-sonar-low"
 )
 
 // undocumentedModels is the table. Every entry is a wire id the transport
@@ -68,6 +73,10 @@ const (
 // answered — because the row's whole purpose is to be selectable: an id that
 // is not answered routes a turn to a model that does not exist.
 var undocumentedModels = []ModelEntry{
+	{ID: SonarModelXHighID, Label: "Gemini 4 Hydrogen (Sonar) (XHigh)"},
+	{ID: SonarModelHighID, Label: "Gemini 4 Hydrogen (Sonar) (High)"},
+	{ID: SonarModelMedID, Label: "Gemini 4 Hydrogen (Sonar) (Medium)"},
+	{ID: SonarModelLowID, Label: "Gemini 4 Hydrogen (Sonar) (Low)"},
 	{ID: SonarModelID, Label: SonarModelLabel},
 }
 

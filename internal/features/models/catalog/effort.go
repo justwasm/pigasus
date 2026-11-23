@@ -51,7 +51,11 @@ func EffortTiersFor(name string) []string {
 	// The reference's own catalogue: a model's id carries the tier
 	// ("gemini-3.8-flash-high"), so the table is keyed by the base id.
 	for _, n := range names {
-		if spec, ok := BaseModelEfforts[models.BaseModelID(n)]; ok {
+		baseID := models.BaseModelID(n)
+		if spec, ok := BaseModelEfforts[baseID]; ok {
+			if strings.HasPrefix(baseID, "gemini-4-hydrogen-sonar") && !UndocumentedModelsEnabled() {
+				continue
+			}
 			return spec.Levels
 		}
 	}

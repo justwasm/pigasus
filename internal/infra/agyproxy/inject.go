@@ -12,7 +12,84 @@ import (
 
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
+
+func ptrBool(b bool) *bool { return &b }
+
+// UndocumentedGoogleModels returns verified hidden upstream Google models
+// (such as Gemini 4 Hydrogen Sonar) that are served directly by CloudCode.
+func UndocumentedGoogleModels() []models.Model {
+	if !catalog.UndocumentedModelsEnabled() {
+		return nil
+	}
+	return []models.Model{
+		{
+			Name:              "gemini-4-hydrogen-sonar",
+			DisplayName:       "Gemini 4 Hydrogen (Sonar)",
+			Provider:          "google",
+			Type:              "cloudcode",
+			ExternalModelName: "gemini-4-hydrogen-sonar",
+			ContextWindow:     1048576,
+			DefaultMaxTokens:  65536,
+			SupportsThinking:  ptrBool(true),
+			ReasoningEffort:   "high",
+		},
+		{
+			Name:              "gemini-4-hydrogen-sonar-high",
+			DisplayName:       "Gemini 4 Hydrogen (Sonar) (High)",
+			Provider:          "google",
+			Type:              "cloudcode",
+			ExternalModelName: "gemini-4-hydrogen-sonar-high",
+			ContextWindow:     1048576,
+			DefaultMaxTokens:  65536,
+			SupportsThinking:  ptrBool(true),
+			ReasoningEffort:   "high",
+		},
+		{
+			Name:              "gemini-4-hydrogen-sonar-medium",
+			DisplayName:       "Gemini 4 Hydrogen (Sonar) (Medium)",
+			Provider:          "google",
+			Type:              "cloudcode",
+			ExternalModelName: "gemini-4-hydrogen-sonar-medium",
+			ContextWindow:     1048576,
+			DefaultMaxTokens:  65536,
+			SupportsThinking:  ptrBool(true),
+			ReasoningEffort:   "medium",
+		},
+		{
+			Name:              "gemini-4-hydrogen-sonar-low",
+			DisplayName:       "Gemini 4 Hydrogen (Sonar) (Low)",
+			Provider:          "google",
+			Type:              "cloudcode",
+			ExternalModelName: "gemini-4-hydrogen-sonar-low",
+			ContextWindow:     1048576,
+			DefaultMaxTokens:  65536,
+			SupportsThinking:  ptrBool(true),
+			ReasoningEffort:   "low",
+		},
+		{
+			Name:              "gemini-4-hydrogen-sonar-xhigh",
+			DisplayName:       "Gemini 4 Hydrogen (Sonar) (XHigh)",
+			Provider:          "google",
+			Type:              "cloudcode",
+			ExternalModelName: "gemini-4-hydrogen-sonar-xhigh",
+			ContextWindow:     1048576,
+			DefaultMaxTokens:  65536,
+			SupportsThinking:  ptrBool(true),
+			ReasoningEffort:   "high",
+		},
+	}
+}
+
+func appendUniqueModel(list []models.Model, m models.Model) []models.Model {
+	for _, existing := range list {
+		if strings.EqualFold(existing.Name, m.Name) || strings.EqualFold(existing.DisplayName, m.DisplayName) {
+			return list
+		}
+	}
+	return append(list, m)
+}
 
 // placeholderBase / placeholderSpan mirror the reference implementation
 // (kelvinzer0/antigravity-cli `generateModelPlaceholderId`): custom models are
@@ -186,6 +263,14 @@ func capabilityEntry(m models.Model) map[string]any {
 	}
 	ckptBytes, _ := json.Marshal(ckptConfig)
 
+	supportsImages := IsGoogleModel(m)
+	supportsVideo := IsGoogleModel(m)
+	supportsThinking := m.SupportsThinking != nil && *m.SupportsThinking
+	minThinkingBudget := 0
+	if supportsThinking {
+		minThinkingBudget = 32
+	}
+
 	return map[string]any{
 		"displayName":                displayName(m),
 		"description":                modelDescription(m),
@@ -199,8 +284,10 @@ func capabilityEntry(m models.Model) map[string]any {
 		"apiProvider":                apiProvider,
 		"modelProvider":              modelProvider,
 		"tokenizerType":              "LLAMA_WITH_SPECIAL",
-		"supportsImages":             false,
-		"supportsThinking":           false,
+		"supportsImages":             supportsImages,
+		"supportsVideo":              supportsVideo,
+		"supportsThinking":           supportsThinking,
+		"minThinkingBudget":          minThinkingBudget,
 		"supportedGenerationMethods": []any{"generateContent", "countTokens"},
 		"temperature":                0.7,
 		"topP":                       0.9,

@@ -17,11 +17,12 @@ type BaseModelSpec struct {
 
 // BaseModelEfforts maps a base model slug to its BaseModelSpec.
 var BaseModelEfforts = map[string]BaseModelSpec{
-	"gemini-3.8-flash":  {Levels: []string{"low", "medium", "high"}, Def: "high"},
-	"gemini-4-carbon":   {Levels: []string{"low", "medium", "high"}, Def: "high"},
-	"gemini-4-hydrogen": {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
-	"gemini-4-neon":     {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
-	"gpt-oss-120b":      {Levels: []string{"medium"}, Def: "medium"},
+	"gemini-3.8-flash":        {Levels: []string{"low", "medium", "high"}, Def: "high"},
+	"gemini-4-carbon":         {Levels: []string{"low", "medium", "high"}, Def: "high"},
+	"gemini-4-hydrogen":       {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
+	"gemini-4-hydrogen-sonar": {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
+	"gemini-4-neon":           {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
+	"gpt-oss-120b":            {Levels: []string{"medium"}, Def: "medium"},
 }
 
 // ReferenceEffortTiers are the reasoning tiers the reference's own
@@ -141,10 +142,21 @@ func ResolveModelSelection(model, effort string) (string, error) {
 	return resolveModelWithoutEffort(model)
 }
 
+func baseModelSpec(name string) (BaseModelSpec, bool) {
+	spec, ok := BaseModelEfforts[name]
+	if !ok {
+		return BaseModelSpec{}, false
+	}
+	if strings.HasPrefix(name, "gemini-4-hydrogen-sonar") && !UndocumentedModelsEnabled() {
+		return BaseModelSpec{}, false
+	}
+	return spec, true
+}
+
 func resolveModelWithEffort(model, effort string) (string, error) {
 	base := "gemini-3.8-flash"
 	if model != "" {
-		if _, ok := BaseModelEfforts[model]; ok {
+		if _, ok := baseModelSpec(model); ok {
 			base = model
 		} else if tiers, ok := configuredTiers(model); ok {
 			// A model the user configured, with the tiers its own
@@ -169,7 +181,7 @@ func resolveModelWithEffort(model, effort string) (string, error) {
 				fmt.Sprintf("--effort is not supported for model %q", model))
 		}
 	}
-	spec := BaseModelEfforts[base]
+	spec, _ := baseModelSpec(base)
 	if !containsStr(spec.Levels, effort) {
 		return "", invalidModelSelection(model, effort,
 			fmt.Sprintf("%s has no %q effort (available: %s)", base, effort, strings.Join(spec.Levels, ", ")))
@@ -181,12 +193,17 @@ func resolveModelWithoutEffort(model string) (string, error) {
 	if model == "" {
 		return "", nil
 	}
-	if spec, ok := BaseModelEfforts[model]; ok {
+	if spec, ok := baseModelSpec(model); ok {
 		if def := ResolveDefaultEffort(spec); def != "" {
 			return model + "-" + def, nil
 		}
 	}
 	if id, ok := CatalogueID(model); ok {
+		if spec, ok := baseModelSpec(id); ok {
+			if def := ResolveDefaultEffort(spec); def != "" {
+				return id + "-" + def, nil
+			}
+		}
 		return id, nil
 	}
 	// A model the user configured, with tiers: its bare id stands for

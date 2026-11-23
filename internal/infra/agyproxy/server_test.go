@@ -517,6 +517,7 @@ func TestUpstreamUnreachable(t *testing.T) {
 // ---- fetchAvailableModels ---------------------------------------------
 
 func TestFetchAvailableModelsMergesAndSurvivesUpstreamFailure(t *testing.T) {
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path != "/v1internal:fetchAvailableModels" {

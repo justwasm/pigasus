@@ -129,6 +129,31 @@ func BuildRequest(t Turn) GenerateContentRequest {
 	temp := t.Temperature
 	tc := &ThinkingConfig{IncludeThoughts: true}
 	level := strings.TrimSpace(t.ThinkingLevel)
+	modelWire := t.Model
+
+	if strings.HasPrefix(strings.ToLower(t.Model), "gemini-4-hydrogen-sonar") {
+		norm := strings.ToLower(t.Model)
+		switch {
+		case strings.HasSuffix(norm, "-low"):
+			if level == "" {
+				level = "low"
+			}
+		case strings.HasSuffix(norm, "-medium"):
+			if level == "" {
+				level = "medium"
+			}
+		case strings.HasSuffix(norm, "-high"):
+			if level == "" {
+				level = "high"
+			}
+		case strings.HasSuffix(norm, "-xhigh"):
+			if level == "" {
+				level = "high"
+			}
+		}
+		modelWire = "gemini-4-hydrogen-sonar"
+	}
+
 	switch strings.ToLower(level) {
 	case "low", "medium", "high":
 		level = strings.ToLower(level)
@@ -162,7 +187,7 @@ func BuildRequest(t Turn) GenerateContentRequest {
 		Project:     t.Project,
 		RequestID:   t.RequestID,
 		Request:     &inner,
-		Model:       t.Model,
+		Model:       modelWire,
 		UserAgent:   "antigravity",
 		RequestType: requestType,
 	}
@@ -644,8 +669,16 @@ func Limits(model string, maxOutputTokens, thinkingBudget int) (maxOut, budget i
 		maxOut, budget = 64000, 1024
 	case strings.Contains(norm, "gemini-4-argon"):
 		maxOut, budget = 65536, 10001
+	case strings.Contains(norm, "gemini-4-hydrogen-sonar-xhigh"):
+		maxOut, budget = 65536, 65536
+	case strings.Contains(norm, "gemini-4-hydrogen-sonar-high"):
+		maxOut, budget = 65536, 32768
+	case strings.Contains(norm, "gemini-4-hydrogen-sonar-medium"):
+		maxOut, budget = 65536, 8192
+	case strings.Contains(norm, "gemini-4-hydrogen-sonar-low"):
+		maxOut, budget = 65536, 1024
 	case strings.Contains(norm, "gemini-4-hydrogen-sonar"):
-		maxOut, budget = 65536, -1
+		maxOut, budget = 65536, 32768
 	case strings.Contains(norm, "gemini-3.1-pro-high"):
 		maxOut, budget = 65536, 10001
 	case strings.Contains(norm, "gemini-3.1-pro-low"):

@@ -19,23 +19,29 @@ import (
 
 // reqInfo is what the router learned about one request.
 type reqInfo struct {
-	model   string
-	custom  bool
-	tuned   models.Model
-	wrapped bool
-	inner   *geminicode.GenerateContentRequest
+	model           string
+	custom          bool
+	tuned           models.Model
+	wrapped         bool
+	inner           *geminicode.GenerateContentRequest
+	upstreamRewrite string
+	effort          string
 }
 
 // sanitizeUpstreamBody adjusts Gemini request payloads sent upstream if they contain
 // historical tool calls without thought signatures, misplaced Claude thinking signatures,
 // or Gemini 3 thinking config conflicts, preserving all other fields and envelopes intact.
 func sanitizeUpstreamBody(body []byte, info reqInfo) []byte {
-	if info.inner == nil {
+	if info.inner == nil && info.upstreamRewrite == "" {
 		return body
 	}
-	modSig := geminicode.ReconcileThoughtSignatures(info.model, info.inner.Contents)
-	modThink := geminicode.ResolveThinkingConfig(info.model, info.inner.GenerationConfig)
-	if !modSig && !modThink {
+	modSig := false
+	modThink := false
+	if info.inner != nil {
+		modSig = geminicode.ReconcileThoughtSignatures(info.model, info.inner.Contents)
+		modThink = geminicode.ResolveThinkingConfig(info.model, info.inner.GenerationConfig)
+	}
+	if !modSig && !modThink && info.upstreamRewrite == "" {
 		return body
 	}
 	var root map[string]any
@@ -48,7 +54,37 @@ func sanitizeUpstreamBody(body []byte, info reqInfo) []byte {
 			target = innerMap
 		}
 	}
-	if modSig {
+	if info.upstreamRewrite != "" {
+		root["model"] = info.upstreamRewrite
+		if target != nil {
+			target["model"] = info.upstreamRewrite
+		}
+	}
+	if info.effort != "" && info.inner != nil {
+		if info.inner.GenerationConfig == nil {
+			info.inner.GenerationConfig = &geminicode.GenerationConfig{}
+		}
+		if info.inner.GenerationConfig.ThinkingConfig == nil {
+			info.inner.GenerationConfig.ThinkingConfig = &geminicode.ThinkingConfig{IncludeThoughts: true}
+		}
+		level := strings.ToLower(strings.TrimSpace(info.effort))
+		switch level {
+		case "low":
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingLevel = "low"
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingBudget = 1024
+		case "medium":
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingLevel = "medium"
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingBudget = 8192
+		case "high":
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingLevel = "high"
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingBudget = 32768
+		case "xhigh":
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingLevel = "high"
+			info.inner.GenerationConfig.ThinkingConfig.ThinkingBudget = 65536
+		}
+		modThink = true
+	}
+	if modSig && info.inner != nil {
 		if b, err := json.Marshal(info.inner.Contents); err == nil {
 			var raw any
 			if json.Unmarshal(b, &raw) == nil {
@@ -56,7 +92,7 @@ func sanitizeUpstreamBody(body []byte, info reqInfo) []byte {
 			}
 		}
 	}
-	if modThink {
+	if modThink && info.inner != nil {
 		if b, err := json.Marshal(info.inner.GenerationConfig); err == nil {
 			var raw any
 			if json.Unmarshal(b, &raw) == nil {
@@ -87,8 +123,18 @@ func (s *Server) inspect(path string, body []byte) reqInfo {
 	name := env.ModelName()
 	info := reqInfo{model: name, wrapped: env.Wrapped(), inner: env.Inner()}
 	if m, ok := s.matchCustom(name); ok {
-		info.custom = true
-		info.tuned = m
+		if strings.HasPrefix(strings.ToLower(m.ExternalModelName), "gemini-4-hydrogen-sonar") {
+			info.custom = false
+			info.upstreamRewrite = "gemini-4-hydrogen-sonar"
+			info.effort = m.ReasoningEffort
+		} else {
+			info.custom = true
+			info.tuned = m
+		}
+	} else if strings.HasPrefix(strings.ToLower(name), "gemini-4-hydrogen-sonar") {
+		info.custom = false
+		info.upstreamRewrite = "gemini-4-hydrogen-sonar"
+		info.effort = models.TierFromID(name)
 	}
 	return info
 }

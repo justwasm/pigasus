@@ -64,6 +64,14 @@ func CanonicalModelLabel(name string) string {
 		return "Gemini 3.8 Flash (High)"
 	case "gemini-4-hydrogen-sonar", "gemini 4 hydrogen sonar", "gemini-4-sonar", "hydrogen-sonar":
 		return "Gemini 4 Hydrogen (Sonar)"
+	case "gemini-4-hydrogen-sonar-high", "gemini 4 hydrogen sonar high":
+		return "Gemini 4 Hydrogen (Sonar) (High)"
+	case "gemini-4-hydrogen-sonar-medium", "gemini 4 hydrogen sonar medium":
+		return "Gemini 4 Hydrogen (Sonar) (Medium)"
+	case "gemini-4-hydrogen-sonar-low", "gemini 4 hydrogen sonar low":
+		return "Gemini 4 Hydrogen (Sonar) (Low)"
+	case "gemini-4-hydrogen-sonar-xhigh", "gemini 4 hydrogen sonar xhigh":
+		return "Gemini 4 Hydrogen (Sonar) (XHigh)"
 	case "claude-opus-4-6", "claude opus 4.6":
 		return "Claude Opus 4.6 (Thinking)"
 	case "claude-sonnet-4-6-thinking", "claude sonnet 4.6 thinking":

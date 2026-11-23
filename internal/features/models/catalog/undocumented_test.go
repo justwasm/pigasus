@@ -49,8 +49,9 @@ func TestSonarIsEnabledByDefault(t *testing.T) {
 	if _, ok := CatalogueID(SonarModelID); !ok {
 		t.Errorf("CatalogueID(%q) did not resolve by default", SonarModelID)
 	}
-	if got, err := ResolveModelSelection(SonarModelID, ""); err != nil || got != SonarModelID {
-		t.Errorf("ResolveModelSelection(%q) failed by default: %v", SonarModelID, err)
+	// By default without explicit effort, resolves to its default high tier
+	if got, err := ResolveModelSelection(SonarModelID, ""); err != nil || got != SonarModelHighID {
+		t.Errorf("ResolveModelSelection(%q) failed by default: got %q, err %v, want %q", SonarModelID, got, err, SonarModelHighID)
 	}
 }
 
@@ -67,6 +68,9 @@ func TestSonarIsHiddenWhenExplicitlyDisabled(t *testing.T) {
 	}
 	if _, err := ResolveModelSelection(SonarModelID, ""); err == nil {
 		t.Errorf("ResolveModelSelection(%q) succeeded when disabled", SonarModelID)
+	}
+	if tiers := EffortTiersFor(SonarModelID); len(tiers) != 0 {
+		t.Errorf("EffortTiersFor(%q) = %v when disabled, want none", SonarModelID, tiers)
 	}
 }
 
@@ -95,24 +99,27 @@ func TestSonarRowResolvesByIdAndLabel(t *testing.T) {
 			t.Errorf("CanonicalModelLabel(%q) = %q, want %q", name, got, SonarModelLabel)
 		}
 		got, err := ResolveModelSelection(name, "")
-		if err != nil || got != SonarModelID {
-			t.Errorf("ResolveModelSelection(%q) = %q, %v, want %q", name, got, err, SonarModelID)
+		if err != nil || got != SonarModelHighID {
+			t.Errorf("ResolveModelSelection(%q) = %q, %v, want %q", name, got, err, SonarModelHighID)
 		}
 	}
 }
 
-func TestSonarIsAFixedModel(t *testing.T) {
+func TestSonarSupportsEffortTiers(t *testing.T) {
 	withGate(t, "on", "")
-	if tiers := EffortTiersFor(SonarModelID); len(tiers) != 0 {
-		t.Errorf("EffortTiersFor(%q) = %v, want none", SonarModelID, tiers)
+	tiers := EffortTiersFor(SonarModelID)
+	if len(tiers) != 4 || tiers[0] != "low" || tiers[3] != "xhigh" {
+		t.Errorf("EffortTiersFor(%q) = %v, want [low medium high xhigh]", SonarModelID, tiers)
 	}
-	if EffortAdjustableFor(SonarModelID) {
-		t.Errorf("EffortAdjustableFor(%q) = true, want a fixed model", SonarModelID)
+	if !EffortAdjustableFor(SonarModelID) {
+		t.Errorf("EffortAdjustableFor(%q) = false, want adjustable", SonarModelID)
 	}
-	// The id carries its variant, so an explicit tier conflicts — the rule
-	// the reference applies to a catalogue id with its tier spelled in.
-	if _, err := ResolveModelSelection(SonarModelID, "high"); err == nil {
-		t.Errorf("ResolveModelSelection(%q, high) succeeded, want a conflict", SonarModelID)
+	for _, effort := range []string{"low", "medium", "high", "xhigh"} {
+		want := SonarModelID + "-" + effort
+		got, err := ResolveModelSelection(SonarModelID, effort)
+		if err != nil || got != want {
+			t.Errorf("ResolveModelSelection(%q, %q) = %q, %v, want %q", SonarModelID, effort, got, err, want)
+		}
 	}
 }
 
