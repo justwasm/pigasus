@@ -31,6 +31,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/perfrecorder"
 	"github.com/justwasm/pigasus/internal/features/personas"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
@@ -162,6 +163,11 @@ type headerCacheKey struct {
 }
 
 func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.display.perf != nil && m.display.perf.Enabled() {
+		start := time.Now()
+		msgType := fmt.Sprintf("%T", msg)
+		defer func() { m.display.perf.RecordUpdate(msgType, time.Since(start)) }()
+	}
 	// The palette's colours follow the selected scheme while the
 	// update runs: the rows this update paints (the streamed text, the
 	// tool rows, the panels) wear the scheme's colours.
@@ -471,6 +477,7 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	if cliflags.BoolValue(fs, "debug-wire") && m.overlays.wireHUD != nil {
 		m.overlays.wireHUD.SetVisible(true)
 	}
+	m.display.perf = perfrecorder.New(perfrecorder.WithEnabled(isDebugMode(fs) || os.Getenv("PIGASUS_PERF") == "1"))
 	if unavailableFrom != "" {
 		m.session.fallbackFrom = unavailableFrom
 		m.session.fallbackTo = modelName
@@ -682,6 +689,10 @@ func runTUIProgram(m *RootModel, fs *flag.FlagSet, altScreen bool, canonicalCwd 
 	// nothing of that size to give back.
 	cancelMemTrim := memtrim.After(memtrim.Delay)
 	defer cancelMemTrim()
+	if m.display.perf != nil && m.display.perf.Enabled() {
+		stopPerfSig := m.display.perf.DumpOnSignal(context.Background(), filepath.Join(confhome.Antigravity(), "perf"))
+		defer stopPerfSig()
+	}
 	defer m.CloseAllTerminals()
 	_, err := prog.Run()
 	printTUIExitBanner(m, canonicalCwd)

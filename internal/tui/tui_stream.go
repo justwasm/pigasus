@@ -39,6 +39,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
+	"github.com/justwasm/pigasus/internal/app/tools/workflow"
 	"github.com/justwasm/pigasus/internal/app/tuistore"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
@@ -1167,8 +1168,111 @@ func (m *RootModel) subAgentExtras(_ context.Context, be backend.Client, modelLa
 		} else {
 			subagenttools.SetBuiltinSubagentRegistry(reg)
 		}
+		surface.ConfigureWorkflow(m.tools.catalog, func(wf *workflow.RunWorkflow) {
+			wf.ConversationID = m.session.conversationID
+			wf.Workspaces = []string{workspace}
+			wf.AgentExecutor = func(ctx context.Context, req workflow.AgentRequest) (any, error) {
+				if req.Close {
+					return nil, nil
+				}
+				prompt := req.Prompt
+				if len(req.Schema) > 0 && string(req.Schema) != "null" {
+					prompt += "\n\nRespond with valid JSON matching this schema:\n" + string(req.Schema)
+				}
+				typeName := req.TypeName
+				if typeName == "" {
+					typeName = "self"
+				}
+				res, err := subagenttools.Invoke(ctx, subagenttools.Invocation{
+					Prompt:   prompt,
+					TypeName: typeName,
+					Role:     req.Role,
+					Model:    req.Model,
+				}, subDeps)
+				if err != nil {
+					return nil, err
+				}
+				if len(req.Schema) > 0 && string(req.Schema) != "null" {
+					var parsed any
+					if json.Unmarshal([]byte(strings.TrimSpace(res.Text)), &parsed) == nil {
+						return parsed, nil
+					}
+				}
+				return res.Text, nil
+			}
+			wf.TrajectoryProvider = func(_ context.Context, filter workflow.TrajectoryFilter) ([]workflow.TrajectoryStep, error) {
+				rawSteps := convstore.BuildSteps(m.trajectoryFacts())
+				out := make([]workflow.TrajectoryStep, 0, len(rawSteps))
+				for _, st := range rawSteps {
+					idx := int(st.Idx)
+					if filter.MinIndex != nil && idx < *filter.MinIndex {
+						continue
+					}
+					if filter.MaxIndex != nil && idx > *filter.MaxIndex {
+						continue
+					}
+					typ := workflowStepType(st.Type)
+					if len(filter.Types) > 0 && !containsFold(filter.Types, typ) {
+						continue
+					}
+					if len(filter.Tools) > 0 && !containsFold(filter.Tools, st.ToolName) {
+						continue
+					}
+					var argsMap map[string]any
+					if st.ToolArgs != "" {
+						_ = json.Unmarshal([]byte(st.ToolArgs), &argsMap)
+					}
+					out = append(out, workflow.TrajectoryStep{
+						Index:  idx,
+						Type:   typ,
+						Status: workflowStepStatus(st.Status),
+						Text:   st.Text,
+						Tool:   st.ToolName,
+						Args:   argsMap,
+						Output: st.ToolResult,
+					})
+				}
+				if filter.Last > 0 && len(out) > filter.Last {
+					out = out[len(out)-filter.Last:]
+				}
+				return out, nil
+			}
+		})
 	}
 	return subTools, func() {}
+}
+
+func workflowStepType(t int64) string {
+	switch t {
+	case convstore.StepUserInput:
+		return "user_input"
+	case convstore.StepModelResponse:
+		return "planner_response"
+	case convstore.StepToolCall:
+		return "tool_call"
+	case convstore.StepSystemNotice:
+		return "system_notice"
+	default:
+		return "unknown"
+	}
+}
+
+func workflowStepStatus(s int64) string {
+	switch s {
+	case 0:
+		return "done"
+	default:
+		return "done"
+	}
+}
+
+func containsFold(list []string, target string) bool {
+	for _, item := range list {
+		if strings.EqualFold(item, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultWorkspaceForRootModel() string {

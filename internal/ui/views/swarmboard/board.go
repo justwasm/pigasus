@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/ui/graphic"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -1310,6 +1311,38 @@ func (b *Board) renderOverview(w int) string {
 	if len(threadItems) > 0 {
 		sb.WriteString("Threads: " + strings.Join(threadItems, "  ") + "\n")
 	}
+
+	if w >= 60 {
+		caps := graphic.DetectEnv()
+		if caps.Protocol == graphic.ProtocolNone {
+			beeLines := strings.Split(graphic.RenderQueenBee(12, caps), "\n")
+			textLines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
+			rows := len(beeLines)
+			if len(textLines) > rows {
+				rows = len(textLines)
+			}
+			var combined strings.Builder
+			for i := 0; i < rows; i++ {
+				left := strings.Repeat(" ", 12)
+				if i < len(beeLines) {
+					left = beeLines[i]
+				}
+				right := ""
+				if i < len(textLines) {
+					right = textLines[i]
+				}
+				combined.WriteString(left)
+				if right != "" {
+					combined.WriteString("  ")
+					combined.WriteString(right)
+				}
+				combined.WriteByte('\n')
+			}
+			combined.WriteByte('\n')
+			return combined.String()
+		}
+	}
+
 	sb.WriteString("\n")
 	return sb.String()
 }

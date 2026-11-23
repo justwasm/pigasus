@@ -71,6 +71,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/tools"
@@ -79,6 +80,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 	"github.com/justwasm/pigasus/internal/app/tools/web"
+	"github.com/justwasm/pigasus/internal/app/tools/workflow"
 )
 
 func init() {
@@ -218,7 +220,7 @@ func referenceSpecsPart2(ws string) []refSpec {
 	}
 }
 
-func referenceSpecsPart3(ws string) []refSpec {
+func referenceSpecsPart3(ws string, wf *workflow.RunWorkflow) []refSpec {
 	return []refSpec{
 		// ---- browser navigation ----
 		{name: "open_browser_url", desc: "Open a URL in the controlled browser.",
@@ -235,7 +237,8 @@ func referenceSpecsPart3(ws string) []refSpec {
 			back: &filesystem.EditFile{Workspace: ws}},
 		{name: "run_command", desc: shell.RunCommandDescription(), schema: shell.RunCommandSchema,
 			back: &shell.RunCommand{Workspace: ws}},
-		{name: "run_workflow", desc: "Run a workflow."},
+		{name: "run_workflow", desc: "Run a workflow.",
+			back: wf},
 
 		// ---- scheduling / marketplace / search ----
 		{name: "schedule", desc: tools.RefDesc("schedule"),
@@ -267,11 +270,11 @@ func referenceSpecsPart3(ws string) []refSpec {
 // reference's sorted order. Tools with a real executor are backed by it; the
 // rest are placeholders so the advertised surface matches the reference
 // exactly.
-func referenceSpecs(ws string) []refSpec {
+func referenceSpecs(ws string, wf *workflow.RunWorkflow) []refSpec {
 	specs := make([]refSpec, 0, 63)
 	specs = append(specs, referenceSpecsPart1(ws)...)
 	specs = append(specs, referenceSpecsPart2(ws)...)
-	specs = append(specs, referenceSpecsPart3(ws)...)
+	specs = append(specs, referenceSpecsPart3(ws, wf)...)
 	return specs
 }
 
@@ -317,7 +320,10 @@ func (p *pendingTool) Run(context.Context, json.RawMessage) (any, error) {
 // Catalog builds the advertised tool registry for a workspace.
 func Catalog(ws string) *tools.Registry {
 	reg := tools.NewRegistry()
-	for _, s := range referenceSpecs(ws) {
+	wf := &workflow.RunWorkflow{
+		Workspace: ws,
+	}
+	for _, s := range referenceSpecs(ws, wf) {
 		// Cycle 275: a captured spec schema (一手) outranks the executor's own
 		// Schema(), even when names match. run_command and view_file used to
 		// advertise the clone's reconstructed lowercase-tag shapes, so the
@@ -343,5 +349,42 @@ func Catalog(ws string) *tools.Registry {
 			reg.Register(&pendingTool{name: s.name, desc: s.desc, schema: schema})
 		}
 	}
+	wf.ToolExecutor = func(ctx context.Context, name string, args map[string]any) (string, bool, error) {
+		if name == "run_workflow" {
+			return "", true, fmt.Errorf("nested run_workflow is not allowed")
+		}
+		raw, err := json.Marshal(args)
+		if err != nil {
+			return "", false, err
+		}
+		out, err := reg.Dispatch(ctx, name, raw)
+		if err != nil {
+			return out, false, err
+		}
+		if tools.IsFailureText(out) && strings.Contains(out, "was denied") {
+			return out, true, nil
+		}
+		return out, false, nil
+	}
 	return reg
+}
+
+// ConfigureWorkflow configures the run_workflow executor inside reg if present.
+func ConfigureWorkflow(reg *tools.Registry, fn func(*workflow.RunWorkflow)) {
+	if reg == nil || fn == nil {
+		return
+	}
+	t, ok := reg.Get("run_workflow")
+	if !ok {
+		return
+	}
+	if dt, ok := t.(*describedTool); ok {
+		if wf, ok := dt.Tool.(*workflow.RunWorkflow); ok {
+			fn(wf)
+		}
+		return
+	}
+	if wf, ok := t.(*workflow.RunWorkflow); ok {
+		fn(wf)
+	}
 }

@@ -226,3 +226,78 @@ func TestPipeline_PassThroughError(t *testing.T) {
 		t.Errorf("err = %v, want 'underlying tool failed'", err)
 	}
 }
+
+func TestPipeline_PermissionGateMiddleware_AutoModeAssessor(t *testing.T) {
+	policy := &permissions.Policy{
+		Mode:   permissions.ModeAuto,
+		Strict: true,
+	}
+
+	prompted := false
+	promptUser := func(ctx context.Context, call backend.ToolCall) (bool, error) {
+		prompted = true
+		return false, nil
+	}
+
+	var denied []string
+	mw := PermissionGateMiddleware(policy, promptUser, func(name string) {
+		denied = append(denied, name)
+	})
+	handler := NewPipeline(mw).Wrap(func(ctx context.Context, call backend.ToolCall) (string, error) {
+		return "executed", nil
+	})
+
+	// 1. Safe read-only command is auto-allowed without prompting.
+	res, err := handler(context.Background(), backend.ToolCall{
+		Name:      "run_command",
+		Arguments: json.RawMessage(`{"CommandLine":"git status && gh pr view 12"}`),
+	})
+	if err != nil || res != "executed" || prompted {
+		t.Fatalf("safe command: res=%q err=%v prompted=%v", res, err, prompted)
+	}
+
+	// 2. Mutating command prompts in Auto mode.
+	prompted = false
+	res, err = handler(context.Background(), backend.ToolCall{
+		Name:      "run_command",
+		Arguments: json.RawMessage(`{"CommandLine":"gh pr merge 12"}`),
+	})
+	if err != nil || !prompted || !strings.Contains(res, "was denied") {
+		t.Fatalf("mutating command: res=%q err=%v prompted=%v", res, err, prompted)
+	}
+
+	// 3. Dangerous command is denied outright without prompting.
+	prompted = false
+	res, err = handler(context.Background(), backend.ToolCall{
+		Name:      "run_command",
+		Arguments: json.RawMessage(`{"CommandLine":"rm -rf /"}`),
+	})
+	if err != nil || prompted || !strings.Contains(res, "was denied") {
+		t.Fatalf("dangerous command: res=%q err=%v prompted=%v", res, err, prompted)
+	}
+}
+
+func TestPipeline_PermissionGateMiddleware_ExactMatchOnSubstitution(t *testing.T) {
+	policy := &permissions.Policy{
+		Allow: []permissions.Rule{
+			{Action: "command", Pattern: "echo"},
+		},
+		Strict: true,
+	}
+	prompted := false
+	mw := PermissionGateMiddleware(policy, func(ctx context.Context, call backend.ToolCall) (bool, error) {
+		prompted = true
+		return false, nil
+	}, nil)
+	handler := NewPipeline(mw).Wrap(func(ctx context.Context, call backend.ToolCall) (string, error) {
+		return "executed", nil
+	})
+
+	res, err := handler(context.Background(), backend.ToolCall{
+		Name:      "run_command",
+		Arguments: json.RawMessage(`{"CommandLine":"echo $(whoami)"}`),
+	})
+	if err != nil || !prompted || !strings.Contains(res, "was denied") {
+		t.Fatalf("substitution under prefix allow: res=%q err=%v prompted=%v", res, err, prompted)
+	}
+}

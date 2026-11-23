@@ -1250,7 +1250,9 @@ func usageWeb(prog string) string {
 		"  --desktop         Serve the desktop UI: the voice input, the jetbox\n" +
 		"                    terminal, the redesigned aux pane. The page and the\n" +
 		"                    bundle are the same either way — the switch is the\n" +
-		"                    identity the page's Mendel read carries\n"
+		"                    identity the page's Mendel read carries\n" +
+		"  --persona         Initial onboarding persona (e.g. knowledge-work, engineering)\n" +
+		"  --skin            Initial product skin (developer, non-technical)\n"
 }
 
 // WebSubcommand returns the SubcommandSpec for `pigasus web`.
@@ -1271,6 +1273,8 @@ type webOpts struct {
 	open             bool
 	referenceBackend string
 	desktop          bool
+	persona          string
+	skin             string
 	apiOnly          bool
 	uiOnly           bool
 	showHelp         bool
@@ -1332,6 +1336,14 @@ func parseWebFlags(j *JetskiCLI, args []string, usage string) (webOpts, error) {
 			}
 		case "--desktop":
 			opts.desktop = true
+		case "--persona":
+			if err := consume(&opts.persona, a); err != nil {
+				return opts, err
+			}
+		case "--skin":
+			if err := consume(&opts.skin, a); err != nil {
+				return opts, err
+			}
 		default:
 			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
 		}
@@ -1364,6 +1376,8 @@ func runWeb(j *JetskiCLI, args []string) error {
 		Open:             opts.open,
 		ReferenceBackend: opts.referenceBackend,
 		Desktop:          opts.desktop,
+		Persona:          opts.persona,
+		Skin:             opts.skin,
 		ApiOnly:          opts.apiOnly,
 		UiOnly:           opts.uiOnly,
 	})

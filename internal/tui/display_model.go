@@ -15,6 +15,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/features/perfrecorder"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
 
@@ -44,6 +45,8 @@ type DisplayModel struct {
 	// dynamic engine (Codex, Claude, etc.) so rendering /model does not
 	// perform blocking IPC on every frame.
 	engineModelRowsCache []modelpicker.Row
+	// perf records Bubble Tea Update/View frame latencies when enabled.
+	perf *perfrecorder.Recorder
 }
 
 // IsQuitting reports whether the TUI application is shutting down.

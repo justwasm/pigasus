@@ -177,6 +177,9 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		return false
 	}
+	if m.agents.battle.Panel != nil && m.agents.battle.Panel.Active() {
+		return false
+	}
 	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() {
 		return false
 	}
@@ -265,6 +268,9 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		return false
 	}
+	if m.agents.battle.Panel != nil && m.agents.battle.Panel.Active() {
+		return false
+	}
 	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() {
 		return false
 	}
@@ -287,6 +293,10 @@ func (m *RootModel) isViewCacheValid() bool {
 }
 
 func (m *RootModel) View() tea.View {
+	if m.display.perf != nil && m.display.perf.Enabled() {
+		start := time.Now()
+		defer func() { m.display.perf.RecordView(time.Since(start)) }()
+	}
 	// The frame is painted with the selected scheme's colours: the
 	// palette resolves them from the scheme the session wears.
 	restore := palette.PushScheme(m.viewport.colorScheme)
@@ -311,6 +321,10 @@ func (m *RootModel) View() tea.View {
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		m.swarm.Board.SetSize(m.viewport.width, m.viewport.height)
 		return m.applyTerminalSettings(tea.NewView(m.swarm.Board.View()))
+	}
+	if m.agents.battle.Panel != nil && m.agents.battle.Panel.Active() {
+		m.agents.battle.Panel.SetSize(m.viewport.width, m.viewport.height)
+		return m.applyTerminalSettings(tea.NewView(m.agents.battle.Panel.View()))
 	}
 	if m.isViewCacheValid() {
 		return m.viewport.cachedView

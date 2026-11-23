@@ -216,6 +216,7 @@ var Default = buildCatalogue()
 // and no row in the catalogue, and "branch" is a command of its own
 // even though the catalogue lists the word as an alias of "/fork".
 var Hidden = []Command{
+	{Name: "/battle", Dispatched: true},
 	{Name: "/branch", Dispatched: true},
 	{Name: "/login", Dispatched: true},
 	{Name: "/narration", Dispatched: true},

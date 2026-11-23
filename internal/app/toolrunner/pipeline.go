@@ -2,12 +2,14 @@ package toolrunner
 
 import (
 	"context"
+	"strings"
 
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/features/assessor"
 )
 
 // Handler is a function that executes a tool call.
@@ -51,6 +53,7 @@ func PermissionGateMiddleware(
 			}
 			target := ToolTarget(call)
 			v := policy.DecideNames(target, tools.PermissionNames(call.Name)...)
+			v = assessCommandVerdict(policy, call, target, v)
 			switch v {
 			case permissions.Allow:
 				return next(ctx, call)
@@ -136,4 +139,51 @@ func OutputBudgetMiddleware(maxTokens int) Middleware {
 			return res, err
 		}
 	}
+}
+
+func assessCommandVerdict(policy *permissions.Policy, call backend.ToolCall, target string, v permissions.Verdict) permissions.Verdict {
+	if policy == nil || policy.SkipPermissions || v != permissions.Allow {
+		return v
+	}
+	if call.Name != "run_command" && call.Name != "run_shell_command" {
+		return v
+	}
+	if policy.ToolPermission == permissions.ToolPermissionAlwaysProceed {
+		return v
+	}
+	explicit := *policy
+	explicit.Mode = ""
+	explicit.Strict = true
+	if explicit.DecideNames(target, tools.PermissionNames(call.Name)...) == permissions.Allow {
+		a := assessor.Assess(target)
+		if a.Verdict == assessor.NeedsExactMatch || a.HasSubstitution || a.HasRedirection {
+			if !hasExactOrWildcardCommandAllow(policy.Allow, target) {
+				return permissions.Ask
+			}
+		}
+		return permissions.Allow
+	}
+	if policy.Mode == permissions.ModeAuto {
+		allow, ask, _ := assessor.EvaluateForAutoMode(target)
+		if allow {
+			return permissions.Allow
+		}
+		if ask {
+			return permissions.Ask
+		}
+		return permissions.Deny
+	}
+	return v
+}
+
+func hasExactOrWildcardCommandAllow(rules []permissions.Rule, target string) bool {
+	for _, r := range rules {
+		if r.Action != permissions.ActionCommand {
+			continue
+		}
+		if r.Pattern == "" || r.Pattern == "*" || r.Pattern == target || strings.HasPrefix(r.Pattern, "regex:") {
+			return true
+		}
+	}
+	return false
 }

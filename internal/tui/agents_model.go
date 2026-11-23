@@ -21,4 +21,5 @@ type AgentsModel struct {
 	registry        *subagenttools.Registry
 	router          *subagentrouter.Manager
 	subagentSenders map[string]bool
+	battle          BattleModel
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/cli"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/infra/refbackend"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
@@ -67,6 +68,22 @@ func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
 		}
 		if refProc != nil {
 			defer refProc.Stop()
+		}
+		if d, ok := disp.(*remotecontrol.Dispatcher); ok {
+			skinVal := personas.ProductSkinUnspecified
+			if args.Skin != "" {
+				if s, ok := personas.ResolveSkin(args.Skin); ok {
+					skinVal = s
+				}
+			}
+			if skinVal == personas.ProductSkinUnspecified && args.Persona != "" {
+				if p, ok := personas.Resolve(args.Persona); ok {
+					skinVal = p.Skin
+				}
+			}
+			if skinVal != personas.ProductSkinUnspecified || args.Persona != "" {
+				d.SetInitialSkinAndPersona(skinVal, args.Persona)
+			}
 		}
 	}
 

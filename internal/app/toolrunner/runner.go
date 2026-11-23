@@ -149,6 +149,7 @@ func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCal
 		return Gate{Allow: true}
 	}
 	v := policy.DecideNames(target, tools.PermissionNames(call.Name)...)
+	v = assessCommandVerdict(policy, call, target, v)
 	if v == permissions.Allow {
 		return Gate{Allow: true}
 	}

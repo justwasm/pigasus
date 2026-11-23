@@ -426,6 +426,12 @@ type WebArgs struct {
 	// `antigravity/cli/…` answers it false. See internal/auth.
 	Desktop bool
 
+	// Persona specifies the onboarding persona ID (e.g. "knowledge-work", "engineering").
+	Persona string
+
+	// Skin specifies the product skin (e.g. "developer", "non-technical").
+	Skin string
+
 	// ApiOnly serves only the backend Connect-RPC and WebSocket APIs
 	// without serving the frontend static web UI assets.
 	ApiOnly bool

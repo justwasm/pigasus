@@ -88,6 +88,12 @@ type Options struct {
 	// (internal/lsserver) is the reference's replica and turns this
 	// on.
 	ReferencePage bool
+
+	// EmbedRoots lists additional root directories allowed for /__agy/api/embed.
+	EmbedRoots []string
+
+	// SidecarLookup overrides sidecars.FindSidecarConfig for testing.
+	SidecarLookup func(sidecarID string) (map[string]any, string, error)
 }
 
 // Server serves the embedded Jetski Web UI.
@@ -173,6 +179,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// server through the cloud tunnel must not get a 405 for it.
 	if !s.opts.DisableAccountSwitcher && strings.HasPrefix(cleanPath, accountsAPIPath) {
 		s.serveAccountsAPI(w, r, cleanPath)
+		return
+	}
+	if cleanPath == embedAPIPath {
+		s.serveEmbed(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, sidecarAPIPrefix) || strings.HasPrefix(cleanPath, sidecarAPIPrefix) {
+		s.serveSidecarSandbox(w, r)
 		return
 	}
 

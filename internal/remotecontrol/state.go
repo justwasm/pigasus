@@ -191,17 +191,59 @@ var agentOnboardingStateNames = map[int]string{
 // newStateStore returns a store seeded with the flags the clone has
 // always served.
 func newStateStore() *stateStore {
+	initialSkin := personas.ProductSkinUnspecified
+	initialPersona := ""
+
+	path := filepath.Join(confhome.Antigravity(), "settings.json")
+	if data, err := os.ReadFile(path); err == nil {
+		data = confhome.StripBOM(data)
+		if gjson.ValidBytes(data) {
+			if res := gjson.GetBytes(data, "productSkin"); res.Exists() {
+				if skinVal, ok := personas.ResolveSkin(res.String()); ok {
+					initialSkin = skinVal
+				}
+			}
+			if initialSkin == personas.ProductSkinUnspecified {
+				if res := gjson.GetBytes(data, "project4kMode"); res.Exists() {
+					if skinVal, ok := personas.SkinFromWire(res.Int()); ok {
+						initialSkin = skinVal
+					}
+				}
+			}
+			if res := gjson.GetBytes(data, "persona"); res.Exists() {
+				initialPersona = res.String()
+				if initialSkin == personas.ProductSkinUnspecified {
+					if p, ok := personas.Resolve(initialPersona); ok {
+						initialSkin = p.Skin
+					}
+				}
+			}
+		}
+	}
+
+	appState := map[string]any{
+		"agentOnboardingCompleted": "AGENT_ONBOARDING_STATE_COMPLETED",
+		"postOnboarding":           map[string]any{"completedSteps": []any{}},
+		"seenNuxs":                 map[string]any{"uids": []any{}},
+	}
+	userSettings := map[string]any{
+		"enableNotificationsForSpecialEvents": true,
+		"enableSoundsForSpecialEvents":        false,
+	}
+
+	if initialSkin != personas.ProductSkinUnspecified {
+		appState["productSkin"] = initialSkin
+		userSettings["project4kMode"] = initialSkin
+	}
+	if initialPersona != "" {
+		appState["onboardingPersonaId"] = initialPersona
+		userSettings["onboardingPersonaId"] = initialPersona
+	}
+
 	return &stateStore{
-		appState: map[string]any{
-			"agentOnboardingCompleted": "AGENT_ONBOARDING_STATE_COMPLETED",
-			"postOnboarding":           map[string]any{"completedSteps": []any{}},
-			"seenNuxs":                 map[string]any{"uids": []any{}},
-		},
+		appState: appState,
 		userConfig: map[string]any{
-			"userSettings": map[string]any{
-				"enableNotificationsForSpecialEvents": true,
-				"enableSoundsForSpecialEvents":        false,
-			},
+			"userSettings": userSettings,
 		},
 		userInfo: loadUserInfoSettings(),
 	}
@@ -446,4 +488,43 @@ func (d *Dispatcher) handleJetboxWriteState(params json.RawMessage) (any, *rpc.E
 // for the app state and the user config.
 func (d *Dispatcher) handleJetboxReadState() (any, *rpc.ErrorBody, bool) {
 	return d.state.snapshot(), nil, true
+}
+
+// SetInitialSkinAndPersona overrides the state store's skin and persona.
+func (d *Dispatcher) SetInitialSkinAndPersona(skin int, persona string) {
+	if d == nil || d.state == nil {
+		return
+	}
+	d.state.mu.Lock()
+	defer d.state.mu.Unlock()
+	if skin != personas.ProductSkinUnspecified {
+		if d.state.appState == nil {
+			d.state.appState = make(map[string]any)
+		}
+		if d.state.userConfig == nil {
+			d.state.userConfig = make(map[string]any)
+		}
+		us, _ := d.state.userConfig["userSettings"].(map[string]any)
+		if us == nil {
+			us = make(map[string]any)
+			d.state.userConfig["userSettings"] = us
+		}
+		d.state.appState["productSkin"] = skin
+		us["project4kMode"] = skin
+	}
+	if persona != "" {
+		if d.state.appState == nil {
+			d.state.appState = make(map[string]any)
+		}
+		if d.state.userConfig == nil {
+			d.state.userConfig = make(map[string]any)
+		}
+		us, _ := d.state.userConfig["userSettings"].(map[string]any)
+		if us == nil {
+			us = make(map[string]any)
+			d.state.userConfig["userSettings"] = us
+		}
+		d.state.appState["onboardingPersonaId"] = persona
+		us["onboardingPersonaId"] = persona
+	}
 }

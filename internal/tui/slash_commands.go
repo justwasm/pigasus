@@ -214,6 +214,7 @@ func init() {
 		"add-dir":          (*RootModel).slashAddDir,
 		"agents":           (*RootModel).slashAgents,
 		"artifact":         (*RootModel).slashArtifact,
+		"battle":           (*RootModel).slashBattle,
 		"btw":              (*RootModel).slashBtw,
 		"changelog":        (*RootModel).slashChangelog,
 		"codesearch":       (*RootModel).slashCodesearch,

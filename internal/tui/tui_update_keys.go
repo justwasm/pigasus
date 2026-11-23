@@ -625,6 +625,17 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 		}
 		return m, nil, true
 	}
+	if m.agents.battle.Panel != nil && m.agents.battle.Panel.Active() {
+		if key.Code == tea.KeyEsc {
+			m.agents.battle.Panel.Close()
+			return m, nil, true
+		}
+		handled, cmd := m.agents.battle.Panel.HandleKey(key)
+		if handled {
+			return m, cmd, true
+		}
+		return m, nil, true
+	}
 	if m.audio.Surface.Active() {
 		if handled, cmd := m.audio.Surface.HandleKey(key); handled {
 			return m, cmd, true
@@ -836,6 +847,10 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 	}
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		m.swarm.Board.Close()
+		return m, nil
+	}
+	if m.agents.battle.Panel != nil && m.agents.battle.Panel.Active() {
+		m.agents.battle.Panel.Close()
 		return m, nil
 	}
 	if m.prompt.DismissPopups() {
@@ -2454,6 +2469,9 @@ func (m *RootModel) updateCompactEvents(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 }
 
 func (m *RootModel) updateTicksAndCompactMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if mod, cmd, handled := m.updateBattleMsg(msg); handled {
+		return mod, cmd, true
+	}
 	if mod, cmd, handled := m.updateCompactEvents(msg); handled {
 		return mod, cmd, true
 	}
@@ -2703,6 +2721,7 @@ func (m *RootModel) armEscReleaseTick() tea.Cmd {
 
 func (m *RootModel) canConsumeAltEsc() bool {
 	if m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.swarm.Board != nil && m.swarm.Board.Active()) ||
+		(m.agents.battle.Panel != nil && m.agents.battle.Panel.Active()) ||
 		m.prompt.picker.Visible() || m.prompt.atFilePicker.Visible() ||
 		m.overlays.resumePicker.Active() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) ||
 		m.prompt.mediaExpanded || m.isBtwCardVisible() ||
