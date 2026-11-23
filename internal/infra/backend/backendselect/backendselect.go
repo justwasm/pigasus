@@ -30,6 +30,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
@@ -215,10 +216,11 @@ func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Clie
 	})
 }
 
-// writeLog emits a warning message to the provided logWriter and also appends
-// it to the CLI log file (confhome.Antigravity()/cli.log) if available.
+// writeLog emits a warning message to the provided logWriter, the session log
+// (~/.openagy/log/cli-*.log), and confhome.Antigravity()/cli.log if available.
 func writeLog(w io.Writer, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
+	clilog.Logf("backendselect", "%s", strings.TrimSpace(msg))
 	if w != nil && w != io.Discard {
 		_, _ = io.WriteString(w, msg)
 	}

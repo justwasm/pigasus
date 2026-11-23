@@ -39,6 +39,7 @@ const (
 	Help
 	History
 	Terminal
+	Logs
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
@@ -46,7 +47,7 @@ func (k Kind) ExitNotice() bool {
 	switch k {
 	case None, Help, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
-		Usage, AddDir, Rename, FeatDiff, Projects, History, Terminal:
+		Usage, AddDir, Rename, FeatDiff, Projects, History, Terminal, Logs:
 		return false
 	}
 	return true
@@ -59,13 +60,13 @@ func (k Kind) KeepStatusHint() bool {
 
 // IsViewer reports whether the panel is a scrollable document viewer.
 func (k Kind) IsViewer() bool {
-	return k == Usage || k == Changelog || k == FeatDiff
+	return k == Usage || k == Changelog || k == FeatDiff || k == Logs
 }
 
 // TrailingBlank reports whether the panel's legend row is followed by an
 // empty row before the status row.
 func (k Kind) TrailingBlank() bool {
-	return k != Help && k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff
+	return k != Help && k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff && k != Logs
 }
 
 // OwnsEarlyKeys reports whether the panel intercepts keyboard navigation

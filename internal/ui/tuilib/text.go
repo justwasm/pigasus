@@ -2,9 +2,62 @@ package tuilib
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/x/ansi"
 )
+
+var spaces256 = strings.Repeat(" ", 256)
+
+func spaces(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n <= len(spaces256) {
+		return spaces256[:n]
+	}
+	return strings.Repeat(" ", n)
+}
+
+const (
+	maxLineWidthCacheEntries = 4096
+	maxLineWidthCacheBytes   = 2048
+)
+
+var (
+	lineWidthMu    sync.RWMutex
+	lineWidthCache = make(map[string]int, 256)
+)
+
+// StringWidth returns the visible cell width of s, using a zero-alloc ASCII+CSI
+// fast path and a bounded cache for non-ASCII / OSC lines across frames.
+func StringWidth(s string) int {
+	if s == "" {
+		return 0
+	}
+	if sw, ok := asciiANSIWidth(s); ok {
+		return sw
+	}
+	if len(s) <= maxLineWidthCacheBytes {
+		lineWidthMu.RLock()
+		sw, ok := lineWidthCache[s]
+		lineWidthMu.RUnlock()
+		if ok {
+			return sw
+		}
+	}
+	sw := ansi.StringWidth(s)
+	if len(s) <= maxLineWidthCacheBytes {
+		key := strings.Clone(s)
+		lineWidthMu.Lock()
+		if len(lineWidthCache) >= maxLineWidthCacheEntries {
+			clear(lineWidthCache)
+		}
+		lineWidthCache[key] = sw
+		lineWidthMu.Unlock()
+	}
+	return sw
+}
 
 // ViewRows counts the displayed rows in a string.
 func ViewRows(s string) int {
@@ -42,10 +95,10 @@ func asciiANSIWidth(s string) (int, bool) {
 				return 0, false
 			}
 			i += 2
-			for i < n && (s[i] < 0x40 || s[i] > 0x7e) {
+			for i < n && s[i] >= 0x20 && s[i] <= 0x3f {
 				i++
 			}
-			if i >= n {
+			if i >= n || s[i] < 0x40 || s[i] > 0x7e {
 				return 0, false
 			}
 			continue
@@ -67,15 +120,12 @@ func FitWidth(s string, w int) string {
 	if w <= 0 {
 		return s
 	}
-	sw, ok := asciiANSIWidth(s)
-	if !ok {
-		sw = ansi.StringWidth(s)
-	}
+	sw := StringWidth(s)
 	switch {
 	case sw > w:
 		return ansi.Truncate(s, w, "")
 	case sw < w:
-		return s + "\x1b[38;5;235m" + strings.Repeat(" ", w-sw) + "\x1b[39m"
+		return s + "\x1b[38;5;235m" + spaces(w-sw) + "\x1b[39m"
 	}
 	return s
 }
@@ -135,12 +185,7 @@ func WrapRows(line string, width int) []string {
 			out = append(out, sub)
 			continue
 		}
-		if sw, ok := asciiANSIWidth(sub); ok {
-			if sw <= width {
-				out = append(out, sub)
-				continue
-			}
-		} else if ansi.StringWidth(sub) <= width {
+		if StringWidth(sub) <= width {
 			out = append(out, sub)
 			continue
 		}
@@ -155,17 +200,14 @@ func PadTo(s string, w int) string {
 		return ""
 	}
 	if s == "" {
-		return strings.Repeat(" ", w)
+		return spaces(w)
 	}
-	sw, ok := asciiANSIWidth(s)
-	if !ok {
-		sw = ansi.StringWidth(s)
-	}
+	sw := StringWidth(s)
 	if sw > w {
 		return ansi.Truncate(s, w, "")
 	}
 	if sw < w {
-		return s + strings.Repeat(" ", w-sw)
+		return s + spaces(w-sw)
 	}
 	return s
 }
@@ -190,11 +232,7 @@ func Truncate(s string, w int, tail string) string {
 	if w <= 0 {
 		return ""
 	}
-	if sw, ok := asciiANSIWidth(s); ok {
-		if sw <= w {
-			return s
-		}
-	} else if ansi.StringWidth(s) <= w {
+	if StringWidth(s) <= w {
 		return s
 	}
 	return ansi.Truncate(s, w, tail)

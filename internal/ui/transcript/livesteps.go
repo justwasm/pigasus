@@ -56,22 +56,21 @@ func (d *Document) batchHasPriorTools(batch int, batchBreak bool) bool {
 // The index is -1 when the batch holds no run.
 func (d *Document) batchRuns(batch int) (int, []toolsteps.Step) {
 	first := -1
+	var steps []toolsteps.Step
 	for i := range d.Runs {
 		s := d.Runs[i].Step
 		if s.Kind == toolsteps.KindThought || s.Batch != batch {
 			continue
 		}
-		first = i
-		break
+		if first < 0 {
+			first = i
+		}
+		steps = append(steps, s)
 	}
 	if first < 0 {
 		return -1, nil
 	}
-	steps := make([]toolsteps.Step, len(d.Runs))
-	for i := range d.Runs {
-		steps[i] = d.Runs[i].Step
-	}
-	return first, toolsteps.BatchSteps(steps, batch)
+	return first, steps
 }
 
 // AppendLiveStep paints a step into the transcript as a run of its own.

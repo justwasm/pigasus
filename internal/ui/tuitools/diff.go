@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/justwasm/pigasus/diffsyntax"
@@ -45,6 +47,14 @@ type EditDiff struct {
 	// removed lines — and prints a summary for each of them before that
 	// change's rows.
 	Hunks []EditHunk
+
+	renderMu     sync.Mutex
+	cachedWidth  int
+	cachedScheme string
+	cachedPath   string
+	cachedHunks  int
+	cachedRows   int
+	cachedLines  []string
 }
 
 // EditHunk is one change of an edit: the rows it touched and how many
@@ -209,6 +219,20 @@ func RenderDiffLines(d *EditDiff, width int) []string {
 	if d == nil {
 		return nil
 	}
+	scheme, _ := palette.CurrentScheme()
+	d.renderMu.Lock()
+	if d.cachedLines != nil &&
+		d.cachedWidth == width &&
+		d.cachedScheme == scheme &&
+		d.cachedPath == d.Path &&
+		d.cachedHunks == len(d.Hunks) &&
+		d.cachedRows == len(d.Rows) {
+		out := slices.Clone(d.cachedLines)
+		d.renderMu.Unlock()
+		return out
+	}
+	d.renderMu.Unlock()
+
 	style := diffrow.TranscriptStyle()
 	layout := diffrow.NewLayout(width-diffIndentWidth, maxLineNum(d))
 	var out []string
@@ -241,6 +265,15 @@ func RenderDiffLines(d *EditDiff, width int) []string {
 	if lastKind == '+' || lastKind == '-' {
 		out = append(out, "    ")
 	}
+
+	d.renderMu.Lock()
+	d.cachedWidth = width
+	d.cachedScheme = scheme
+	d.cachedPath = d.Path
+	d.cachedHunks = len(d.Hunks)
+	d.cachedRows = len(d.Rows)
+	d.cachedLines = slices.Clone(out)
+	d.renderMu.Unlock()
 	return out
 }
 
@@ -248,14 +281,7 @@ func RenderDiffLines(d *EditDiff, width int) []string {
 // colours. A file whose language the highlighter does not know comes
 // back unchanged.
 func highlightDiffText(path, text string) string {
-	if path == "" {
-		return text
-	}
-	tokens := diffsyntax.TokenizeLine(path, " "+text)
-	if len(tokens) <= 1 {
-		return text
-	}
-	return diffsyntax.RenderInlineTokenStream(tokens[1:])
+	return diffsyntax.HighlightCodeLine(path, text)
 }
 
 // diffIndent is the indent the reference's diff rows carry.

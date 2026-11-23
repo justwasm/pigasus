@@ -617,3 +617,78 @@ func IsScopeMismatchErr(err error) bool {
 	}
 	return he.IsScopeMismatch()
 }
+
+var modelAccessKeywords = []string{
+	"publisher model",
+	"does not have access",
+	"cannot use",
+	"cannot be used",
+	"not supported",
+	"not available",
+	"ineligible",
+	"permission_denied",
+	"model_not_found",
+	"model not found",
+}
+
+// IsModelAccess reports whether this HTTPError indicates the current account
+// or project lacks access/eligibility for the requested model (403/404, or 400
+// with model-access keywords), excluding quota/auth/disabled errors.
+func (e *HTTPError) IsModelAccess() bool {
+	if e == nil || e.IsQuotaReached() || e.IsAccountDisabled() || e.IsAuthFailure() {
+		return false
+	}
+	if e.StatusCode == http.StatusForbidden || e.StatusCode == http.StatusNotFound {
+		return true
+	}
+	if e.StatusCode == http.StatusBadRequest {
+		low := strings.ToLower(string(e.Body) + " " + e.Message())
+		for _, kw := range modelAccessKeywords {
+			if strings.Contains(low, kw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsModelAccessErr walks err's chain via errors.As looking for an *HTTPError
+// and reports whether it indicates a model-access / eligibility failure.
+func IsModelAccessErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.IsModelAccess()
+}
+
+// FormatRetryReason returns a concise, single-line summary of err suitable for
+// displaying alongside a retry countdown in the TUI.
+func FormatRetryReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	var raw string
+	var he *HTTPError
+	if errors.As(err, &he) {
+		msg := strings.TrimSpace(he.Message())
+		if msg != "" && !strings.EqualFold(msg, http.StatusText(he.StatusCode)) {
+			raw = fmt.Sprintf("HTTP %d: %s", he.StatusCode, msg)
+		} else if he.StatusCode > 0 {
+			raw = fmt.Sprintf("HTTP %d %s", he.StatusCode, http.StatusText(he.StatusCode))
+		}
+	}
+	if raw == "" {
+		raw = err.Error()
+	}
+	raw = strings.Join(strings.Fields(raw), " ")
+	const maxRunes = 72
+	runes := []rune(raw)
+	if len(runes) > maxRunes {
+		return strings.TrimSpace(string(runes[:maxRunes-3])) + "..."
+	}
+	return raw
+}

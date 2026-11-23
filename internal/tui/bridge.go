@@ -17,7 +17,9 @@ import (
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/session"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 )
@@ -224,10 +226,12 @@ func (b *EngineBridge) runTurnOn(turnCtx context.Context, model string, msgs []b
 			if !p.RetryAt.IsZero() {
 				ms = p.RetryAt.UnixMilli()
 			}
+			reason := clilog.Sanitize(apierror.FormatRetryReason(p.Err))
 			b.prog.Send(modelRetryStatusMsg{
 				attempt:       p.Attempt,
 				maxAttempts:   p.MaxAttempts,
 				retryAtUnixMS: ms,
+				reason:        reason,
 			})
 		}
 	})

@@ -34,45 +34,53 @@ func FormatScrollPositionIndicator(linesBelow, turnsBelow int) string {
 // agy 1.4.10 renders no hint suffix on the pinned prompt header.
 const PinnedPromptJumpHint = ""
 
-// IsUserPromptRow reports whether row is a row that begins a user prompt.
-func IsUserPromptRow(row string) bool {
-	if strings.HasPrefix(row, palette.UserFgBoldOpen) {
-		rest := row[len(palette.UserFgBoldOpen):]
-		for len(rest) >= 2 && rest[0] == '\x1b' {
-			end := strings.IndexByte(rest, 'm')
-			if end < 0 {
-				return false
-			}
-			rest = rest[end+1:]
-		}
-		return strings.HasPrefix(rest, "> ")
-	}
-	if strings.HasPrefix(row, palette.WarningBlueOpen) {
-		rest := row[len(palette.WarningBlueOpen):]
-		// Strip any leading ANSI that may precede the literal ">".
-		for len(rest) >= 2 && rest[0] == '\x1b' {
-			end := strings.IndexByte(rest, 'm')
-			if end < 0 {
-				return false
-			}
-			rest = rest[end+1:]
-		}
-		return strings.HasPrefix(rest, "> ")
-	}
+var schemeUserPromptOpens = func() []string {
+	seen := make(map[string]struct{}, len(palette.Schemes))
+	var opens []string
 	for _, sc := range palette.Schemes {
 		open := palette.SeqWith(sc.UserFg, "1")
-		if open != "" && strings.HasPrefix(row, open) {
-			rest := row[len(open):]
-			for len(rest) >= 2 && rest[0] == '\x1b' {
-				end := strings.IndexByte(rest, 'm')
-				if end < 0 {
-					return false
-				}
-				rest = rest[end+1:]
-			}
-			if strings.HasPrefix(rest, "> ") {
-				return true
-			}
+		if open == "" {
+			continue
+		}
+		if _, ok := seen[open]; ok {
+			continue
+		}
+		seen[open] = struct{}{}
+		opens = append(opens, open)
+	}
+	return opens
+}()
+
+func hasPromptMarkerAfterOpen(row, open string) bool {
+	if open == "" || !strings.HasPrefix(row, open) {
+		return false
+	}
+	rest := row[len(open):]
+	// Strip any leading ANSI that may precede the literal ">".
+	for len(rest) >= 2 && rest[0] == '\x1b' {
+		end := strings.IndexByte(rest, 'm')
+		if end < 0 {
+			return false
+		}
+		rest = rest[end+1:]
+	}
+	return strings.HasPrefix(rest, "> ")
+}
+
+// IsUserPromptRow reports whether row is a row that begins a user prompt.
+func IsUserPromptRow(row string) bool {
+	if !strings.HasPrefix(row, "\x1b[") {
+		return false
+	}
+	if hasPromptMarkerAfterOpen(row, palette.UserFgBoldOpen) {
+		return true
+	}
+	if hasPromptMarkerAfterOpen(row, palette.WarningBlueOpen) {
+		return true
+	}
+	for _, open := range schemeUserPromptOpens {
+		if hasPromptMarkerAfterOpen(row, open) {
+			return true
 		}
 	}
 	return false

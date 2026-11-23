@@ -2,7 +2,10 @@
 package diffsyntax
 
 import (
+	"container/list"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -68,11 +71,111 @@ func isDiffMetadataLine(line string) bool {
 	return false
 }
 
-func chromaLexerForFilename(filename string) chroma.Lexer {
+const (
+	maxLexerCacheEntries   = 4096
+	maxTokenCacheEntries   = 4096
+	maxTokenCacheLineBytes = 4096
+)
+
+type cachedLexer struct {
+	lex chroma.Lexer // already wrapped with chroma.Coalesce; nil means negative cache hit
+}
+
+var (
+	lexerCacheMu sync.RWMutex
+	lexerCache   = make(map[string]*cachedLexer)
+)
+
+func getCachedLexer(filename string) *cachedLexer {
 	if filename == "" {
 		return nil
 	}
-	return lexers.Match(filename)
+	// chroma's LexerRegistry.Match immediately reduces filename via filepath.Base,
+	// so keying by basename shares one cachedLexer across all directories.
+	base := filepath.Base(filename)
+	lexerCacheMu.RLock()
+	cl, ok := lexerCache[base]
+	lexerCacheMu.RUnlock()
+	if ok {
+		return cl
+	}
+	lex := lexers.Match(base)
+	if lex != nil {
+		lex = chroma.Coalesce(lex)
+	}
+	lexerCacheMu.Lock()
+	if existing, ok := lexerCache[base]; ok {
+		lexerCacheMu.Unlock()
+		return existing
+	}
+	cl = &cachedLexer{lex: lex}
+	if len(lexerCache) >= maxLexerCacheEntries {
+		clear(lexerCache)
+	}
+	lexerCache[base] = cl
+	lexerCacheMu.Unlock()
+	return cl
+}
+
+func chromaLexerForFilename(filename string) chroma.Lexer {
+	cl := getCachedLexer(filename)
+	if cl == nil {
+		return nil
+	}
+	return cl.lex
+}
+
+type tokenCacheKey struct {
+	lex  *cachedLexer
+	text string
+}
+
+type tokenCacheEntry struct {
+	key    tokenCacheKey
+	tokens []Token
+}
+
+type tokenLRU struct {
+	mu    sync.Mutex
+	items map[tokenCacheKey]*list.Element
+	order *list.List
+}
+
+var globalTokenCache = &tokenLRU{
+	items: make(map[tokenCacheKey]*list.Element),
+	order: list.New(),
+}
+
+func (c *tokenLRU) get(key tokenCacheKey) ([]Token, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(el)
+	return el.Value.(*tokenCacheEntry).tokens, true
+}
+
+func (c *tokenLRU) put(key tokenCacheKey, tokens []Token) {
+	if len(key.text) > maxTokenCacheLineBytes {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		c.order.MoveToFront(el)
+		el.Value.(*tokenCacheEntry).tokens = tokens
+		return
+	}
+	if c.order.Len() >= maxTokenCacheEntries {
+		if back := c.order.Back(); back != nil {
+			c.order.Remove(back)
+			delete(c.items, back.Value.(*tokenCacheEntry).key)
+		}
+	}
+	el := c.order.PushFront(&tokenCacheEntry{key: key, tokens: tokens})
+	c.items[key] = el
 }
 
 func chromaToDiffClass(tt chroma.TokenType) TokenClass {
@@ -99,9 +202,18 @@ func chromaToDiffClass(tt chroma.TokenType) TokenClass {
 	return Plain
 }
 
+func chromaTokenizeCached(cl *cachedLexer, text string) []Token {
+	key := tokenCacheKey{lex: cl, text: text}
+	if cached, ok := globalTokenCache.get(key); ok {
+		return cached
+	}
+	toks := chromaTokenize(cl.lex, text)
+	globalTokenCache.put(key, toks)
+	return toks
+}
+
 func chromaTokenize(lex chroma.Lexer, text string) []Token {
-	c := chroma.Coalesce(lex)
-	it, err := c.Tokenise(nil, text)
+	it, err := lex.Tokenise(nil, text)
 	if err != nil {
 		return []Token{{Text: text, Class: Plain}}
 	}
@@ -131,20 +243,43 @@ func TokenizeLine(filename, line string) []Token {
 	if isDiffMetadataLine(line) {
 		return []Token{{Text: line, Class: Plain}}
 	}
-	lex := chromaLexerForFilename(filename)
-	if lex == nil {
+	cl := getCachedLexer(filename)
+	if cl == nil || cl.lex == nil {
 		return []Token{{Text: line, Class: Plain}}
 	}
 	if isDiffMarker(line) {
 		marker := line[:1]
 		rest := line[1:]
-		out := []Token{{Text: marker, Class: Plain}}
-		if rest != "" {
-			out = append(out, chromaTokenize(lex, rest)...)
+		if rest == "" {
+			return []Token{{Text: marker, Class: Plain}}
 		}
+		toks := chromaTokenizeCached(cl, rest)
+		out := make([]Token, 1+len(toks))
+		out[0] = Token{Text: marker, Class: Plain}
+		copy(out[1:], toks)
 		return out
 	}
-	return chromaTokenize(lex, line)
+	toks := chromaTokenizeCached(cl, line)
+	out := make([]Token, len(toks))
+	copy(out, toks)
+	return out
+}
+
+// HighlightCodeLine tokenises and renders a single code line (without a diff
+// marker prefix) for inline diff views. Unknown languages return text unchanged.
+func HighlightCodeLine(filename, text string) string {
+	if filename == "" || text == "" {
+		return text
+	}
+	cl := getCachedLexer(filename)
+	if cl == nil || cl.lex == nil {
+		return text
+	}
+	toks := chromaTokenizeCached(cl, text)
+	if len(toks) == 1 && toks[0].Class == Plain && len(toks[0].Text) > 0 && toks[0].Text[0] != '+' && toks[0].Text[0] != '-' {
+		return text
+	}
+	return RenderInlineTokenStream(toks)
 }
 
 // TokenOpen returns the ANSI opens for a non-plain token class.

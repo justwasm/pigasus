@@ -121,29 +121,40 @@
     }
   }
 
+  const sessionSyncQueue = new Map();
+
   async function syncSessionToServer(sess) {
-    if (!state?.hasServer || !sess) return;
-    try {
-      const payload = {
-        id: sess.id,
-        title: sess.title,
-        workspace: sess.workspace || '',
-        model: sess.model || 'models/gemini-3.8-live',
-        voice: sess.voice || 'Fola',
-        created_at: new Date(sess.createdAt || Date.now()).toISOString(),
-        updated_at: new Date(sess.updatedAt || Date.now()).toISOString(),
-        turns: (sess.turns || []).map((t) => ({
-          role: t.role === 'agent' ? 'Agent' : 'User',
-          content: t.text || t.content || '',
-          timestamp: new Date(t.timestamp || Date.now()).toISOString(),
-        })),
-      };
-      await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (_) {}
+    if (!state?.hasServer || !sess || !sess.id) return;
+    const payload = {
+      id: sess.id,
+      title: sess.title,
+      workspace: sess.workspace || '',
+      model: sess.model || 'models/gemini-3.8-live',
+      voice: sess.voice || 'Fola',
+      created_at: new Date(sess.createdAt || Date.now()).toISOString(),
+      updated_at: new Date(sess.updatedAt || Date.now()).toISOString(),
+      turns: (sess.turns || []).map((t) => ({
+        role: t.role === 'agent' ? 'Agent' : 'User',
+        content: t.text || t.content || '',
+        translation: t.translation || '',
+        audio_id: t.audioId || t.audio_id || '',
+        audio_sample_rate: t.audioSampleRate || t.audio_sample_rate || 0,
+        timestamp: new Date(t.timestamp || Date.now()).toISOString(),
+      })),
+    };
+    const prev = sessionSyncQueue.get(sess.id) || Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(() =>
+        fetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      )
+      .catch(() => {});
+    sessionSyncQueue.set(sess.id, next);
+    await next;
   }
 
   async function deleteSessionFromServer(id) {
@@ -165,7 +176,7 @@
 
   const state = {
     hasServer: false,
-    authMode: localStorage.getItem('pigasus_auth_mode') || 'oauth',
+    authMode: localStorage.getItem('pigasus_auth_mode') || 'aggregate',
     oauthToken: (storedAcc?.token?.token?.access_token) || localStorage.getItem('pigasus_oauth_token') || '',
     oauthRefreshToken: (storedAcc?.token?.token?.refresh_token) || localStorage.getItem('pigasus_oauth_refresh_token') || '',
     oauthExpiry: (storedAcc?.token?.token?.expiry) || localStorage.getItem('pigasus_oauth_expiry') || '',
@@ -173,7 +184,12 @@
     oauthPlanTier: (storedAcc?.plan_tier) || localStorage.getItem('pigasus_oauth_plan_tier') || 'Google AI Pro',
     oauthRawCode: (storedAcc?.raw_input) || localStorage.getItem('pigasus_oauth_raw_code') || '',
     apiKey: localStorage.getItem('pigasus_api_key') || '',
-    proxyURL: localStorage.getItem('pigasus_proxy_url') || 'http://127.0.0.1:8085',
+    proxyURL: localStorage.getItem('pigasus_proxy_url') || '',
+    serverHasOAuth: false,
+    serverHasApiKey: false,
+    serverAggregateEnabled: false,
+    serverPoolCount: 0,
+    serverPoolHealthy: 0,
     activeSessionID: null,
 
     // Live Voice Session State
@@ -189,10 +205,10 @@
     analyser: null,
     animFrameId: null,
 
-    // Audio Replay Storage
+    // Audio Replay Storage (in-memory + IndexedDB persistent cache)
     currentTurnAudioChunks: [],
     currentUserTurnAudioChunks: [],
-    turnAudioMap: new Map(), // turnId -> string[] base64 chunks
+    turnAudioMap: new Map(), // turnId -> { sampleRate, pcmBuffer } | string[]
     activeReplaySource: null,
     activeReplayBtn: null,
 
@@ -204,10 +220,31 @@
     isFullDuplex: true,
     agentSpeakingUntil: 0,
     activeAuditionAudio: null,
+    activeAuditionSample: null,
 
     // Microphone Hardware & Device Selection
     selectedMicDeviceId: localStorage.getItem('pigasus_mic_device_id') || '',
     micSourceNode: null,
+    micConstraints: {
+      echoCancellation: localStorage.getItem('pigasus_mic_aec') !== 'false',
+      noiseSuppression: localStorage.getItem('pigasus_mic_ns') !== 'false',
+      autoGainControl: localStorage.getItem('pigasus_mic_agc') !== 'false',
+    },
+    micTest: {
+      active: false,
+      starting: false,
+      audioCtx: null,
+      stream: null,
+      sourceNode: null,
+      analyser: null,
+      processor: null,
+      animFrameId: null,
+      recording: false,
+      recordedChunks: [],
+      recordTimer: null,
+      playbackSource: null,
+      sampleRate: 0,
+    },
 
     // Multi-Session Management (aligning with ./cmd/livechat)
     sessions: initialSessions,
@@ -227,6 +264,9 @@
     barProxyRoute: document.getElementById('bar-proxy-route'),
 
     // Auth Tab
+    cliAuthAutoBanner: document.getElementById('cli-auth-auto-banner'),
+    oauthFallbackDetails: document.getElementById('oauth-fallback-details'),
+    sidebarStatusDot: document.querySelector('.user-profile-button .status-indicator-dot'),
     btnStartOAuth: document.getElementById('btn-start-oauth'),
     btnLoadCLIToken: document.getElementById('btn-load-cli-token'),
     authUrlContainer: document.getElementById('auth-url-container'),
@@ -261,13 +301,15 @@
     chatSendBtn: document.getElementById('chat-send-btn'),
 
     // Live Tab
+    liveStatusPill: document.getElementById('live-status-pill'),
     liveDot: document.getElementById('live-dot'),
     liveStatusText: document.getElementById('live-status-text'),
     liveDuplexState: document.getElementById('live-duplex-state'),
     liveModelSelect: document.getElementById('live-model-select'),
     liveVoiceSelect: document.getElementById('live-voice-select'),
-    btnAuditionVoice: document.getElementById('btn-audition-voice'),
-    voiceSampleVariant: document.getElementById('voice-sample-variant'),
+    voicePersonaGrid: document.getElementById('voice-persona-grid'),
+    voicePersonaMeta: document.getElementById('voice-persona-meta'),
+    auditionSamplesGroup: document.getElementById('audition-samples-group'),
     liveMicSelect: document.getElementById('live-mic-select'),
     micHotplugIndicator: document.getElementById('mic-hotplug-indicator'),
     liveAuthSelect: document.getElementById('live-auth-select'),
@@ -287,7 +329,6 @@
     btnNewLiveSession: document.getElementById('btn-new-live-session'),
     btnManageSessions: document.getElementById('btn-manage-sessions'),
     sessionCountBadge: document.getElementById('session-count-badge'),
-    btnClearTranscript: document.getElementById('btn-clear-transcript'),
     sessionModal: document.getElementById('session-modal'),
     btnCloseSessionModal: document.getElementById('btn-close-session-modal'),
     sessionSearchInput: document.getElementById('session-search-input'),
@@ -306,9 +347,33 @@
     btnTestProxy: document.getElementById('btn-test-proxy'),
     proxyTestResult: document.getElementById('proxy-test-result'),
 
+    // Microphone Test & Diagnostics Tab
+    btnGotoMicTest: document.getElementById('btn-goto-mic-test'),
+    micDiagSecure: document.getElementById('mic-diag-secure'),
+    micDiagPermission: document.getElementById('mic-diag-permission'),
+    micDiagSampleRate: document.getElementById('mic-diag-samplerate'),
+    micDiagTrack: document.getElementById('mic-diag-track'),
+    micTestDeviceSelect: document.getElementById('mic-test-device-select'),
+    btnMicTestRefresh: document.getElementById('btn-mic-test-refresh'),
+    micOptAec: document.getElementById('mic-opt-aec'),
+    micOptNs: document.getElementById('mic-opt-ns'),
+    micOptAgc: document.getElementById('mic-opt-agc'),
+    micTestWaveform: document.getElementById('mic-test-waveform'),
+    micTestMeterRole: document.getElementById('mic-test-meter-role'),
+    micTestMeterFill: document.getElementById('mic-test-meter-fill'),
+    micTestLevelVal: document.getElementById('mic-test-level-val'),
+    micTestDbVal: document.getElementById('mic-test-db-val'),
+    micTestSignalBadge: document.getElementById('mic-test-signal-badge'),
+    btnMicTestToggle: document.getElementById('btn-mic-test-toggle'),
+    btnMicTestRecord: document.getElementById('btn-mic-test-record'),
+    btnMicTestTone: document.getElementById('btn-mic-test-tone'),
+    micTestStatus: document.getElementById('mic-test-status'),
+    micTestTrackDetails: document.getElementById('mic-test-track-details'),
+
     // Modern Sidebar & Layout
     chatSidebar: document.getElementById('chat-sidebar'),
     btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
+    btnHeaderNewChat: document.getElementById('btn-header-new-chat'),
     btnCloseSidebar: document.getElementById('btn-close-sidebar'),
     sidebarOverlay: document.getElementById('sidebar-overlay'),
     sidebarBtnNewChat: document.getElementById('sidebar-btn-new-chat'),
@@ -327,15 +392,24 @@
     btnThemeToggle: document.getElementById('btn-theme-toggle'),
     themeToggleIcon: document.getElementById('theme-toggle-icon'),
     composerModelSelect: document.getElementById('composer-model-select'),
+    composerModelLabel: document.getElementById('composer-model-label'),
+    composerDuplexDot: document.getElementById('composer-duplex-dot'),
     btnToggleBargein: document.getElementById('btn-toggle-bargein'),
     bargeinBadgeIcon: document.getElementById('bargein-badge-icon'),
     bargeinBadgeText: document.getElementById('bargein-badge-text'),
+    bargeinStatePill: document.getElementById('bargein-state-pill'),
     btnComposerVoice: document.getElementById('btn-composer-voice'),
     composerVoiceLabel: document.getElementById('composer-voice-label'),
-    headerModelPill: document.getElementById('header-model-pill'),
-    headerModelName: document.getElementById('header-model-name'),
-    headerThinkBadge: document.getElementById('header-think-badge'),
+    composerAudioPopover: document.getElementById('composer-audio-popover'),
+    popoverOptAec: document.getElementById('popover-opt-aec'),
+    popoverOptNs: document.getElementById('popover-opt-ns'),
+    popoverOptAgc: document.getElementById('popover-opt-agc'),
+    popoverAecBadge: document.getElementById('popover-aec-badge'),
+    btnPopoverMicTest: document.getElementById('btn-popover-mic-test'),
+    composerToolbar: document.querySelector('.composer-toolbar-bottom'),
   };
+
+  let serverDetectPromise = null;
 
   // --- Initialization ---
   async function init() {
@@ -347,6 +421,7 @@
     setupLiveListeners();
     setupAuditionListeners();
     setupMicrophoneManager();
+    setupMicTestSection();
     setupProxySettingsListeners();
     setupModernSidebar();
     setupModernSettingsModal();
@@ -361,43 +436,107 @@
       elems.btnLiveTextSend.disabled = false;
     }
 
+    // Resume suspended Web Audio contexts when returning to tab on Android Chrome
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (state.audioCtx && state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume().catch(() => {});
+        }
+        if (state.micAudioCtx && state.micAudioCtx.state === 'suspended') {
+          state.micAudioCtx.resume().catch(() => {});
+        }
+      }
+    });
+
     // Check if running alongside backend server (pigasus livechat --web) or as pure static website
-    await detectServerCapabilities();
+    serverDetectPromise = detectServerCapabilities();
+    await serverDetectPromise;
   }
 
   // --- Server Capabilities & Mode Detection ---
   async function detectServerCapabilities() {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1500);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
 
-      const resp = await fetch('/api/config', { signal: controller.signal });
-      clearTimeout(timer);
+        const resp = await fetch('/api/config', { signal: controller.signal });
+        clearTimeout(timer);
 
-      if (resp.ok) {
-        state.hasServer = true;
-        const cfg = await resp.json();
-        if (cfg.client_secret) {
-          dynamicClientSecret = cfg.client_secret;
+        if (resp.ok) {
+          state.hasServer = true;
+          const cfg = await resp.json();
+          state.serverHasOAuth = !!cfg.has_oauth_token;
+          state.serverHasApiKey = !!cfg.has_api_key;
+          state.serverAggregateEnabled = !!cfg.aggregate_enabled;
+          state.serverPoolCount = Number(cfg.pool_account_count || 0);
+          state.serverPoolHealthy = Number(cfg.pool_healthy_count || 0);
+          if (cfg.client_secret) {
+            dynamicClientSecret = cfg.client_secret;
+          }
+          if (cfg.default_proxy && !localStorage.getItem('pigasus_proxy_url')) {
+            state.proxyURL = cfg.default_proxy;
+            if (elems.cfgProxyUrl) elems.cfgProxyUrl.value = cfg.default_proxy;
+          }
+          const savedMode = localStorage.getItem('pigasus_auth_mode');
+          const explicitMode = localStorage.getItem('pigasus_auth_mode_explicit') === '1';
+          if (state.serverAggregateEnabled && (!savedMode || (!explicitMode && savedMode === 'oauth'))) {
+            state.authMode = 'aggregate';
+            localStorage.setItem('pigasus_auth_mode', 'aggregate');
+          }
+          if (cfg.has_oauth_token && localStorage.getItem('pigasus_oauth_manual_clear') !== '1') {
+            const isCliSynced = !state.oauthToken ||
+              (state.oauthRawCode && (state.oauthRawCode.startsWith('Auto-loaded') || state.oauthRawCode.startsWith('Loaded from local Pigasus')));
+            const expMs = state.oauthExpiry ? new Date(state.oauthExpiry).getTime() : 0;
+            const isExpiringOrExpired = !expMs || Number.isNaN(expMs) || expMs <= Date.now() + 120000;
+            const missingEmail = !state.oauthEmail && !!cfg.oauth_email;
+
+            if (isCliSynced || isExpiringOrExpired || missingEmail) {
+              try {
+                const tokRes = await fetch('/api/auth/existing');
+                if (tokRes.ok) {
+                  const tokData = await tokRes.json();
+                  if (tokData.available && tokData.access_token) {
+                    const keepCurrentMode =
+                      state.authMode === 'aggregate' ||
+                      (savedMode === 'api_key' && (!!state.apiKey || !!cfg.has_api_key)) ||
+                      (savedMode === 'proxy' && !!state.proxyURL);
+                    saveOAuthAccount(
+                      {
+                        access_token: tokData.access_token,
+                        refresh_token: tokData.refresh_token,
+                        expiry: tokData.expiry,
+                        email: tokData.email || cfg.oauth_email || '',
+                        plan_tier: tokData.plan_tier || 'Google AI Pro (CLI)',
+                        raw_input: 'Auto-loaded from local Pigasus configuration',
+                      },
+                      { preserveAuthMode: keepCurrentMode }
+                    );
+                  }
+                }
+              } catch (_) {}
+            }
+          }
+          elems.appStatus.textContent = 'Server Mode';
+          elems.appStatus.className = 'badge badge-server';
+          elems.btnLoadCLIToken.classList.remove('hidden');
+          syncUIWithState();
+          await syncSessionsFromServer();
+          return;
         }
-        if (cfg.default_proxy && !localStorage.getItem('pigasus_proxy_url')) {
-          state.proxyURL = cfg.default_proxy;
-          elems.cfgProxyUrl.value = cfg.default_proxy;
-        }
-        elems.appStatus.textContent = 'Server Mode';
-        elems.appStatus.className = 'badge badge-server';
-        elems.btnLoadCLIToken.classList.remove('hidden');
-        await syncSessionsFromServer();
-        return;
+      } catch (_) {
+        // Retry once on transient startup delay
       }
-    } catch (_) {
-      // Offline / Static site mode
     }
 
     state.hasServer = false;
+    if (state.authMode === 'aggregate') {
+      state.authMode = state.apiKey && !state.oauthToken ? 'api_key' : 'oauth';
+    }
     elems.appStatus.textContent = 'Static Standalone';
     elems.appStatus.className = 'badge badge-static';
     elems.btnLoadCLIToken.title = 'CLI auto-detection requires pigasus livechat server; paste your token or use Google OAuth login directly.';
+    syncUIWithState();
   }
 
   async function syncSessionsFromServer() {
@@ -436,7 +575,7 @@
         renderSidebarSessionList();
 
         const active = state.sessions.find((s) => s.id === state.activeSessionId);
-        if (active && (!active.turns || active.turns.length === 0)) {
+        if (active && (!active.turns || active.turns.length === 0) && serverSummaries.some((s) => s.id === active.id)) {
           await loadFullSessionFromServer(active.id);
         }
       }
@@ -462,6 +601,9 @@
             id: 'turn_' + idx,
             role: (t.role || t.Role || 'user').toLowerCase(),
             text: t.content || t.Content || t.text || '',
+            translation: t.translation || t.Translation || '',
+            audioId: t.audio_id || t.AudioID || '',
+            audioSampleRate: t.audio_sample_rate || t.AudioSampleRate || 0,
             timestamp: t.timestamp ? new Date(t.timestamp).getTime() : Date.now(),
           }));
         }
@@ -484,6 +626,11 @@
   function applyTheme(themeChoice) {
     const effective = themeChoice === 'system' ? getSystemTheme() : themeChoice;
     document.documentElement.setAttribute('data-theme', effective);
+    document.documentElement.style.colorScheme = effective === 'light' ? 'light' : 'dark';
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute('content', effective === 'light' ? '#f8fafc' : '#0a0d14');
+    }
 
     if (elems.themeToggleIcon) {
       elems.themeToggleIcon.textContent = effective === 'light' ? '☀️' : '🌙';
@@ -536,7 +683,22 @@
   }
 
   // --- Functional Composer Controls & Model Switching ---
-  function syncModelSelection(modelVal) {
+  function formatShortModelName(modelVal) {
+    if (!modelVal) return 'Gemini 3.8 Live';
+    if (modelVal.includes('2.0-flash')) return 'Gemini 2.0 Flash';
+    if (modelVal.includes('extended-thinking')) return 'Gemini 3.8 Thinking';
+    return 'Gemini 3.8 Live';
+  }
+
+  function updateUnifiedTriggerTitle() {
+    if (!elems.btnComposerVoice) return;
+    const modelLabel = elems.composerModelLabel?.textContent || 'Gemini 3.8 Live';
+    const voiceLabel = elems.composerVoiceLabel?.textContent || 'Fola';
+    const duplexLabel = state.isFullDuplex ? 'Full Duplex' : 'Half Duplex';
+    elems.btnComposerVoice.title = `${modelLabel} · ${voiceLabel} (${duplexLabel}) — Click to configure`;
+  }
+
+  function syncModelSelection(modelVal, syncRemote = true) {
     if (!modelVal) modelVal = 'models/gemini-3.8-live';
 
     if (elems.composerModelSelect && elems.composerModelSelect.value !== modelVal) {
@@ -548,46 +710,50 @@
 
     // Update active session model
     const active = state.sessions.find((s) => s.id === state.activeSessionId);
-    if (active) {
+    if (active && active.model !== modelVal) {
       active.model = modelVal;
-      saveStoredLiveSessions(state.sessions);
+      saveStoredLiveSessions(state.sessions, syncRemote);
     }
     localStorage.setItem('pigasus_live_model', modelVal);
 
-    // Update Header Pill
-    const isThinking = modelVal.includes('extended-thinking');
-    if (elems.headerModelName) {
-      if (modelVal.includes('2.0-flash')) {
-        elems.headerModelName.textContent = 'Gemini 2.0 Flash';
-      } else {
-        elems.headerModelName.textContent = 'Gemini 3.8 Live';
-      }
-    }
-    if (elems.headerThinkBadge) {
-      if (isThinking) {
-        elems.headerThinkBadge.classList.remove('hidden');
-      } else {
-        elems.headerThinkBadge.classList.add('hidden');
-      }
+    const shortName = formatShortModelName(modelVal);
+    if (elems.composerModelLabel) {
+      elems.composerModelLabel.textContent = shortName;
     }
 
+    // Update Header Pill (if present)
+    const isThinking = modelVal.includes('extended-thinking');
+    if (elems.headerModelName) {
+      elems.headerModelName.textContent = modelVal.includes('2.0-flash') ? 'Gemini 2.0 Flash' : 'Gemini 3.8 Live';
+    }
+    if (elems.headerThinkBadge) {
+      elems.headerThinkBadge.classList.toggle('hidden', !isThinking);
+    }
     if (elems.headerModelPill) {
       elems.headerModelPill.title = isThinking
         ? 'Extended Thinking Mode is active (Click to switch to Standard Low-Latency)'
         : 'Standard Low-Latency Mode is active (Click to switch to Extended Thinking)';
     }
+    updateUnifiedTriggerTitle();
   }
 
   function updateBargeinUI(isDuplex) {
     if (elems.btnToggleBargein) {
       elems.btnToggleBargein.classList.toggle('active', isDuplex);
       elems.btnToggleBargein.classList.toggle('inactive', !isDuplex);
+      elems.btnToggleBargein.setAttribute('aria-pressed', isDuplex ? 'true' : 'false');
     }
     if (elems.bargeinBadgeIcon) {
       elems.bargeinBadgeIcon.textContent = isDuplex ? '⚡' : '🔇';
     }
     if (elems.bargeinBadgeText) {
-      elems.bargeinBadgeText.textContent = isDuplex ? 'Barge-in On' : 'Half-Duplex (PTT)';
+      elems.bargeinBadgeText.textContent = isDuplex ? 'Full Duplex · Instant Barge-in' : 'Half Duplex · Push-to-Talk';
+    }
+    if (elems.bargeinStatePill) {
+      elems.bargeinStatePill.textContent = isDuplex ? 'ON' : 'HALF';
+    }
+    if (elems.composerDuplexDot) {
+      elems.composerDuplexDot.classList.toggle('hidden', isDuplex);
     }
     if (elems.liveDuplexState) {
       elems.liveDuplexState.textContent = isDuplex ? 'Full Duplex' : 'Half Duplex';
@@ -596,15 +762,79 @@
       elems.liveDuplexToggle.checked = isDuplex;
     }
     state.isFullDuplex = isDuplex;
+    updateUnifiedTriggerTitle();
   }
 
   function updateVoiceLabel(voiceName) {
+    if (!voiceName) voiceName = 'Fola';
     if (elems.composerVoiceLabel) {
-      elems.composerVoiceLabel.textContent = `Voice: ${voiceName}`;
+      elems.composerVoiceLabel.textContent = voiceName;
     }
-    if (elems.btnComposerVoice) {
-      elems.btnComposerVoice.title = `Current Persona: ${voiceName} (Click to open voice selection)`;
+    if (elems.voicePersonaGrid) {
+      const lower = voiceName.toLowerCase();
+      elems.voicePersonaGrid.querySelectorAll('.persona-chip[data-voice]').forEach((chip) => {
+        const isSelected = (chip.dataset.voice || '').toLowerCase() === lower;
+        chip.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      });
     }
+    const selectedOpt = elems.liveVoiceSelect?.options?.[elems.liveVoiceSelect.selectedIndex];
+    if (elems.voicePersonaMeta) {
+      elems.voicePersonaMeta.textContent = selectedOpt?.dataset?.meta || mapVoiceToGemini(voiceName);
+    }
+    if (elems.auditionSamplesGroup) {
+      const hasPreview = Boolean(selectedOpt?.dataset?.preview);
+      elems.auditionSamplesGroup.querySelectorAll('.btn-sample-play[data-sample]').forEach((btn) => {
+        const idx = btn.dataset.sample || '1';
+        btn.disabled = !hasPreview;
+        btn.title = hasPreview
+          ? `Play ${voiceName} sample ${idx} of 3`
+          : `No recorded sample for ${voiceName}`;
+      });
+    }
+    updateUnifiedTriggerTitle();
+  }
+
+  function setupToolbarRovingTabindex(toolbar) {
+    if (!toolbar || 'focusGroup' in HTMLElement.prototype) return;
+    const getItems = () =>
+      Array.from(toolbar.querySelectorAll('button:not(:disabled), select:not(:disabled)')).filter(
+        (el) => !el.classList.contains('hidden') && el.offsetParent !== null
+      );
+    const items = getItems();
+    items.forEach((el, idx) => {
+      el.tabIndex = idx === 0 ? 0 : -1;
+    });
+    toolbar.addEventListener('focusin', ({ target }) => {
+      const list = getItems();
+      if (list.includes(target)) {
+        list.forEach((el) => {
+          el.tabIndex = el === target ? 0 : -1;
+        });
+      }
+    });
+    toolbar.addEventListener('keydown', (e) => {
+      const list = getItems();
+      const idx = list.indexOf(document.activeElement);
+      if (idx === -1) return;
+      const rtl = getComputedStyle(toolbar).direction === 'rtl';
+      let next = -1;
+      if (e.key === 'ArrowRight') {
+        next = (idx + (rtl ? -1 : 1) + list.length) % list.length;
+      } else if (e.key === 'ArrowLeft') {
+        next = (idx + (rtl ? 1 : -1) + list.length) % list.length;
+      } else if (e.key === 'Home') {
+        next = 0;
+      } else if (e.key === 'End') {
+        next = list.length - 1;
+      }
+      if (next !== -1) {
+        e.preventDefault();
+        list.forEach((el, i) => {
+          el.tabIndex = i === next ? 0 : -1;
+        });
+        list[next].focus();
+      }
+    });
   }
 
   function setupFunctionalToolbar() {
@@ -622,35 +852,61 @@
       syncModelSelection(e.target.value);
     });
 
-    elems.headerModelPill?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const current = elems.composerModelSelect?.value || elems.liveModelSelect?.value || 'models/gemini-3.8-live';
-      const next = current.includes('extended-thinking')
-        ? 'models/gemini-3.8-live'
-        : 'models/gemini-3.8-live-extended-thinking';
-      syncModelSelection(next);
-      appendTranscript('system', `Toggled model: ${next.includes('extended-thinking') ? 'Extended Thinking Mode 💭' : 'Standard Low-Latency Mode ⚡'}`);
-    });
-
     elems.btnToggleBargein?.addEventListener('click', (e) => {
       e.stopPropagation();
       updateBargeinUI(!state.isFullDuplex);
       appendTranscript('system', state.isFullDuplex ? 'Instant Barge-in enabled (interrupt anytime).' : 'Half-Duplex enabled (push-to-talk mode).');
     });
 
-    elems.btnComposerVoice?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (elems.liveVoiceSelect) {
-        elems.liveVoiceSelect.focus();
-        if (typeof elems.liveVoiceSelect.showPicker === 'function') {
-          try { elems.liveVoiceSelect.showPicker(); } catch (_) {}
-        }
+    if (elems.composerAudioPopover && elems.btnComposerVoice) {
+      const supportsPopover = Object.hasOwn(HTMLElement.prototype, 'popover');
+      if (supportsPopover) {
+        elems.composerAudioPopover.addEventListener('toggle', (e) => {
+          elems.btnComposerVoice.setAttribute('aria-expanded', e.newState === 'open' ? 'true' : 'false');
+        });
+      } else {
+        elems.btnComposerVoice.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpen = elems.composerAudioPopover.classList.toggle(':popover-open');
+          elems.btnComposerVoice.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+        document.addEventListener('click', (e) => {
+          if (
+            elems.composerAudioPopover.classList.contains(':popover-open') &&
+            !elems.composerAudioPopover.contains(e.target) &&
+            !elems.btnComposerVoice.contains(e.target)
+          ) {
+            elems.composerAudioPopover.classList.remove(':popover-open');
+            elems.btnComposerVoice.setAttribute('aria-expanded', 'false');
+          }
+        });
+      }
+    }
+
+    elems.voicePersonaGrid?.addEventListener('click', (e) => {
+      const chip = e.target.closest('.persona-chip[data-voice]');
+      if (!chip || !elems.liveVoiceSelect) return;
+      const voiceName = chip.dataset.voice;
+      if (!voiceName) return;
+      if (elems.liveVoiceSelect.value !== voiceName) {
+        elems.liveVoiceSelect.value = voiceName;
+        elems.liveVoiceSelect.dispatchEvent(new Event('change'));
       }
     });
 
     elems.liveVoiceSelect?.addEventListener('change', (e) => {
-      updateVoiceLabel(e.target.value);
+      stopAuditionPlayback();
+      const voiceName = e.target.value;
+      updateVoiceLabel(voiceName);
+      localStorage.setItem('pigasus_live_voice', voiceName);
+      const active = state.sessions.find((s) => s.id === state.activeSessionId);
+      if (active && active.voice !== voiceName) {
+        active.voice = voiceName;
+        saveStoredLiveSessions(state.sessions, true);
+      }
     });
+
+    setupToolbarRovingTabindex(elems.composerToolbar);
   }
 
   // --- Tab Navigation ---
@@ -674,23 +930,47 @@
   function syncUIWithState() {
     // Top bar
     elems.barAuthMode.textContent =
-      state.authMode === 'oauth'
+      state.authMode === 'aggregate'
+        ? 'Aggregate Pool'
+        : state.authMode === 'oauth'
         ? 'Google OAuth'
         : state.authMode === 'api_key'
         ? 'Gemini API Key'
         : 'Pigasus Proxy';
 
-    if (state.authMode === 'oauth' && state.oauthEmail) {
+    if (state.authMode === 'aggregate') {
+      if (state.serverPoolCount > 0) {
+        elems.barAuthIdentity.textContent = `Backend Auto-Routing (${state.serverPoolHealthy}/${state.serverPoolCount})`;
+      } else {
+        elems.barAuthIdentity.textContent = 'Backend Auto-Routing';
+      }
+    } else if (state.authMode === 'oauth' && state.oauthEmail) {
       elems.barAuthIdentity.textContent = state.oauthEmail;
+    } else if (state.authMode === 'oauth' && state.oauthToken) {
+      elems.barAuthIdentity.textContent = 'CLI OAuth Token (Active)';
+    } else if (state.authMode === 'oauth' && state.hasServer && state.serverHasOAuth) {
+      elems.barAuthIdentity.textContent = 'CLI OAuth (Server Auto)';
     } else if (state.authMode === 'api_key' && state.apiKey) {
       elems.barAuthIdentity.textContent = 'API Key (' + state.apiKey.slice(0, 6) + '...)';
+    } else if (state.authMode === 'api_key' && state.hasServer && state.serverHasApiKey) {
+      elems.barAuthIdentity.textContent = 'Server API Key';
     } else if (state.authMode === 'proxy') {
-      elems.barAuthIdentity.textContent = 'Proxy Mode';
+      elems.barAuthIdentity.textContent = state.proxyURL ? 'Proxy Mode' : 'Proxy (No URL)';
     } else {
       elems.barAuthIdentity.textContent = 'Not Signed In';
     }
 
-    elems.barProxyRoute.textContent = state.proxyURL || 'http://127.0.0.1:8085';
+    if (elems.sidebarStatusDot) {
+      const hasActiveCreds =
+        (state.authMode === 'aggregate' && state.hasServer && (state.serverAggregateEnabled || state.serverHasOAuth || state.serverHasApiKey)) ||
+        (state.authMode === 'oauth' && (!!state.oauthToken || (state.hasServer && state.serverHasOAuth))) ||
+        (state.authMode === 'api_key' && (!!state.apiKey || (state.hasServer && state.serverHasApiKey))) ||
+        (state.authMode === 'proxy' && !!state.proxyURL);
+      elems.sidebarStatusDot.classList.toggle('online', hasActiveCreds);
+      elems.sidebarStatusDot.classList.toggle('offline', !hasActiveCreds);
+    }
+
+    elems.barProxyRoute.textContent = state.proxyURL || (state.hasServer ? 'Direct Server Bridge' : 'Direct Browser');
 
     // Token Card
     elems.oauthTokenDisplay.value = state.oauthToken || '';
@@ -704,7 +984,48 @@
       elems.tokenPlanTier.textContent = state.oauthPlanTier || 'Consumer OAuth';
     }
 
-    elems.tokenAccountEmail.textContent = state.oauthEmail || 'None';
+    elems.tokenAccountEmail.textContent = state.oauthEmail || (state.oauthToken ? 'CLI Active Account' : 'None');
+
+    if (elems.btnUseTokenChat) {
+      const isOAuthActive = state.authMode === 'oauth' && (!!state.oauthToken || (state.hasServer && state.serverHasOAuth));
+      elems.btnUseTokenChat.textContent = isOAuthActive ? '✓ Active in LiveChat' : 'Apply to LiveChat';
+      elems.btnUseTokenChat.disabled = isOAuthActive;
+    }
+
+    if (elems.cliAuthAutoBanner) {
+      if (state.authMode === 'aggregate' && state.hasServer) {
+        const poolDesc = state.serverPoolCount > 0
+          ? `${state.serverPoolHealthy}/${state.serverPoolCount} healthy pool accounts`
+          : 'backend credentials';
+        elems.cliAuthAutoBanner.textContent = `✅ Backend Aggregate Mode active (${poolDesc}, quota-aware auto-failover). Frontend requires no API key or manual account selection.`;
+        elems.cliAuthAutoBanner.className = 'status-msg-modern success';
+      } else if (state.oauthToken) {
+        const who = state.oauthEmail || 'local CLI account';
+        const isCli = state.oauthRawCode && (state.oauthRawCode.startsWith('Auto-loaded') || state.oauthRawCode.startsWith('Loaded from local Pigasus'));
+        if (state.authMode === 'oauth') {
+          elems.cliAuthAutoBanner.textContent = isCli
+            ? `✅ Automatically loaded & applied CLI auth token (${who}). Ready for LiveChat.`
+            : `✅ OAuth token active (${who}). Ready for LiveChat.`;
+          elems.cliAuthAutoBanner.className = 'status-msg-modern success';
+        } else {
+          elems.cliAuthAutoBanner.textContent = `ℹ️ CLI OAuth token loaded (${who}), currently using ${state.authMode === 'api_key' ? 'Gemini API Key' : 'Pigasus Proxy'} mode.`;
+          elems.cliAuthAutoBanner.className = 'status-msg-modern info';
+        }
+      } else if (state.hasServer && state.serverHasOAuth) {
+        elems.cliAuthAutoBanner.textContent = '✅ Server has active CLI OAuth credentials ready. Click "Re-Sync CLI Token" to inspect or refresh.';
+        elems.cliAuthAutoBanner.className = 'status-msg-modern success';
+      } else if (state.hasServer) {
+        elems.cliAuthAutoBanner.textContent = 'ℹ️ No active CLI token found in ~/.openagy or ~/.gemini. Run `pigasus login` or use Google OAuth 2.0 PKCE below.';
+        elems.cliAuthAutoBanner.className = 'status-msg-modern info';
+      } else {
+        elems.cliAuthAutoBanner.textContent = 'ℹ️ Static Standalone mode: sign in with Google OAuth 2.0 PKCE below or configure a Gemini API Key.';
+        elems.cliAuthAutoBanner.className = 'status-msg-modern info';
+      }
+    }
+
+    if (elems.oauthFallbackDetails && !elems.oauthFallbackDetails.dataset.userToggled) {
+      elems.oauthFallbackDetails.open = !state.oauthToken && !(state.hasServer && state.serverHasOAuth);
+    }
 
     if (state.oauthExpiry) {
       const expDate = new Date(state.oauthExpiry);
@@ -726,7 +1047,7 @@
     elems.geminiApiKey.value = state.apiKey || '';
 
     // Proxy setting
-    elems.cfgProxyUrl.value = state.proxyURL || 'http://127.0.0.1:8085';
+    elems.cfgProxyUrl.value = state.proxyURL || '';
 
     // Select boxes sync
     elems.chatAuthSelect.value = state.authMode;
@@ -740,9 +1061,16 @@
     // Model & Functional Toolbar sync
     const active = state.sessions.find((s) => s.id === state.activeSessionId);
     const activeModel = active?.model || localStorage.getItem('pigasus_live_model') || 'models/gemini-3.8-live';
-    syncModelSelection(activeModel);
+    syncModelSelection(activeModel, false);
     updateBargeinUI(state.isFullDuplex);
-    updateVoiceLabel(elems.liveVoiceSelect ? elems.liveVoiceSelect.value : (active?.voice || 'Fola'));
+    const activeVoice = active?.voice || localStorage.getItem('pigasus_live_voice') || (elems.liveVoiceSelect ? elems.liveVoiceSelect.value : 'Fola');
+    if (elems.liveVoiceSelect && activeVoice) {
+      const hasOpt = Array.from(elems.liveVoiceSelect.options).some((o) => o.value === activeVoice);
+      if (hasOpt) {
+        elems.liveVoiceSelect.value = activeVoice;
+      }
+    }
+    updateVoiceLabel(elems.liveVoiceSelect ? elems.liveVoiceSelect.value : activeVoice);
   }
 
   // --- Pure Client-Side Web Crypto PKCE Helpers ---
@@ -784,6 +1112,9 @@
   }
 
   async function generatePKCEClientSide() {
+    if (!window.crypto || !window.crypto.subtle) {
+      throw new Error('Web Crypto API requires HTTPS or localhost/127.0.0.1 in this browser.');
+    }
     const verifierBytes = new Uint8Array(32);
     window.crypto.getRandomValues(verifierBytes);
     const verifier = base64UrlEncode(verifierBytes);
@@ -898,19 +1229,24 @@
       }
     });
 
+    elems.oauthFallbackDetails?.addEventListener('toggle', () => {
+      elems.oauthFallbackDetails.dataset.userToggled = '1';
+    });
+
     // 2. Load Existing CLI Token
     elems.btnLoadCLIToken.addEventListener('click', async () => {
       if (!state.hasServer) {
-        showStatusMsg('Local CLI token auto-detection requires pigasus livechat server. Please use "Start Google OAuth Login" or paste your token.', 'info');
+        showStatusMsg('Local CLI token auto-detection requires pigasus livechat server. Please use Google OAuth 2.0 PKCE below.', 'info');
         return;
       }
-      showStatusMsg('Checking local Pigasus CLI token (~/.openagy / ~/.gemini)...', 'info');
+      localStorage.removeItem('pigasus_oauth_manual_clear');
+      showStatusMsg('Syncing local Pigasus CLI token (~/.openagy / ~/.gemini)...', 'info');
       try {
         const res = await fetch('/api/auth/existing');
         if (!res.ok) throw new Error('Failed to query local token');
         const data = await res.json();
         if (!data.available) {
-          showStatusMsg('No active CLI token found. Use "Start Google OAuth Login" above.', 'error');
+          showStatusMsg('No active CLI token found. Use Google OAuth 2.0 PKCE below or run `pigasus login`.', 'error');
           return;
         }
 
@@ -921,17 +1257,17 @@
           email: data.email,
           plan_tier: data.plan_tier || 'Google AI Pro (CLI)',
           raw_input: 'Loaded from local Pigasus configuration',
-        });
-        showStatusMsg(`Loaded & synced existing token for: ${data.email || 'Google Account'}`, 'success');
+        }, { preserveAuthMode: state.authMode === 'aggregate' });
+        showStatusMsg(`Synced CLI token for: ${data.email || 'CLI Active Account'}`, 'success');
       } catch (err) {
         showStatusMsg(err.message, 'error');
       }
     });
 
     // Copy Auth URL
-    elems.btnCopyUrl.addEventListener('click', () => {
+    elems.btnCopyUrl.addEventListener('click', async () => {
       if (elems.authUrlInput.value) {
-        navigator.clipboard.writeText(elems.authUrlInput.value);
+        await copyTextSafe(elems.authUrlInput.value);
         elems.btnCopyUrl.textContent = 'Copied!';
         setTimeout(() => (elems.btnCopyUrl.textContent = 'Copy'), 2000);
       }
@@ -1002,9 +1338,9 @@
     });
 
     // Token Card Actions
-    elems.btnCopyToken.addEventListener('click', () => {
+    elems.btnCopyToken.addEventListener('click', async () => {
       if (state.oauthToken) {
-        navigator.clipboard.writeText(state.oauthToken);
+        await copyTextSafe(state.oauthToken);
         elems.btnCopyToken.textContent = 'Copied!';
         setTimeout(() => (elems.btnCopyToken.textContent = 'Copy Access Token'), 2000);
       }
@@ -1039,6 +1375,7 @@
     });
 
     elems.btnClearToken.addEventListener('click', () => {
+      localStorage.setItem('pigasus_oauth_manual_clear', '1');
       state.oauthToken = '';
       state.oauthRefreshToken = '';
       state.oauthExpiry = '';
@@ -1079,15 +1416,19 @@
     });
   }
 
-  function saveOAuthAccount(acc) {
+  function saveOAuthAccount(acc, opts = {}) {
     if (!acc) return;
+    localStorage.removeItem('pigasus_oauth_manual_clear');
     state.oauthToken = acc.access_token || '';
     if (acc.refresh_token) state.oauthRefreshToken = acc.refresh_token;
     state.oauthExpiry = acc.expiry || '';
     if (acc.email) state.oauthEmail = acc.email;
     if (acc.plan_tier) state.oauthPlanTier = acc.plan_tier;
     if (acc.raw_input) state.oauthRawCode = acc.raw_input;
-    state.authMode = 'oauth';
+    if (!opts.preserveAuthMode) {
+      state.authMode = 'oauth';
+      localStorage.setItem('pigasus_auth_mode', 'oauth');
+    }
 
     localStorage.setItem('pigasus_oauth_token', state.oauthToken);
     localStorage.setItem('pigasus_oauth_refresh_token', state.oauthRefreshToken);
@@ -1095,7 +1436,6 @@
     localStorage.setItem('pigasus_oauth_email', state.oauthEmail);
     localStorage.setItem('pigasus_oauth_raw_code', state.oauthRawCode);
     localStorage.setItem('pigasus_oauth_plan_tier', state.oauthPlanTier);
-    localStorage.setItem('pigasus_auth_mode', 'oauth');
 
     // accounts.json compatible persistent object
     const accountDoc = {
@@ -1141,7 +1481,7 @@
             email: data.email || state.oauthEmail,
             plan_tier: state.oauthPlanTier,
             raw_input: state.oauthRawCode,
-          });
+          }, { preserveAuthMode: true });
           return data.access_token;
         }
       } catch (_) {}
@@ -1177,7 +1517,7 @@
       email: state.oauthEmail,
       plan_tier: state.oauthPlanTier,
       raw_input: state.oauthRawCode,
-    });
+    }, { preserveAuthMode: true });
     return data.access_token;
   }
 
@@ -1204,9 +1544,12 @@
     return state.oauthToken;
   }
 
-  function setAuthMode(mode) {
+  function setAuthMode(mode, opts = {}) {
     state.authMode = mode;
     localStorage.setItem('pigasus_auth_mode', mode);
+    if (opts.explicit !== false) {
+      localStorage.setItem('pigasus_auth_mode_explicit', '1');
+    }
     syncUIWithState();
   }
 
@@ -1256,6 +1599,9 @@
       const renderer = createMessageRenderer(assistantBubble);
 
       try {
+        if (serverDetectPromise) {
+          await serverDetectPromise;
+        }
         // If server mode is available, dispatch through backend bridge
         if (state.hasServer) {
           await executeServerChat(prompt, renderer);
@@ -1469,13 +1815,17 @@
   async function executeServerChat(prompt, renderer) {
     const payload = {
       auth_mode: state.authMode,
-      token: state.oauthToken,
-      api_key: state.apiKey,
-      proxy_url: state.proxyURL,
       model: elems.chatModelSelect.value,
       prompt: prompt,
       stream: true,
     };
+    if (state.authMode === 'oauth') {
+      payload.token = state.oauthToken;
+    } else if (state.authMode === 'api_key') {
+      payload.api_key = state.apiKey;
+    } else if (state.authMode === 'proxy') {
+      payload.proxy_url = state.proxyURL;
+    }
 
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -1583,9 +1933,17 @@
       return;
     }
 
-    // 2. Local Pigasus Proxy Route
+    // 2. Local Pigasus Proxy Route (Static Mode)
+    if (state.authMode === 'oauth') {
+      if (!state.proxyURL) {
+        throw new Error('OAuth chat requires the Pigasus LiveChat server (`pigasus livechat --web`) or an explicit Proxy URL in Settings.');
+      }
+    }
     if (state.authMode === 'proxy' || state.authMode === 'oauth') {
-      const proxyBase = state.proxyURL || 'http://127.0.0.1:8085';
+      const proxyBase = (state.proxyURL || '').trim();
+      if (!proxyBase) {
+        throw new Error('Proxy mode selected, but no Pigasus Proxy URL is configured in Settings.');
+      }
       const targetURL = `${proxyBase.replace(/\/$/, '')}/v1internal:streamGenerateContent`;
 
       const headers = { 'Content-Type': 'application/json' };
@@ -1833,6 +2191,10 @@
   function deleteLiveSession(sessionId) {
     if (state.sessions.length <= 1) {
       const s = state.sessions[0];
+      (s.turns || []).forEach((t) => {
+        if (t.audioId) state.turnAudioMap.delete(t.audioId);
+      });
+      deleteSessionAudioFromCache(s.id);
       s.title = 'New Live Session';
       s.turns = [];
       s.updatedAt = Date.now();
@@ -1847,6 +2209,10 @@
     const idx = state.sessions.findIndex((s) => s.id === sessionId);
     if (idx === -1) return;
 
+    (state.sessions[idx].turns || []).forEach((t) => {
+      if (t.audioId) state.turnAudioMap.delete(t.audioId);
+    });
+    deleteSessionAudioFromCache(sessionId);
     state.sessions.splice(idx, 1);
     saveStoredLiveSessions(state.sessions);
     deleteSessionFromServer(sessionId);
@@ -1889,6 +2255,8 @@
     state.sessions = [freshSession];
     state.activeSessionId = freshSession.id;
     state.liveTurns = [];
+    state.turnAudioMap.clear();
+    clearAllAudioFromCache();
     saveStoredLiveSessions(state.sessions);
     localStorage.setItem('pigasus_active_session_id', freshSession.id);
     localStorage.removeItem('pigasus_live_turns');
@@ -2193,6 +2561,10 @@
       }
     });
 
+    elems.btnHeaderNewChat?.addEventListener('click', () => {
+      createNewLiveSession();
+    });
+
     elems.sidebarSessionSearch?.addEventListener('input', (e) => {
       renderSidebarSessionList(e.target.value);
     });
@@ -2237,6 +2609,7 @@
 
     function closeSettings() {
       if (!elems.settingsModal) return;
+      stopMicTest();
       elems.settingsModal.classList.add('hidden');
     }
 
@@ -2247,10 +2620,25 @@
       elems.settingsPanes?.forEach((pane) => {
         pane.classList.toggle('active', pane.id === targetTabId);
       });
+      if (targetTabId === 'st-mic-tab') {
+        refreshMicDiagnostics();
+        updateMicrophoneList();
+      }
     }
 
     elems.btnOpenSettings?.addEventListener('click', () => openSettings('st-auth-tab'));
     elems.btnOpenSettingsTop?.addEventListener('click', () => openSettings('st-voice-tab'));
+    elems.btnGotoMicTest?.addEventListener('click', () => switchSettingsTab('st-mic-tab'));
+    elems.btnPopoverMicTest?.addEventListener('click', () => {
+      if (elems.composerAudioPopover) {
+        if (typeof elems.composerAudioPopover.hidePopover === 'function') {
+          try { elems.composerAudioPopover.hidePopover(); } catch (_) {}
+        } else {
+          elems.composerAudioPopover.classList.remove(':popover-open');
+        }
+      }
+      openSettings('st-mic-tab');
+    });
     elems.btnCloseSettingsModal?.addEventListener('click', closeSettings);
     elems.btnModalDone?.addEventListener('click', closeSettings);
 
@@ -2299,7 +2687,7 @@
   }
 
   function recordLiveTurn(role, text) {
-    if (!text) return;
+    if (!text) return null;
     const trimmed = text.trim();
     if (
       !trimmed ||
@@ -2308,19 +2696,442 @@
       trimmed.startsWith('[SYSTEM NOTE:') ||
       trimmed.startsWith('[PROACTIVE_EVENT:')
     ) {
-      return;
+      return null;
     }
 
     // Avoid duplicate entries
     const last = state.liveTurns[state.liveTurns.length - 1];
-    if (last && last.role === role && last.text === trimmed) return;
+    if (last && last.role === role && last.text === trimmed) return last;
 
-    state.liveTurns.push({ role, text: trimmed, timestamp: Date.now() });
+    const turnObj = { role, text: trimmed, timestamp: Date.now() };
+    state.liveTurns.push(turnObj);
     if (state.liveTurns.length > 50) {
+      const evicted = state.liveTurns.slice(0, state.liveTurns.length - 50);
       state.liveTurns = state.liveTurns.slice(-50);
+      evicted.forEach((t) => {
+        if (t.audioId) {
+          state.turnAudioMap.delete(t.audioId);
+          deleteTurnAudioFromCache(t.audioId);
+        }
+      });
     }
     saveActiveSessionTurns();
     scrollTranscriptToBottom(true);
+    return turnObj;
+  }
+
+  function stripThinkTags(text) {
+    if (!text) return '';
+    return text
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<think>[\s\S]*$/g, '')
+      .trim();
+  }
+
+  function extractTranslatableText(bubble) {
+    if (!bubble) return '';
+    const raw = bubble.dataset.rawText || bubble.querySelector('.text-content')?.textContent || '';
+    return stripThinkTags(raw);
+  }
+
+  async function translateTextWithGeminiFlash(sourceText, onProgress) {
+    const prompt = `Translate the following message into natural, accurate English. Output ONLY the English translation without explanations, quotes, or extra commentary:\n\n${sourceText}`;
+    let accumulated = '';
+
+    if (state.hasServer) {
+      const payload = {
+        auth_mode: state.authMode,
+        model: 'gemini-3.8-flash',
+        thinking_level: 'low',
+        prompt,
+        stream: true,
+      };
+      if (state.authMode === 'oauth') {
+        payload.token = state.oauthToken;
+      } else if (state.authMode === 'api_key') {
+        payload.api_key = state.apiKey;
+      } else if (state.authMode === 'proxy') {
+        payload.proxy_url = state.proxyURL;
+      }
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
+        try {
+          const err = await res.json();
+          if (err?.error) errMsg = err.error;
+        } catch (_) {}
+        throw new Error(errMsg);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.slice(6).trim();
+          if (!dataStr) continue;
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.text) {
+              accumulated += parsed.text;
+              const clean = stripThinkTags(accumulated);
+              if (clean && onProgress) onProgress(clean);
+            }
+          } catch (_) {}
+        }
+      }
+      return stripThinkTags(accumulated);
+    }
+
+    // Static fallback (no Go server)
+    if (state.authMode === 'api_key') {
+      if (!state.apiKey) throw new Error('Missing Gemini API Key');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${state.apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }] }),
+      });
+      if (!res.ok) throw new Error(`Gemini API HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const parsed = JSON.parse(line.slice(6).trim());
+            const parts = parsed.candidates?.[0]?.content?.parts;
+            if (Array.isArray(parts)) {
+              for (const part of parts) {
+                if (!part.thought && part.text) {
+                  accumulated += part.text;
+                  if (onProgress) onProgress(accumulated.trim());
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+      return accumulated.trim();
+    }
+
+    throw new Error('Translation requires Pigasus server (`pigasus livechat --web`) or a Gemini API Key.');
+  }
+
+  function renderBubbleTranslation(bubble, text, { loading = false, error = false } = {}) {
+    if (!bubble) return null;
+    let wrap = bubble.querySelector('.msg-translation-wrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.className = 'msg-translation-wrap';
+      const hr = document.createElement('hr');
+      hr.className = 'msg-translation-divider';
+      const header = document.createElement('div');
+      header.className = 'msg-translation-header';
+      header.textContent = 'English · Gemini 3.8 Flash';
+      const body = document.createElement('div');
+      body.className = 'msg-translation-text';
+      wrap.appendChild(hr);
+      wrap.appendChild(header);
+      wrap.appendChild(body);
+
+      const bar = bubble.querySelector('.msg-audio-bar');
+      if (bar) {
+        bubble.insertBefore(wrap, bar);
+      } else {
+        bubble.appendChild(wrap);
+      }
+    }
+    wrap.classList.remove('hidden');
+    const textEl = wrap.querySelector('.msg-translation-text');
+    if (textEl) {
+      textEl.classList.toggle('error', Boolean(error));
+      textEl.textContent = loading && !text ? 'Translating...' : text;
+    }
+    return wrap;
+  }
+
+  function persistTurnTranslation(bubble, turnRef, translation) {
+    if (!translation) return;
+    if (turnRef) {
+      turnRef.translation = translation;
+      saveActiveSessionTurns();
+      return;
+    }
+    const raw = (bubble?.dataset?.rawText || '').trim();
+    if (!raw) return;
+    for (let i = state.liveTurns.length - 1; i >= 0; i--) {
+      if (state.liveTurns[i].text === raw) {
+        state.liveTurns[i].translation = translation;
+        saveActiveSessionTurns();
+        break;
+      }
+    }
+  }
+
+  function ensureBubbleActionBar(bubble, turnRef = null) {
+    if (!bubble) return null;
+    let bar = bubble.querySelector('.msg-audio-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'msg-audio-bar';
+      bubble.appendChild(bar);
+    }
+    if (!bar.querySelector('.btn-translate-msg')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-translate-msg';
+      btn.title = 'Translate to English (Gemini 3.8 Flash)';
+      btn.setAttribute('aria-label', 'Translate to English');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = `
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m5 8 6 6"></path>
+          <path d="m4 14 6-6 2-3"></path>
+          <path d="M2 5h12"></path>
+          <path d="M7 2h1"></path>
+          <path d="m22 22-5-10-5 10"></path>
+          <path d="M14 18h6"></path>
+        </svg>
+        <span>EN</span>
+      `;
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const existingWrap = bubble.querySelector('.msg-translation-wrap');
+        const existingTextEl = existingWrap?.querySelector('.msg-translation-text');
+        if (existingWrap && existingTextEl && !existingTextEl.classList.contains('error') && bubble.dataset.translated === 'true') {
+          const nowHidden = existingWrap.classList.toggle('hidden');
+          btn.setAttribute('aria-pressed', nowHidden ? 'false' : 'true');
+          return;
+        }
+
+        const sourceText = extractTranslatableText(bubble);
+        if (!sourceText) return;
+
+        btn.disabled = true;
+        const labelSpan = btn.querySelector('span');
+        if (labelSpan) labelSpan.textContent = '...';
+        renderBubbleTranslation(bubble, '', { loading: true });
+
+        try {
+          const translated = await translateTextWithGeminiFlash(sourceText, (partial) => {
+            renderBubbleTranslation(bubble, partial);
+          });
+          const finalText = translated || '(Empty translation)';
+          renderBubbleTranslation(bubble, finalText);
+          bubble.dataset.translated = 'true';
+          btn.setAttribute('aria-pressed', 'true');
+          persistTurnTranslation(bubble, turnRef, finalText);
+        } catch (err) {
+          renderBubbleTranslation(bubble, `Translation failed: ${err.message}`, { error: true });
+          bubble.dataset.translated = 'false';
+          btn.setAttribute('aria-pressed', 'false');
+        } finally {
+          btn.disabled = false;
+          if (labelSpan) labelSpan.textContent = 'EN';
+        }
+      });
+      bar.appendChild(btn);
+    }
+    return bar;
+  }
+
+  // --- Persistent Frontend Audio Cache (IndexedDB + In-Memory Map) ---
+  const AUDIO_CACHE_DB_NAME = 'pigasus_live_audio_v1';
+  const AUDIO_CACHE_STORE = 'turn_audio';
+  let audioCacheDBPromise = null;
+
+  function openAudioCacheDB() {
+    if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+    if (audioCacheDBPromise) return audioCacheDBPromise;
+    audioCacheDBPromise = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open(AUDIO_CACHE_DB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(AUDIO_CACHE_STORE)) {
+            const store = db.createObjectStore(AUDIO_CACHE_STORE, { keyPath: 'id' });
+            store.createIndex('sessionId', 'sessionId', { unique: false });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => {
+          audioCacheDBPromise = null;
+          resolve(null);
+        };
+      } catch (_) {
+        audioCacheDBPromise = null;
+        resolve(null);
+      }
+    });
+    return audioCacheDBPromise;
+  }
+
+  function mergeBase64PCMChunks(chunks) {
+    if (!Array.isArray(chunks) || chunks.length === 0) return new ArrayBuffer(0);
+    const buffers = chunks.map((c) => new Uint8Array(base64ToArrayBuffer(c)));
+    let totalBytes = 0;
+    for (const b of buffers) totalBytes += b.byteLength;
+    const merged = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const b of buffers) {
+      merged.set(b, offset);
+      offset += b.byteLength;
+    }
+    return merged.buffer;
+  }
+
+  function saveTurnAudioToCache(audioId, sessionId, chunks, sampleRate) {
+    if (!audioId || !Array.isArray(chunks) || chunks.length === 0) return;
+    const pcmBuffer = mergeBase64PCMChunks(chunks);
+    if (!pcmBuffer || pcmBuffer.byteLength < 2) return;
+
+    state.turnAudioMap.set(audioId, { sampleRate, pcmBuffer });
+
+    openAudioCacheDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        tx.objectStore(AUDIO_CACHE_STORE).put({
+          id: audioId,
+          sessionId: sessionId || '',
+          sampleRate,
+          pcmBuffer,
+          createdAt: Date.now(),
+        });
+      } catch (err) {
+        console.warn('[audio-cache] IndexedDB write failed:', err);
+      }
+    });
+  }
+
+  async function loadTurnAudioFromCache(audioId) {
+    if (!audioId) return null;
+    const mem = state.turnAudioMap.get(audioId);
+    if (mem) {
+      if (Array.isArray(mem)) {
+        const pcmBuffer = mergeBase64PCMChunks(mem);
+        const sampleRate = audioId.startsWith('user') ? 16000 : 24000;
+        const entry = { sampleRate, pcmBuffer };
+        state.turnAudioMap.set(audioId, entry);
+        return entry;
+      }
+      return mem;
+    }
+
+    const db = await openAudioCacheDB();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readonly');
+        const req = tx.objectStore(AUDIO_CACHE_STORE).get(audioId);
+        req.onsuccess = () => {
+          const rec = req.result;
+          if (rec && rec.pcmBuffer) {
+            const entry = {
+              sampleRate: rec.sampleRate || (audioId.startsWith('user') ? 16000 : 24000),
+              pcmBuffer: rec.pcmBuffer,
+            };
+            state.turnAudioMap.set(audioId, entry);
+            resolve(entry);
+          } else {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function hasTurnAudioInCache(audioId) {
+    if (!audioId) return false;
+    if (state.turnAudioMap.has(audioId)) return true;
+    const db = await openAudioCacheDB();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readonly');
+        const req = tx.objectStore(AUDIO_CACHE_STORE).getKey(audioId);
+        req.onsuccess = () => resolve(Boolean(req.result));
+        req.onerror = () => resolve(false);
+      } catch (_) {
+        resolve(false);
+      }
+    });
+  }
+
+  function deleteTurnAudioFromCache(audioId) {
+    if (!audioId) return;
+    openAudioCacheDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        tx.objectStore(AUDIO_CACHE_STORE).delete(audioId);
+      } catch (_) {}
+    });
+  }
+
+  function deleteSessionAudioFromCache(sessionId) {
+    if (!sessionId) return;
+    openAudioCacheDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        const store = tx.objectStore(AUDIO_CACHE_STORE);
+        const idx = store.index('sessionId');
+        const req = idx.openCursor(IDBKeyRange.only(sessionId));
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          }
+        };
+      } catch (_) {}
+    });
+  }
+
+  function clearAllAudioFromCache() {
+    openAudioCacheDB().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        tx.objectStore(AUDIO_CACHE_STORE).clear();
+      } catch (_) {}
+    });
+  }
+
+  function attachReplayButton(bar, turnId, sampleRate, isUser) {
+    if (!bar || !turnId || bar.querySelector('.btn-replay-audio')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-replay-audio';
+    btn.dataset.turnId = turnId;
+    btn.title = isUser ? 'Play Voice' : 'Play Audio';
+    btn.setAttribute('aria-label', isUser ? 'Play Voice' : 'Play Audio');
+    btn.innerHTML = '<span class="audio-btn-icon">🔊</span>';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      replayTurnAudio(turnId, btn, sampleRate);
+    });
+    bar.insertBefore(btn, bar.firstChild);
   }
 
   function renderStoredTranscript() {
@@ -2371,6 +3182,26 @@
       }
 
       body.appendChild(textSpan);
+      const bar = ensureBubbleActionBar(body, turn);
+      if (turn.audioId && bar) {
+        const isUser = turn.role === 'user';
+        const sr = turn.audioSampleRate || (isUser ? 16000 : 24000);
+        if (state.turnAudioMap.has(turn.audioId)) {
+          attachReplayButton(bar, turn.audioId, sr, isUser);
+        } else {
+          hasTurnAudioInCache(turn.audioId).then((exists) => {
+            if (exists && bar.isConnected) {
+              attachReplayButton(bar, turn.audioId, sr, isUser);
+            }
+          });
+        }
+      }
+      if (turn.translation) {
+        renderBubbleTranslation(body, turn.translation);
+        body.dataset.translated = 'true';
+        const tBtn = body.querySelector('.btn-translate-msg');
+        if (tBtn) tBtn.setAttribute('aria-pressed', 'true');
+      }
       entry.appendChild(spk);
       entry.appendChild(body);
       elems.liveTranscript.appendChild(entry);
@@ -2385,33 +3216,21 @@
 
     if (currentTurnSpeaker === 'agent' && currentTurnBubble) {
       const fullText = currentTurnBubble.dataset.rawText || currentTurnBubble.querySelector('.text-content')?.textContent || currentTurnBubble.textContent;
-      if (fullText) {
-        recordLiveTurn('agent', fullText);
-      }
+      const turnObj = fullText ? recordLiveTurn('agent', fullText) : null;
+      const bar = ensureBubbleActionBar(currentTurnBubble, turnObj);
 
       // Attach audio replay button if agent audio chunks were received
       if (state.currentTurnAudioChunks.length > 0) {
         const turnId = 'turn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-        state.turnAudioMap.set(turnId, [...state.currentTurnAudioChunks]);
+        const chunks = [...state.currentTurnAudioChunks];
         state.currentTurnAudioChunks = [];
-
-        if (!currentTurnBubble.querySelector('.btn-replay-audio')) {
-          const bar = document.createElement('div');
-          bar.className = 'msg-audio-bar';
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn-replay-audio';
-          btn.dataset.turnId = turnId;
-          btn.title = 'Play Audio';
-          btn.setAttribute('aria-label', 'Play Audio');
-          btn.innerHTML = '<span class="audio-btn-icon">🔊</span>';
-          btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            replayTurnAudio(turnId, btn, 24000);
-          });
-          bar.appendChild(btn);
-          currentTurnBubble.appendChild(bar);
+        saveTurnAudioToCache(turnId, state.activeSessionId, chunks, 24000);
+        if (turnObj) {
+          turnObj.audioId = turnId;
+          turnObj.audioSampleRate = 24000;
+          saveActiveSessionTurns();
         }
+        attachReplayButton(bar, turnId, 24000, false);
       }
     }
 
@@ -2424,31 +3243,21 @@
         }
         state.currentUserTurnAudioChunks = [];
       } else {
-        recordLiveTurn('user', fullText);
+        const turnObj = recordLiveTurn('user', fullText);
+        const bar = ensureBubbleActionBar(currentTurnBubble, turnObj);
 
         // Attach audio replay button to valid user turn
         if (state.currentUserTurnAudioChunks.length > 0) {
           const userTurnId = 'user_turn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-          state.turnAudioMap.set(userTurnId, [...state.currentUserTurnAudioChunks]);
+          const chunks = [...state.currentUserTurnAudioChunks];
           state.currentUserTurnAudioChunks = [];
-
-          if (!currentTurnBubble.querySelector('.btn-replay-audio')) {
-            const bar = document.createElement('div');
-            bar.className = 'msg-audio-bar';
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'btn-replay-audio';
-            btn.dataset.turnId = userTurnId;
-            btn.title = 'Play Voice';
-            btn.setAttribute('aria-label', 'Play Voice');
-            btn.innerHTML = '<span class="audio-btn-icon">🔊</span>';
-            btn.addEventListener('click', (e) => {
-              e.stopPropagation();
-              replayTurnAudio(userTurnId, btn, 16000);
-            });
-            bar.appendChild(btn);
-            currentTurnBubble.appendChild(bar);
+          saveTurnAudioToCache(userTurnId, state.activeSessionId, chunks, 16000);
+          if (turnObj) {
+            turnObj.audioId = userTurnId;
+            turnObj.audioSampleRate = 16000;
+            saveActiveSessionTurns();
           }
+          attachReplayButton(bar, userTurnId, 16000, true);
         }
       }
     }
@@ -2458,7 +3267,10 @@
     currentTurnEntry = null;
   }
 
+  let replayRequestSeq = 0;
+
   async function replayTurnAudio(turnId, btn, sampleRate = 24000) {
+    const reqSeq = ++replayRequestSeq;
     if (state.activeReplaySource) {
       try {
         state.activeReplaySource.stop();
@@ -2477,8 +3289,9 @@
       }
     }
 
-    const chunks = state.turnAudioMap.get(turnId);
-    if (!chunks || chunks.length === 0) return;
+    const cached = await loadTurnAudioFromCache(turnId);
+    if (reqSeq !== replayRequestSeq) return;
+    if (!cached || !cached.pcmBuffer || cached.pcmBuffer.byteLength < 2) return;
 
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -2488,23 +3301,18 @@
       if (state.audioCtx.state === 'suspended') {
         await state.audioCtx.resume();
       }
+      if (reqSeq !== replayRequestSeq) return;
 
-      const pcmArrays = chunks.map((c) => {
-        const raw = base64ToArrayBuffer(c);
-        return new Int16Array(raw);
-      });
-      let totalLen = 0;
-      pcmArrays.forEach((arr) => (totalLen += arr.length));
-
-      const float32 = new Float32Array(totalLen);
-      let offset = 0;
-      for (const arr of pcmArrays) {
-        for (let i = 0; i < arr.length; i++) {
-          float32[offset++] = arr[i] / 32768.0;
-        }
+      const sampleCount = Math.floor(cached.pcmBuffer.byteLength / 2);
+      if (sampleCount === 0) return;
+      const pcm16 = new Int16Array(cached.pcmBuffer, 0, sampleCount);
+      const float32 = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) {
+        float32[i] = pcm16[i] / 32768.0;
       }
 
-      const audioBuffer = state.audioCtx.createBuffer(1, float32.length, sampleRate);
+      const effectiveRate = cached.sampleRate || sampleRate;
+      const audioBuffer = state.audioCtx.createBuffer(1, float32.length, effectiveRate);
       audioBuffer.getChannelData(0).set(float32);
 
       const source = state.audioCtx.createBufferSource();
@@ -2597,26 +3405,20 @@
         if (state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
           state.liveWS.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
         }
-        if (elems.micStatusText) {
-          elems.micStatusText.textContent = 'Muted';
-          elems.micStatusText.style.color = '#ef4444';
-        }
-      } else {
-        if (elems.micStatusText) {
-          const devLabel = getMicDeviceLabel(state.selectedMicDeviceId);
-          elems.micStatusText.textContent = `Active (${devLabel})`;
-          elems.micStatusText.style.color = '#34d399';
-        }
+        setUnifiedLiveStatus('muted', 'muted', 'Muted', 'Microphone muted');
+      } else if (state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
+        const isAgent = state.activeAudioSources.length > 0;
+        setUnifiedLiveStatus(
+          isAgent ? 'agent' : 'listening',
+          isAgent ? 'speaking' : 'connected',
+          isAgent ? 'Agent' : 'Listening',
+          isAgent ? 'Agent Speaking' : 'Listening & Ready'
+        );
       }
-      elems.btnToggleMic.textContent = state.micMuted ? '🔇 Unmute Microphone' : '🎤 Mute Microphone';
+      elems.btnToggleMic.textContent = state.micMuted ? '🔇' : '🎤';
+      elems.btnToggleMic.title = state.micMuted ? 'Unmute Microphone' : 'Mute Microphone';
+      elems.btnToggleMic.setAttribute('aria-pressed', state.micMuted ? 'true' : 'false');
       elems.btnToggleMic.classList.toggle('btn-danger', state.micMuted);
-    });
-
-    elems.btnClearTranscript.addEventListener('click', () => {
-      finalizeCurrentTurn();
-      elems.liveTranscript.innerHTML = renderWelcomeHero();
-      bindPromptChips();
-      scrollTranscriptToBottom(true);
     });
 
     elems.liveTextForm.addEventListener('submit', (e) => {
@@ -2773,44 +3575,67 @@
     appendTranscript('system', `Model set to ${name}.`);
   }
 
-  function setupAuditionListeners() {
-    if (!elems.btnAuditionVoice) return;
+  function resetAuditionSampleButtons() {
+    if (!elems.auditionSamplesGroup) return;
+    elems.auditionSamplesGroup.querySelectorAll('.btn-sample-play[data-sample]').forEach((btn) => {
+      btn.classList.remove('playing');
+      btn.setAttribute('aria-pressed', 'false');
+      const icon = btn.querySelector('.sample-icon');
+      if (icon) icon.textContent = '▶';
+    });
+  }
 
-    elems.btnAuditionVoice.addEventListener('click', () => {
-      if (state.activeAuditionAudio) {
+  function stopAuditionPlayback() {
+    if (state.activeAuditionAudio) {
+      try {
         state.activeAuditionAudio.pause();
-        state.activeAuditionAudio = null;
-        elems.btnAuditionVoice.innerHTML = '<span>♪</span> Audition Sample';
-        elems.btnAuditionVoice.classList.remove('playing');
+      } catch (_) {}
+      state.activeAuditionAudio = null;
+    }
+    state.activeAuditionSample = null;
+    resetAuditionSampleButtons();
+  }
+
+  function setupAuditionListeners() {
+    if (!elems.auditionSamplesGroup) return;
+
+    elems.auditionSamplesGroup.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-sample-play[data-sample]');
+      if (!btn || btn.disabled) return;
+
+      const variant = btn.dataset.sample || '1';
+      const wasSameSample = Boolean(state.activeAuditionAudio && state.activeAuditionSample === variant);
+      stopAuditionPlayback();
+      if (wasSameSample) {
         return;
       }
 
-      const selectedOpt = elems.liveVoiceSelect.options[elems.liveVoiceSelect.selectedIndex];
-      const previewStem = selectedOpt?.dataset?.preview || selectedOpt?.value?.toLowerCase();
-      const variant = elems.voiceSampleVariant?.value || '1';
-
+      const selectedOpt = elems.liveVoiceSelect?.options?.[elems.liveVoiceSelect.selectedIndex];
+      const previewStem = selectedOpt?.dataset?.preview;
       if (!previewStem) {
-        alert('No recorded sample for this voice.');
         return;
       }
 
       const url = `previews/${previewStem}_${variant}.mp3`;
       const audio = new Audio(url);
       state.activeAuditionAudio = audio;
-      elems.btnAuditionVoice.innerHTML = '<span>⏹</span> Stop Audition';
-      elems.btnAuditionVoice.classList.add('playing');
+      state.activeAuditionSample = variant;
+      btn.classList.add('playing');
+      btn.setAttribute('aria-pressed', 'true');
+      const icon = btn.querySelector('.sample-icon');
+      if (icon) icon.textContent = '⏹';
 
       audio.play().catch((err) => {
         console.warn('Audition playback failed:', err);
-        elems.btnAuditionVoice.innerHTML = '<span>♪</span> Audition Sample';
-        elems.btnAuditionVoice.classList.remove('playing');
-        state.activeAuditionAudio = null;
+        if (state.activeAuditionAudio === audio) {
+          stopAuditionPlayback();
+        }
       });
 
       audio.onended = () => {
-        elems.btnAuditionVoice.innerHTML = '<span>♪</span> Audition Sample';
-        elems.btnAuditionVoice.classList.remove('playing');
-        state.activeAuditionAudio = null;
+        if (state.activeAuditionAudio === audio) {
+          stopAuditionPlayback();
+        }
       };
     });
   }
@@ -2850,40 +3675,57 @@
     }
   }
 
+  function getMicAudioConstraints(deviceId) {
+    const audioConstraints = {
+      channelCount: 1,
+      echoCancellation: state.micConstraints.echoCancellation,
+      noiseSuppression: state.micConstraints.noiseSuppression,
+      autoGainControl: state.micConstraints.autoGainControl,
+    };
+    if (deviceId) {
+      audioConstraints.deviceId = { exact: deviceId };
+    }
+    return audioConstraints;
+  }
+
+  function populateMicSelectElement(selectEl, audioInputs, currentVal) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '';
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'Default System Microphone';
+    if (!currentVal) defaultOpt.selected = true;
+    selectEl.appendChild(defaultOpt);
+
+    let matchFound = false;
+    audioInputs.forEach((d, idx) => {
+      if (!d.deviceId) return;
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Microphone ${idx + 1} (${d.deviceId.slice(0, 8)}...)`;
+      if (d.deviceId === currentVal) {
+        opt.selected = true;
+        matchFound = true;
+      }
+      selectEl.appendChild(opt);
+    });
+
+    if (currentVal && !matchFound) {
+      selectEl.value = '';
+    }
+  }
+
   async function updateMicrophoneList() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
 
     try {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const audioInputs = allDevices.filter((d) => d.kind === 'audioinput');
+      const currentVal = state.selectedMicDeviceId;
 
-      if (elems.liveMicSelect) {
-        const currentVal = state.selectedMicDeviceId;
-        elems.liveMicSelect.innerHTML = '';
-
-        const defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = 'Default System Microphone';
-        if (!currentVal) defaultOpt.selected = true;
-        elems.liveMicSelect.appendChild(defaultOpt);
-
-        let matchFound = false;
-        audioInputs.forEach((d, idx) => {
-          if (!d.deviceId) return;
-          const opt = document.createElement('option');
-          opt.value = d.deviceId;
-          opt.textContent = d.label || `Microphone ${idx + 1} (${d.deviceId.slice(0, 8)}...)`;
-          if (d.deviceId === currentVal) {
-            opt.selected = true;
-            matchFound = true;
-          }
-          elems.liveMicSelect.appendChild(opt);
-        });
-
-        if (currentVal && !matchFound) {
-          elems.liveMicSelect.value = '';
-        }
-      }
+      populateMicSelectElement(elems.liveMicSelect, audioInputs, currentVal);
+      populateMicSelectElement(elems.micTestDeviceSelect, audioInputs, currentVal);
 
       return audioInputs;
     } catch (err) {
@@ -2911,7 +3753,7 @@
     return 'Microphone (' + (deviceId ? deviceId.slice(0, 8) : '') + '...)';
   }
 
-  async function switchMicDevice(deviceId) {
+  async function switchMicDevice(deviceId, opts = {}) {
     state.selectedMicDeviceId = deviceId;
     if (deviceId) {
       localStorage.setItem('pigasus_mic_device_id', deviceId);
@@ -2921,28 +3763,42 @@
     if (elems.liveMicSelect && elems.liveMicSelect.value !== deviceId) {
       elems.liveMicSelect.value = deviceId;
     }
+    if (elems.micTestDeviceSelect && elems.micTestDeviceSelect.value !== deviceId) {
+      elems.micTestDeviceSelect.value = deviceId;
+    }
 
     const label = getMicDeviceLabel(deviceId);
 
     // If currently capturing, seamlessly hot-swap the media stream without disconnecting LiveChat
     if (state.micStream && state.micAudioCtx && state.micAudioCtx.state !== 'closed') {
       try {
-        const audioConstraints = {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        };
-        if (deviceId) {
-          audioConstraints.deviceId = { exact: deviceId };
+        const audioConstraints = getMicAudioConstraints(deviceId);
+
+        let newStream;
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+          });
+        } catch (constraintErr) {
+          if (deviceId && (constraintErr.name === 'OverconstrainedError' || constraintErr.name === 'NotFoundError')) {
+            delete audioConstraints.deviceId;
+            newStream = await navigator.mediaDevices.getUserMedia({
+              audio: audioConstraints,
+            });
+          } else {
+            throw constraintErr;
+          }
         }
 
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          audio: audioConstraints,
-        });
+        if (!state.micAudioCtx || state.micAudioCtx.state === 'closed') {
+          newStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
         // Stop old stream tracks
-        state.micStream.getAudioTracks().forEach((t) => t.stop());
+        if (state.micStream) {
+          state.micStream.getAudioTracks().forEach((t) => t.stop());
+        }
 
         // Disconnect old source node
         if (state.micSourceNode) {
@@ -2962,8 +3818,11 @@
 
         // Re-enumerate to ensure labels are updated if this was first permission grant
         await updateMicrophoneList();
+        syncMicConstraintUI();
 
-        appendTranscript('system', `🎙️ Switched microphone to: ${label}`);
+        if (!opts.silent) {
+          appendTranscript('system', `🎙️ Switched microphone to: ${label}`);
+        }
         if (elems.micStatusText && !state.micMuted) {
           elems.micStatusText.textContent = `Active (${label})`;
         }
@@ -2974,24 +3833,141 @@
     }
   }
 
+  function syncMicConstraintUI() {
+    const aec = !!state.micConstraints.echoCancellation;
+    const ns = !!state.micConstraints.noiseSuppression;
+    const agc = !!state.micConstraints.autoGainControl;
+
+    if (elems.micOptAec) elems.micOptAec.checked = aec;
+    if (elems.micOptNs) elems.micOptNs.checked = ns;
+    if (elems.micOptAgc) elems.micOptAgc.checked = agc;
+    if (elems.popoverOptAec) elems.popoverOptAec.checked = aec;
+    if (elems.popoverOptNs) elems.popoverOptNs.checked = ns;
+    if (elems.popoverOptAgc) elems.popoverOptAgc.checked = agc;
+
+    if (elems.popoverAecBadge) {
+      let effectiveAec = aec;
+      const track = state.micStream?.getAudioTracks?.()[0];
+      if (track && typeof track.getSettings === 'function') {
+        const settings = track.getSettings();
+        if (typeof settings.echoCancellation === 'boolean') {
+          effectiveAec = settings.echoCancellation;
+        }
+      }
+      elems.popoverAecBadge.textContent = effectiveAec ? 'AEC ON' : 'AEC OFF';
+      elems.popoverAecBadge.classList.toggle('is-off', !effectiveAec);
+    }
+  }
+
+  async function applyLiveMicConstraints() {
+    if (!state.micStream || !state.micAudioCtx || state.micAudioCtx.state === 'closed') {
+      syncMicConstraintUI();
+      return;
+    }
+    const track = state.micStream.getAudioTracks?.()[0];
+    if (track && typeof track.applyConstraints === 'function') {
+      try {
+        await track.applyConstraints(getMicAudioConstraints(state.selectedMicDeviceId));
+        const settings = typeof track.getSettings === 'function' ? track.getSettings() : {};
+        if (
+          typeof settings.echoCancellation !== 'boolean' ||
+          settings.echoCancellation === state.micConstraints.echoCancellation
+        ) {
+          syncMicConstraintUI();
+          return;
+        }
+      } catch (_) {
+        // Fall back to seamless stream hot-swap below
+      }
+    }
+    await switchMicDevice(state.selectedMicDeviceId, { silent: true });
+  }
+
+  async function setMicConstraint(key, enabled) {
+    const val = !!enabled;
+    state.micConstraints[key] = val;
+    const storageMap = {
+      echoCancellation: 'pigasus_mic_aec',
+      noiseSuppression: 'pigasus_mic_ns',
+      autoGainControl: 'pigasus_mic_agc',
+    };
+    if (storageMap[key]) {
+      localStorage.setItem(storageMap[key], String(val));
+    }
+    syncMicConstraintUI();
+
+    if (state.micTest.active) {
+      stopMicTest();
+      startMicTest();
+    }
+    if (state.micStream && state.micAudioCtx && state.micAudioCtx.state !== 'closed') {
+      await applyLiveMicConstraints();
+      if (key === 'echoCancellation') {
+        appendTranscript(
+          'system',
+          val
+            ? '🔇 Browser Echo Cancellation (AEC) enabled.'
+            : '🔊 Browser Echo Cancellation (AEC) disabled (headphones recommended).'
+        );
+      }
+    }
+  }
+
+  function createAudioContext(preferredSampleRate) {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+      const err = new Error('Web Audio API is not supported in this browser.');
+      err.nonRetryable = true;
+      throw err;
+    }
+    if (preferredSampleRate) {
+      try {
+        return new AudioCtx({ sampleRate: preferredSampleRate });
+      } catch (_) {
+        // Android Chrome / some mobile audio HALs reject custom sample rates; fall back to hardware rate
+      }
+    }
+    return new AudioCtx();
+  }
+
+  function makeNonRetryableError(message) {
+    const err = new Error(message);
+    err.nonRetryable = true;
+    return err;
+  }
+
   async function connectLiveSession() {
+    stopMicTest();
     updateLiveUI('connecting', 'Connecting...');
 
     try {
-      // Auto-refresh OAuth token if needed
+      // 1. Initialize & resume Web Audio Contexts synchronously inside user gesture (critical for Android Chrome)
+      if (!state.audioCtx || state.audioCtx.state === 'closed') {
+        state.audioCtx = createAudioContext(24000);
+      }
+      if (state.audioCtx.state === 'suspended') {
+        state.audioCtx.resume().catch(() => {});
+      }
+      if (!state.micAudioCtx || state.micAudioCtx.state === 'closed') {
+        state.micAudioCtx = createAudioContext();
+      }
+      if (state.micAudioCtx.state === 'suspended') {
+        state.micAudioCtx.resume().catch(() => {});
+      }
+
+      if (serverDetectPromise) {
+        await serverDetectPromise;
+      }
+
+      // Auto-refresh OAuth token only when explicitly using single-account OAuth mode
       if (state.authMode === 'oauth') {
         const token = await ensureValidOAuthToken();
-        if (!token) {
-          throw new Error('Please authenticate with Google OAuth under the Auth tab first.');
+        if (!token && !(state.hasServer && state.serverHasOAuth)) {
+          throw makeNonRetryableError('Please authenticate with Google OAuth under Settings -> Google OAuth (or run `pigasus login`) first.');
         }
       }
 
-      // 1. Initialize Web Audio Context (Output 24kHz for Gemini Live Audio)
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!state.audioCtx || state.audioCtx.state === 'closed') {
-        state.audioCtx = new AudioCtx({ sampleRate: 24000 });
-      }
-      if (state.audioCtx.state === 'suspended') {
+      if (state.audioCtx && state.audioCtx.state === 'suspended') {
         await state.audioCtx.resume();
       }
       state.audioQueueTime = state.audioCtx.currentTime;
@@ -3007,33 +3983,44 @@
 
       if (state.hasServer) {
         // Backend Bridge Mode
-        const params = new URLSearchParams({
-          token: state.authMode === 'oauth' ? state.oauthToken : '',
-          key: state.authMode === 'api_key' ? state.apiKey : '',
-          proxy: state.authMode === 'proxy' ? state.proxyURL : '',
-        });
+        const params = new URLSearchParams({ mode: state.authMode });
+        if (state.authMode === 'oauth' && state.oauthToken) {
+          params.set('token', state.oauthToken);
+        } else if (state.authMode === 'api_key' && state.apiKey) {
+          params.set('key', state.apiKey);
+        } else if (state.authMode === 'proxy' && state.proxyURL) {
+          params.set('proxy', state.proxyURL);
+        }
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         wsURL = `${protocol}//${window.location.host}/api/live-ws?${params.toString()}`;
       } else {
         // Pure Static Standalone Mode
         if (state.authMode === 'api_key') {
-          if (!state.apiKey) throw new Error('Please enter a Gemini API Key under Auth tab.');
+          if (!state.apiKey) throw makeNonRetryableError('Please enter a Gemini API Key under Settings -> Gemini API Key.');
           wsURL = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${state.apiKey}`;
         } else if (state.authMode === 'proxy') {
-          const u = new URL(state.proxyURL || 'http://127.0.0.1:8085');
+          if (!state.proxyURL) {
+            throw makeNonRetryableError('Proxy mode selected, but no Pigasus Proxy URL is configured in Settings.');
+          }
+          const u = new URL(state.proxyURL);
           const scheme = u.protocol === 'https:' ? 'wss:' : 'ws:';
           wsURL = `${scheme}//${u.host}/v1/live`;
         } else if (state.authMode === 'oauth') {
-          const u = new URL(state.proxyURL || 'http://127.0.0.1:8085');
+          if (!state.proxyURL) {
+            throw makeNonRetryableError('OAuth Live Voice requires the Pigasus LiveChat server (`pigasus livechat --web`) or an explicit Proxy URL in Settings.');
+          }
+          const u = new URL(state.proxyURL);
           const scheme = u.protocol === 'https:' ? 'wss:' : 'ws:';
           wsURL = `${scheme}//${u.host}/v1/live`;
-          showStatusMsg('Connecting to local Pigasus proxy for OAuth Live WebSocket bridge...', 'info');
+          showStatusMsg('Connecting to configured Pigasus proxy for OAuth Live WebSocket bridge...', 'info');
         }
       }
 
-      state.liveWS = new WebSocket(wsURL);
+      const ws = new WebSocket(wsURL);
+      state.liveWS = ws;
 
-      state.liveWS.onopen = async () => {
+      ws.onopen = async () => {
+        if (state.liveWS !== ws) return;
         reconnectAttempts = 0;
         updateLiveUI('ready', 'Connected (Sending Setup)');
 
@@ -3082,14 +4069,17 @@
             outputAudioTranscription: {},
           },
         };
-        state.liveWS.send(JSON.stringify(setupMsg));
+        ws.send(JSON.stringify(setupMsg));
 
         // Start Microphone Audio Capture
         await startMicCapture();
-        updateLiveUI('ready', 'Listening & Ready');
+        if (state.liveWS === ws && ws.readyState === WebSocket.OPEN) {
+          updateLiveUI('ready', 'Listening & Ready');
+        }
       };
 
-      state.liveWS.onmessage = async (event) => {
+      ws.onmessage = async (event) => {
+        if (state.liveWS !== ws) return;
         let raw = event.data;
         if (raw instanceof Blob) {
           raw = await raw.text();
@@ -3099,26 +4089,34 @@
         handleLiveServerMessage(raw);
       };
 
-      state.liveWS.onerror = (err) => {
+      ws.onerror = (err) => {
+        if (state.liveWS !== ws) return;
         console.error('[live] WebSocket error:', err);
         updateLiveUI('disconnected', 'Connection Error');
       };
 
-      state.liveWS.onclose = (event) => {
+      ws.onclose = (event) => {
+        if (state.liveWS !== ws) return;
         console.warn('[live] WebSocket closed:', event.code, event.reason);
         if (event.reason) {
           appendTranscript('system', `Disconnected: ${event.reason} (code ${event.code})`);
         }
         disconnectLiveSession();
-        if (!intentionalDisconnect) {
+        const reasonLower = (event.reason || '').toLowerCase();
+        const isAuthOrPermError = reasonLower.includes('permissiondenied') ||
+          reasonLower.includes('permission denied') ||
+          reasonLower.includes('unauthenticated') ||
+          reasonLower.includes('api key');
+        const isFatalClose = event.code === 1008 || event.code === 1003 || (event.code >= 4000 && event.code < 5000) || isAuthOrPermError;
+        if (!intentionalDisconnect && !isFatalClose) {
           scheduleReconnect();
         }
       };
     } catch (err) {
       console.error('[live] Failed to connect:', err);
-      alert('Live connection failed: ' + err.message);
+      appendTranscript('system', `Live connection failed: ${err.message}`);
       disconnectLiveSession();
-      if (!intentionalDisconnect) {
+      if (!intentionalDisconnect && !err.nonRetryable) {
         scheduleReconnect();
       }
     }
@@ -3169,28 +4167,81 @@
     updateLiveUI('disconnected', 'Disconnected');
   }
 
+  function setUnifiedLiveStatus(pillState, dotClass, text, title) {
+    if (elems.liveStatusText) {
+      elems.liveStatusText.textContent = text;
+    }
+    if (elems.liveDot) {
+      elems.liveDot.className = `dot dot-${dotClass}`;
+    }
+    if (elems.liveStatusPill) {
+      elems.liveStatusPill.className = `live-status-pill state-${pillState}`;
+      if (title) {
+        elems.liveStatusPill.title = title;
+      }
+    }
+  }
+
   function updateLiveUI(status, label) {
-    elems.liveStatusText.textContent = label;
-    elems.liveDot.className = `dot dot-${status}`;
+    if (status === 'disconnected') {
+      const isErr = label === 'Connection Error';
+      setUnifiedLiveStatus(
+        isErr ? 'error' : 'disconnected',
+        isErr ? 'error' : 'disconnected',
+        isErr ? 'Error' : 'Offline',
+        label || 'Offline'
+      );
+    } else if (status === 'connecting') {
+      const shortText = label && label.startsWith('Reconnecting') ? 'Reconnecting' : 'Connecting';
+      setUnifiedLiveStatus('connecting', 'connecting', shortText, label || shortText);
+    } else if (state.micMuted) {
+      setUnifiedLiveStatus('muted', 'muted', 'Muted', 'Microphone muted');
+    } else if (status === 'speaking') {
+      setUnifiedLiveStatus('agent', 'speaking', 'Agent', label || 'Agent Speaking');
+    } else {
+      const shortText = label === 'Interrupted' ? 'Interrupted' : 'Listening';
+      setUnifiedLiveStatus('listening', 'connected', shortText, label || 'Listening & Ready');
+    }
 
     if (status === 'disconnected') {
-      elems.btnToggleLive.innerHTML = '<span class="btn-live-icon">▶</span> <span class="btn-live-text">Connect Live</span>';
-      elems.btnToggleLive.className = 'btn-connect-live';
-      elems.btnToggleMic.disabled = true;
-      elems.liveDuplexState.textContent = 'Offline';
+      if (elems.btnToggleLive) {
+        elems.btnToggleLive.innerHTML = '<span class="btn-live-icon" aria-hidden="true">▶</span> <span class="btn-live-text">Live</span>';
+        elems.btnToggleLive.className = 'btn-connect-live';
+        elems.btnToggleLive.title = 'Connect Live Voice';
+        elems.btnToggleLive.setAttribute('aria-label', 'Connect Live Voice');
+      }
+      if (elems.btnToggleMic) {
+        elems.btnToggleMic.disabled = true;
+        elems.btnToggleMic.classList.add('hidden');
+        elems.btnToggleMic.textContent = '🎤';
+        elems.btnToggleMic.classList.remove('btn-danger');
+        elems.btnToggleMic.setAttribute('aria-pressed', 'false');
+      }
+      if (elems.liveDuplexState) {
+        elems.liveDuplexState.textContent = 'Offline';
+      }
       elems.liveVisualizerBar?.classList.add('hidden');
     } else {
-      elems.btnToggleLive.innerHTML = '<span class="btn-live-icon">⏹</span> <span class="btn-live-text">Disconnect</span>';
-      elems.btnToggleLive.className = 'btn-connect-live connected';
-      elems.btnToggleMic.disabled = false;
-      elems.btnLiveTextSend.disabled = false;
+      if (elems.btnToggleLive) {
+        elems.btnToggleLive.innerHTML = '<span class="btn-live-icon" aria-hidden="true">⏹</span> <span class="btn-live-text">Stop</span>';
+        elems.btnToggleLive.className = 'btn-connect-live connected';
+        elems.btnToggleLive.title = 'Disconnect Live Voice';
+        elems.btnToggleLive.setAttribute('aria-label', 'Disconnect Live Voice');
+      }
+      if (elems.btnToggleMic) {
+        elems.btnToggleMic.disabled = false;
+        elems.btnToggleMic.classList.remove('hidden');
+      }
+      if (elems.btnLiveTextSend) {
+        elems.btnLiveTextSend.disabled = false;
+      }
       elems.liveVisualizerBar?.classList.remove('hidden');
-      if (status === 'speaking') {
-        elems.liveDuplexState.textContent = 'Speaking';
-      } else {
-        elems.liveDuplexState.textContent = state.isFullDuplex
-          ? 'Duplex'
-          : 'Half-Duplex';
+      if (elems.liveDuplexState) {
+        if (status === 'speaking') {
+          elems.liveDuplexState.textContent = 'Speaking';
+        } else {
+          elems.liveDuplexState.textContent = state.isFullDuplex ? 'Duplex' : 'Half-Duplex';
+        }
       }
     }
   }
@@ -3224,43 +4275,73 @@
   // --- Microphone Capture (16kHz PCM mono full-duplex) ---
   async function startMicCapture() {
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        throw new Error('Microphone access requires HTTPS or localhost/127.0.0.1 in this browser.');
+      }
+
       if (!state.micAudioCtx || state.micAudioCtx.state === 'closed') {
-        state.micAudioCtx = new AudioCtx();
+        state.micAudioCtx = createAudioContext();
       }
-      if (state.micAudioCtx.state === 'suspended') {
-        await state.micAudioCtx.resume();
+      const micCtx = state.micAudioCtx;
+      const isMicSessionActive = () =>
+        state.micAudioCtx === micCtx &&
+        micCtx.state !== 'closed' &&
+        state.liveWS &&
+        state.liveWS.readyState === WebSocket.OPEN;
+
+      if (!isMicSessionActive()) return;
+
+      if (micCtx.state === 'suspended') {
+        await micCtx.resume();
+      }
+      if (!isMicSessionActive()) return;
+
+      const audioConstraints = getMicAudioConstraints(state.selectedMicDeviceId);
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+        });
+      } catch (constraintErr) {
+        if (state.selectedMicDeviceId && (constraintErr.name === 'OverconstrainedError' || constraintErr.name === 'NotFoundError')) {
+          delete audioConstraints.deviceId;
+          state.selectedMicDeviceId = '';
+          localStorage.removeItem('pigasus_mic_device_id');
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+          });
+        } else {
+          throw constraintErr;
+        }
       }
 
-      const audioConstraints = {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
-      if (state.selectedMicDeviceId) {
-        audioConstraints.deviceId = { exact: state.selectedMicDeviceId };
+      if (!isMicSessionActive()) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
       }
-
-      state.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-      });
+      state.micStream = stream;
 
       // Refresh microphone list to populate real device labels (now that permission is granted)
       await updateMicrophoneList();
+      if (!isMicSessionActive()) {
+        stream.getTracks().forEach((t) => t.stop());
+        if (state.micStream === stream) state.micStream = null;
+        return;
+      }
 
-      const inputSampleRate = state.micAudioCtx.sampleRate;
-      state.micSourceNode = state.micAudioCtx.createMediaStreamSource(state.micStream);
+      const inputSampleRate = micCtx.sampleRate;
+      state.micSourceNode = micCtx.createMediaStreamSource(stream);
       const source = state.micSourceNode;
 
       // Dedicated mic analyser in micAudioCtx context (NEVER connect across different audio contexts)
-      state.micAnalyser = state.micAudioCtx.createAnalyser();
+      state.micAnalyser = micCtx.createAnalyser();
       state.micAnalyser.fftSize = 64;
       state.micAnalyser.smoothingTimeConstant = 0.25;
       source.connect(state.micAnalyser);
 
       const bufferSize = 4096;
-      state.micProcessor = state.micAudioCtx.createScriptProcessor(bufferSize, 1, 1);
+      state.micProcessor = micCtx.createScriptProcessor(bufferSize, 1, 1);
 
       state.micProcessor.onaudioprocess = (e) => {
         if (!state.liveWS || state.liveWS.readyState !== WebSocket.OPEN || state.micMuted) return;
@@ -3324,18 +4405,19 @@
       };
 
       // Mute local loopback to prevent feedback
-      const muteGain = state.micAudioCtx.createGain();
+      const muteGain = micCtx.createGain();
       muteGain.gain.value = 0;
 
       state.micAnalyser.connect(state.micProcessor);
       state.micProcessor.connect(muteGain);
-      muteGain.connect(state.micAudioCtx.destination);
+      muteGain.connect(micCtx.destination);
 
       if (elems.micStatusText) {
         const devLabel = getMicDeviceLabel(state.selectedMicDeviceId);
         elems.micStatusText.textContent = `Active (${devLabel})`;
         elems.micStatusText.style.color = '#34d399';
       }
+      syncMicConstraintUI();
     } catch (err) {
       console.warn('[live] Mic capture error:', err);
       appendTranscript('system', `Microphone note: ${err.message}`);
@@ -3569,6 +4651,7 @@
       } else {
         currentTurnEntry.classList.remove('interim');
         textSpan.textContent = text;
+        ensureBubbleActionBar(currentTurnBubble);
         scrollTranscriptToBottom(true);
         recordLiveTurn('user', text);
         return;
@@ -3636,6 +4719,9 @@
     }
 
     body.appendChild(textSpan);
+    if (speaker === 'user' && !isInterim) {
+      ensureBubbleActionBar(body);
+    }
     entry.appendChild(spk);
     entry.appendChild(body);
     elems.liveTranscript.appendChild(entry);
@@ -3677,8 +4763,8 @@
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    const numBars = 20;
-    const smoothedBars = new Float32Array(numBars);
+    let numBars = 36;
+    let smoothedBars = new Float32Array(numBars);
     let smoothedVolume = 0;
     let lastDrawTime = 0;
     let lastTextUpdateTime = 0;
@@ -3697,6 +4783,17 @@
         return;
       }
       lastDrawTime = now;
+
+      // Keep canvas pixel width synced to its full-width container
+      const targetW = Math.max(120, Math.floor(canvas.clientWidth || 360));
+      if (canvas.width !== targetW) {
+        canvas.width = targetW;
+      }
+      const desiredBars = Math.max(16, Math.min(56, Math.floor(canvas.width / 9)));
+      if (desiredBars !== numBars) {
+        numBars = desiredBars;
+        smoothedBars = new Float32Array(numBars);
+      }
 
       // 2. Measure volume
       let micVolumePercent = 0;
@@ -3733,33 +4830,16 @@
           elems.micMeterVal.textContent = micVolumePercent + '%';
         }
 
-        // Update state badges stably
-        if (elems.audioStateIndicator) {
-          if (isAgentSpeaking) {
-            elems.audioStateIndicator.textContent = 'Agent';
-            elems.audioStateIndicator.className = 'audio-state-pill speaking';
-          } else if (micIsActiveSpeaking) {
-            elems.audioStateIndicator.textContent = 'Speaking';
-            elems.audioStateIndicator.className = 'audio-state-pill listening';
-          } else if (state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
-            elems.audioStateIndicator.textContent = 'Listening';
-            elems.audioStateIndicator.className = 'audio-state-pill listening';
-          } else {
-            elems.audioStateIndicator.textContent = 'Idle';
-            elems.audioStateIndicator.className = 'audio-state-pill';
-          }
-        }
-
-        if (elems.micStatusText) {
+        // Update unified fixed-width status pill in header when live socket is open
+        if (state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
           if (state.micMuted) {
-            elems.micStatusText.textContent = 'Muted';
-            elems.micStatusText.style.color = '#ef4444';
+            setUnifiedLiveStatus('muted', 'muted', 'Muted', 'Microphone muted');
+          } else if (isAgentSpeaking) {
+            setUnifiedLiveStatus('agent', 'speaking', 'Agent', 'Agent Speaking');
           } else if (micIsActiveSpeaking) {
-            elems.micStatusText.textContent = 'Speaking';
-            elems.micStatusText.style.color = '#34d399';
+            setUnifiedLiveStatus('speaking', 'connected', 'Speaking', 'User Speaking');
           } else {
-            elems.micStatusText.textContent = state.liveWS ? 'Listening' : 'Idle';
-            elems.micStatusText.style.color = '#94a3b8';
+            setUnifiedLiveStatus('listening', 'connected', 'Listening', 'Listening & Ready');
           }
         }
       }
@@ -3781,19 +4861,19 @@
       }
 
       const step = Math.max(1, Math.floor(targetData.length / numBars));
-      const barWidth = 7;
+      const barWidth = 4;
       const totalBarWidth = numBars * barWidth;
       const gap = (canvas.width - totalBarWidth) / (numBars - 1);
       const midY = canvas.height / 2;
 
       for (let i = 0; i < numBars; i++) {
         const raw = targetData[i * step] || 0;
-        const targetH = (raw / 255) * (canvas.height - 6);
+        const targetH = (raw / 255) * (canvas.height - 4);
         // Exponential smoothing: gentle attack (0.35), smooth decay (0.15)
         const alpha = targetH > smoothedBars[i] ? 0.35 : 0.15;
         smoothedBars[i] += (targetH - smoothedBars[i]) * alpha;
 
-        const h = Math.max(3, Math.round(smoothedBars[i]));
+        const h = Math.max(2, Math.round(smoothedBars[i]));
         const x = Math.round(i * (barWidth + gap));
         const y = Math.round(midY - h / 2);
 
@@ -3827,7 +4907,7 @@
     elems.proxyConfigForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const url = elems.cfgProxyUrl.value.trim();
-      const selectedAuth = document.querySelector('input[name="default_auth"]:checked')?.value || 'oauth';
+      const selectedAuth = document.querySelector('input[name="default_auth"]:checked')?.value || (state.hasServer ? 'aggregate' : 'oauth');
 
       state.proxyURL = url;
       localStorage.setItem('pigasus_proxy_url', url);
@@ -3838,6 +4918,10 @@
 
     elems.btnTestProxy.addEventListener('click', async () => {
       const url = elems.cfgProxyUrl.value.trim();
+      if (!url) {
+        showProxyResult('Please enter a Pigasus Proxy URL first (optional; not needed for OAuth or API Key mode).', 'error');
+        return;
+      }
       showProxyResult(`Testing connectivity to ${url}...`, 'info');
       try {
         const testURL = url.replace(/\/$/, '') + '/v1internal:streamGenerateContent';
@@ -3859,7 +4943,532 @@
     elems.proxyTestResult.classList.remove('hidden');
   }
 
+  // --- Microphone Test & Diagnostics Section ---
+  function setupMicTestSection() {
+    syncMicConstraintUI();
+
+    elems.micOptAec?.addEventListener('change', (e) => {
+      setMicConstraint('echoCancellation', e.target.checked);
+    });
+    elems.popoverOptAec?.addEventListener('change', (e) => {
+      setMicConstraint('echoCancellation', e.target.checked);
+    });
+    elems.micOptNs?.addEventListener('change', (e) => {
+      setMicConstraint('noiseSuppression', e.target.checked);
+    });
+    elems.popoverOptNs?.addEventListener('change', (e) => {
+      setMicConstraint('noiseSuppression', e.target.checked);
+    });
+    elems.micOptAgc?.addEventListener('change', (e) => {
+      setMicConstraint('autoGainControl', e.target.checked);
+    });
+    elems.popoverOptAgc?.addEventListener('change', (e) => {
+      setMicConstraint('autoGainControl', e.target.checked);
+    });
+
+    elems.micTestDeviceSelect?.addEventListener('change', async (e) => {
+      const newDeviceId = e.target.value;
+      await switchMicDevice(newDeviceId);
+      if (state.micTest.active) {
+        stopMicTest();
+        startMicTest();
+      }
+    });
+
+    elems.btnMicTestRefresh?.addEventListener('click', async () => {
+      await updateMicrophoneList();
+      await refreshMicDiagnostics();
+      showMicTestStatus('Refreshed audio input device list and diagnostics.', 'info');
+    });
+
+    elems.btnMicTestToggle?.addEventListener('click', () => {
+      if (state.micTest.active || state.micTest.starting) {
+        stopMicTest();
+      } else {
+        startMicTest();
+      }
+    });
+
+    elems.btnMicTestRecord?.addEventListener('click', () => {
+      toggleMicTestRecording();
+    });
+
+    elems.btnMicTestTone?.addEventListener('click', () => {
+      playSpeakerTestTone();
+    });
+
+    refreshMicDiagnostics();
+  }
+
+  async function refreshMicDiagnostics() {
+    if (elems.micDiagSecure) {
+      const hasMedia = !!(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function');
+      if (window.isSecureContext && hasMedia) {
+        elems.micDiagSecure.textContent = `OK (${window.location.protocol}//${window.location.hostname})`;
+        elems.micDiagSecure.className = 'mic-diag-value ok';
+      } else if (!window.isSecureContext) {
+        elems.micDiagSecure.textContent = `Blocked (${window.location.origin} is not HTTPS/localhost)`;
+        elems.micDiagSecure.className = 'mic-diag-value err';
+      } else {
+        elems.micDiagSecure.textContent = 'mediaDevices unavailable';
+        elems.micDiagSecure.className = 'mic-diag-value err';
+      }
+    }
+
+    if (elems.micDiagPermission) {
+      if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+        try {
+          const perm = await navigator.permissions.query({ name: 'microphone' });
+          elems.micDiagPermission.textContent = perm.state;
+          elems.micDiagPermission.className =
+            'mic-diag-value ' + (perm.state === 'granted' ? 'ok' : perm.state === 'denied' ? 'err' : 'warn');
+        } catch (_) {
+          elems.micDiagPermission.textContent = 'Prompt on start';
+          elems.micDiagPermission.className = 'mic-diag-value';
+        }
+      } else {
+        elems.micDiagPermission.textContent = 'Prompt on start';
+        elems.micDiagPermission.className = 'mic-diag-value';
+      }
+    }
+
+    if (elems.micDiagSampleRate && !state.micTest.active) {
+      elems.micDiagSampleRate.textContent = state.micTest.sampleRate ? `${state.micTest.sampleRate} Hz -> 16000 Hz` : '-';
+    }
+    if (elems.micDiagTrack && !state.micTest.active) {
+      elems.micDiagTrack.textContent = state.liveWS ? 'In use by LiveChat' : 'Not started';
+      elems.micDiagTrack.className = 'mic-diag-value';
+    }
+  }
+
+  function showMicTestStatus(text, type = 'info') {
+    if (!elems.micTestStatus) return;
+    elems.micTestStatus.textContent = text;
+    elems.micTestStatus.className = `status-msg-modern ${type}`;
+    elems.micTestStatus.classList.remove('hidden');
+  }
+
+  function formatMicError(err) {
+    const name = err?.name || '';
+    const msg = err?.message || String(err || 'Unknown microphone error');
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      return `Microphone API blocked on ${window.location.origin}. Open via http://127.0.0.1:<port>, http://localhost:<port>, or HTTPS.`;
+    }
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      return 'Microphone permission denied. In Android Chrome, tap the lock/tune icon in the address bar -> Permissions -> Microphone -> Allow, and check Android App Permissions for Chrome.';
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      return 'No microphone device found. Check headset/Bluetooth connection or select "Default System Microphone".';
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return 'Microphone hardware is busy or unreadable (another app, call, or LiveChat session may be holding it).';
+    }
+    if (name === 'OverconstrainedError') {
+      return `Selected microphone constraints could not be satisfied (${err.constraint || 'deviceId'}). Try "Default System Microphone".`;
+    }
+    return `Microphone error (${name || 'Error'}): ${msg}`;
+  }
+
+  async function startMicTest() {
+    if (state.liveWS && state.liveWS.readyState === WebSocket.OPEN) {
+      showMicTestStatus('LiveChat is currently connected and using the microphone. Disconnect LiveChat first to run an isolated hardware test.', 'info');
+      return;
+    }
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      showMicTestStatus(formatMicError(new Error('mediaDevices unavailable')), 'error');
+      await refreshMicDiagnostics();
+      return;
+    }
+
+    stopMicTest();
+    state.micTest.starting = true;
+    if (elems.btnMicTestToggle) {
+      elems.btnMicTestToggle.textContent = '⏹ Stop Mic Test';
+      elems.btnMicTestToggle.className = 'btn btn-danger';
+    }
+    showMicTestStatus('Requesting microphone access...', 'info');
+
+    let testCtx;
+    try {
+      testCtx = createAudioContext();
+      state.micTest.audioCtx = testCtx;
+      if (testCtx.state === 'suspended') {
+        await testCtx.resume();
+      }
+      if (!state.micTest.starting || state.micTest.audioCtx !== testCtx || testCtx.state === 'closed') {
+        return;
+      }
+
+      const constraints = getMicAudioConstraints(state.selectedMicDeviceId);
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      } catch (constraintErr) {
+        if (state.selectedMicDeviceId && (constraintErr.name === 'OverconstrainedError' || constraintErr.name === 'NotFoundError')) {
+          delete constraints.deviceId;
+          state.selectedMicDeviceId = '';
+          localStorage.removeItem('pigasus_mic_device_id');
+          stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+        } else {
+          throw constraintErr;
+        }
+      }
+
+      if (!state.micTest.starting || state.micTest.audioCtx !== testCtx || testCtx.state === 'closed') {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      state.micTest.stream = stream;
+      state.micTest.active = true;
+      state.micTest.starting = false;
+      state.micTest.sampleRate = testCtx.sampleRate;
+
+      await updateMicrophoneList();
+      if (!state.micTest.active || state.micTest.audioCtx !== testCtx || testCtx.state === 'closed') {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+
+      const track = stream.getAudioTracks()[0];
+      const settings = track && typeof track.getSettings === 'function' ? track.getSettings() : {};
+      if (elems.micDiagSampleRate) {
+        elems.micDiagSampleRate.textContent = `${testCtx.sampleRate} Hz -> 16000 Hz`;
+        elems.micDiagSampleRate.className = 'mic-diag-value ok';
+      }
+      if (elems.micDiagTrack && track) {
+        elems.micDiagTrack.textContent = `${track.readyState}${track.muted ? ' (OS muted!)' : ''}`;
+        elems.micDiagTrack.className = 'mic-diag-value ' + (track.muted ? 'err' : 'ok');
+      }
+      if (elems.micTestTrackDetails && track) {
+        elems.micTestTrackDetails.textContent = [
+          `Label: ${track.label || '(unnamed device)'}`,
+          `State: ${track.readyState} | Enabled: ${track.enabled} | Muted: ${track.muted}`,
+          `AudioContext: ${testCtx.sampleRate} Hz (${testCtx.state})`,
+          `Track Settings: rate=${settings.sampleRate || '-'}Hz, ch=${settings.channelCount || '-'}, AEC=${settings.echoCancellation}, NS=${settings.noiseSuppression}, AGC=${settings.autoGainControl}`,
+        ].join('\n');
+        elems.micTestTrackDetails.classList.remove('hidden');
+      }
+
+      const source = testCtx.createMediaStreamSource(stream);
+      const analyser = testCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.3;
+
+      const processor = testCtx.createScriptProcessor(4096, 1, 1);
+      const muteGain = testCtx.createGain();
+      muteGain.gain.value = 0;
+
+      source.connect(analyser);
+      analyser.connect(processor);
+      processor.connect(muteGain);
+      muteGain.connect(testCtx.destination);
+
+      state.micTest.sourceNode = source;
+      state.micTest.analyser = analyser;
+      state.micTest.processor = processor;
+
+      let latestPeak = 0;
+      let latestRms = 0;
+      let silentFrames = 0;
+
+      processor.onaudioprocess = (e) => {
+        if (!state.micTest.active) return;
+        const input = e.inputBuffer.getChannelData(0);
+        let peak = 0;
+        let sumSq = 0;
+        for (let i = 0; i < input.length; i++) {
+          const v = Math.abs(input[i]);
+          if (v > peak) peak = v;
+          sumSq += input[i] * input[i];
+        }
+        latestPeak = peak;
+        latestRms = Math.sqrt(sumSq / input.length);
+
+        if (latestPeak < 0.002) {
+          silentFrames++;
+        } else {
+          silentFrames = 0;
+        }
+
+        if (state.micTest.recording) {
+          const pcm16 = downsampleTo16k(input, testCtx.sampleRate);
+          if (pcm16 && pcm16.length > 0) {
+            state.micTest.recordedChunks.push(pcm16);
+          }
+        }
+      };
+
+      const timeData = new Uint8Array(analyser.fftSize);
+      const drawMicTest = () => {
+        if (!state.micTest.active) return;
+        state.micTest.animFrameId = requestAnimationFrame(drawMicTest);
+
+        const pct = Math.min(100, Math.round(latestPeak * 140));
+        const db = latestRms > 0.00001 ? Math.max(-90, Math.round(20 * Math.log10(latestRms))) : -Infinity;
+
+        if (elems.micTestMeterFill) {
+          elems.micTestMeterFill.style.width = pct + '%';
+        }
+        if (elems.micTestMeterRole) {
+          elems.micTestMeterRole.setAttribute('aria-valuenow', String(pct));
+        }
+        if (elems.micTestLevelVal) {
+          elems.micTestLevelVal.textContent = pct + '%';
+        }
+        if (elems.micTestDbVal) {
+          elems.micTestDbVal.textContent = Number.isFinite(db) ? `${db} dBFS` : '-∞ dBFS';
+        }
+        if (elems.micTestSignalBadge) {
+          if (track && track.muted) {
+            elems.micTestSignalBadge.textContent = 'OS Muted';
+          } else if (latestPeak > 0.95) {
+            elems.micTestSignalBadge.textContent = 'Clipping';
+          } else if (latestPeak > 0.02) {
+            elems.micTestSignalBadge.textContent = 'Signal OK';
+          } else if (silentFrames > 25) {
+            elems.micTestSignalBadge.textContent = 'Silent / No Input';
+          } else {
+            elems.micTestSignalBadge.textContent = 'Listening...';
+          }
+        }
+
+        const canvas = elems.micTestWaveform;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          analyser.getByteTimeDomainData(timeData);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = latestPeak > 0.02 ? '#10b981' : '#38bdf8';
+          ctx.beginPath();
+          const sliceWidth = canvas.width / timeData.length;
+          let x = 0;
+          for (let i = 0; i < timeData.length; i++) {
+            const v = timeData[i] / 128.0;
+            const y = (v * canvas.height) / 2;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+            x += sliceWidth;
+          }
+          ctx.lineTo(canvas.width, canvas.height / 2);
+          ctx.stroke();
+        }
+      };
+      state.micTest.animFrameId = requestAnimationFrame(drawMicTest);
+
+      if (elems.btnMicTestRecord) {
+        elems.btnMicTestRecord.disabled = false;
+      }
+      await refreshMicDiagnostics();
+      showMicTestStatus('Microphone active! Speak into your mic to verify the level meter, or click "Record 5s & Play Back".', 'success');
+    } catch (err) {
+      console.warn('[mic-test] Failed:', err);
+      stopMicTest();
+      showMicTestStatus(formatMicError(err), 'error');
+      await refreshMicDiagnostics();
+    }
+  }
+
+  function stopMicTest() {
+    state.micTest.active = false;
+    state.micTest.starting = false;
+    state.micTest.recording = false;
+    if (state.micTest.recordTimer) {
+      clearTimeout(state.micTest.recordTimer);
+      state.micTest.recordTimer = null;
+    }
+    if (state.micTest.animFrameId) {
+      cancelAnimationFrame(state.micTest.animFrameId);
+      state.micTest.animFrameId = null;
+    }
+    if (state.micTest.playbackSource) {
+      try {
+        state.micTest.playbackSource.stop();
+      } catch (_) {}
+      state.micTest.playbackSource = null;
+    }
+    if (state.micTest.stream) {
+      state.micTest.stream.getTracks().forEach((t) => t.stop());
+      state.micTest.stream = null;
+    }
+    if (state.micTest.sourceNode) {
+      try {
+        state.micTest.sourceNode.disconnect();
+      } catch (_) {}
+      state.micTest.sourceNode = null;
+    }
+    if (state.micTest.processor) {
+      try {
+        state.micTest.processor.disconnect();
+      } catch (_) {}
+      state.micTest.processor = null;
+    }
+    if (state.micTest.analyser) {
+      try {
+        state.micTest.analyser.disconnect();
+      } catch (_) {}
+      state.micTest.analyser = null;
+    }
+    if (state.micTest.audioCtx) {
+      state.micTest.audioCtx.close().catch(() => {});
+      state.micTest.audioCtx = null;
+    }
+
+    if (elems.btnMicTestToggle) {
+      elems.btnMicTestToggle.textContent = '🎤 Start Mic Test';
+      elems.btnMicTestToggle.className = 'btn btn-primary';
+    }
+    if (elems.btnMicTestRecord) {
+      elems.btnMicTestRecord.disabled = true;
+      elems.btnMicTestRecord.textContent = '⏺ Record 5s & Play Back';
+    }
+    if (elems.micTestMeterFill) elems.micTestMeterFill.style.width = '0%';
+    if (elems.micTestMeterRole) elems.micTestMeterRole.setAttribute('aria-valuenow', '0');
+    if (elems.micTestLevelVal) elems.micTestLevelVal.textContent = '0%';
+    if (elems.micTestDbVal) elems.micTestDbVal.textContent = '-∞ dBFS';
+    if (elems.micTestSignalBadge) elems.micTestSignalBadge.textContent = 'Idle';
+    if (elems.micTestWaveform) {
+      const ctx = elems.micTestWaveform.getContext('2d');
+      ctx.clearRect(0, 0, elems.micTestWaveform.width, elems.micTestWaveform.height);
+    }
+  }
+
+  function toggleMicTestRecording() {
+    if (!state.micTest.active || !state.micTest.audioCtx) return;
+
+    if (state.micTest.recording) {
+      finishMicTestRecording();
+      return;
+    }
+
+    state.micTest.recordedChunks = [];
+    state.micTest.recording = true;
+    if (elems.btnMicTestRecord) {
+      elems.btnMicTestRecord.textContent = '⏹ Stop & Play Back';
+    }
+    showMicTestStatus('Recording up to 5 seconds of 16kHz PCM audio... Speak now!', 'info');
+
+    state.micTest.recordTimer = setTimeout(() => {
+      if (state.micTest.recording) {
+        finishMicTestRecording();
+      }
+    }, 5000);
+  }
+
+  async function finishMicTestRecording() {
+    state.micTest.recording = false;
+    if (state.micTest.recordTimer) {
+      clearTimeout(state.micTest.recordTimer);
+      state.micTest.recordTimer = null;
+    }
+    if (elems.btnMicTestRecord) {
+      elems.btnMicTestRecord.textContent = '⏺ Record 5s & Play Back';
+    }
+
+    const chunks = state.micTest.recordedChunks;
+    state.micTest.recordedChunks = [];
+    if (!chunks || chunks.length === 0) {
+      showMicTestStatus('No audio samples were captured. Check microphone permissions or hardware mute.', 'error');
+      return;
+    }
+
+    let totalLen = 0;
+    for (const c of chunks) totalLen += c.length;
+    const float32 = new Float32Array(totalLen);
+    let offset = 0;
+    let maxAmp = 0;
+    for (const c of chunks) {
+      for (let i = 0; i < c.length; i++) {
+        const f = c[i] / 32768.0;
+        float32[offset++] = f;
+        const abs = Math.abs(f);
+        if (abs > maxAmp) maxAmp = abs;
+      }
+    }
+
+    const ctx = state.micTest.audioCtx;
+    if (!ctx || ctx.state === 'closed') return;
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const buf = ctx.createBuffer(1, float32.length, 16000);
+    buf.getChannelData(0).set(float32);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    state.micTest.playbackSource = src;
+    src.onended = () => {
+      if (state.micTest.playbackSource === src) {
+        state.micTest.playbackSource = null;
+      }
+    };
+    src.start(0);
+
+    const secs = (float32.length / 16000).toFixed(1);
+    if (maxAmp < 0.003) {
+      showMicTestStatus(`Played back ${secs}s recording, but signal was near-silent (peak ${(maxAmp * 100).toFixed(1)}%). Check OS mic mute or try disabling Echo Cancellation.`, 'error');
+    } else {
+      showMicTestStatus(`Playing back ${secs}s 16kHz PCM recording (peak ${(maxAmp * 100).toFixed(0)}%). If you hear your voice clearly, LiveChat mic capture is working!`, 'success');
+    }
+  }
+
+  async function playSpeakerTestTone() {
+    try {
+      const ctx = state.micTest.audioCtx && state.micTest.audioCtx.state !== 'closed'
+        ? state.micTest.audioCtx
+        : createAudioContext();
+      const shouldClose = ctx !== state.micTest.audioCtx;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.setValueAtTime(554.37, now + 0.16);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.38);
+      osc.onended = () => {
+        if (shouldClose) {
+          ctx.close().catch(() => {});
+        }
+      };
+      showMicTestStatus(`Played speaker test chime (${ctx.sampleRate} Hz).`, 'info');
+    } catch (err) {
+      showMicTestStatus(`Speaker playback failed: ${err.message}`, 'error');
+    }
+  }
+
   // --- Helpers ---
+  async function copyTextSafe(text) {
+    if (!text) return;
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {}
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+    } catch (_) {}
+    document.body.removeChild(ta);
+  }
   function arrayBufferToBase64(buffer) {
     let binary = '';
     const bytes = new Uint8Array(buffer);

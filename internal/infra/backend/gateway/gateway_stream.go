@@ -14,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
@@ -142,8 +143,10 @@ func (c *GatewayClient) openGatewayWithRetry(ctx context.Context, raw []byte) (*
 		}
 		lastErr = err
 		if c.keyPool.MarkFailure(key, err) {
+			clilog.Logf("gateway", "endpoint=%s key rotation=%d/%d err=%v", c.baseURL, rot+1, maxRotations, err)
 			continue
 		}
+		clilog.Logf("gateway", "endpoint=%s open failed err=%v", c.baseURL, err)
 		return nil, key, err
 	}
 	return nil, "", lastErr

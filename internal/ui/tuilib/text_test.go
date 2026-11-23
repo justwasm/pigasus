@@ -2,6 +2,8 @@ package tuilib
 
 import (
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTextUtilities(t *testing.T) {
@@ -39,11 +41,16 @@ func TestASCIIANSIWidthAndPadFit(t *testing.T) {
 		{"中文", 0, false},
 		{"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\", 0, false},
 		{"tab\there", 0, false},
+		{"\x1b[\nhello", 0, false},
+		{"\x1b[\x1b[31mhi\x1b[m", 0, false},
 	}
 	for _, tc := range cases {
 		w, ok := asciiANSIWidth(tc.in)
 		if ok != tc.wantOK || (ok && w != tc.wantW) {
 			t.Errorf("asciiANSIWidth(%q) = (%d, %v), want (%d, %v)", tc.in, w, ok, tc.wantW, tc.wantOK)
+		}
+		if got, want := StringWidth(tc.in), ansi.StringWidth(tc.in); got != want {
+			t.Errorf("StringWidth(%q) = %d, want %d", tc.in, got, want)
 		}
 	}
 

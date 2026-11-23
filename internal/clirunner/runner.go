@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	browserflags "github.com/justwasm/pigasus/internal/core/cliflags/browser"
 	logfileflags "github.com/justwasm/pigasus/internal/core/cliflags/logfile"
 	projectflags "github.com/justwasm/pigasus/internal/core/cliflags/projects"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/registry"
 	"github.com/justwasm/pigasus/internal/core/settings"
@@ -153,7 +155,7 @@ func buildSubcommands() []cliflags.SubcommandSpec {
 	}
 
 	// Root extensions.
-	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand(), cli.LiveChatSubcommand()} {
+	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), logsSubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand(), cli.LiveChatSubcommand()} {
 		if !names[ext.Name] {
 			subs = append(subs, ext)
 			names[ext.Name] = true
@@ -258,6 +260,11 @@ func runRoot(args []string, p *cli.Parser) error {
 		return nil
 	}
 	applySessionFlags(fs)
+	if explicitLog := strings.TrimSpace(cliflags.StringValue(fs, "log-file")); explicitLog != "" {
+		clilog.InitWithPath(explicitLog)
+	} else {
+		clilog.Init()
+	}
 	if done, err := checkRootShortCircuits(fs, p, out); done || err != nil {
 		return err
 	}
@@ -557,6 +564,92 @@ func printOAuthConfig(w io.Writer) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(cfg)
+}
+
+func logsSubcommand() cliflags.SubcommandSpec {
+	return cliflags.SubcommandSpec{
+		Name:  "logs",
+		Short: "Show or tail session logs under ~/.openagy/log/",
+		RunJ: func(j *cli.JetskiCLI, args []string) error {
+			return runLogsSubcommand(j.Out, j.ErrOut, args)
+		},
+	}
+}
+
+func runLogsSubcommand(out, errOut io.Writer, args []string) error {
+	if out == nil {
+		out = os.Stdout
+	}
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	n := 50
+	showPath := false
+	listFiles := false
+	for i := 0; i < len(args); i++ {
+		a := strings.TrimSpace(args[i])
+		switch {
+		case a == "--path" || a == "-p":
+			showPath = true
+		case a == "--list" || a == "-l":
+			listFiles = true
+		case a == "-n" && i+1 < len(args):
+			i++
+			if v, err := strconv.Atoi(args[i]); err == nil && v > 0 {
+				n = v
+			}
+		case strings.HasPrefix(a, "-n="):
+			if v, err := strconv.Atoi(strings.TrimPrefix(a, "-n=")); err == nil && v > 0 {
+				n = v
+			}
+		case a == "--help" || a == "-h":
+			fmt.Fprintln(out, "Usage: pigasus logs [-n N] [--path] [--list]")
+			return nil
+		default:
+			if v, err := strconv.Atoi(a); err == nil && v > 0 {
+				n = v
+			}
+		}
+	}
+	if showPath {
+		p := clilog.ResolveReadablePath()
+		if p == "" {
+			p = clilog.Dir()
+		}
+		fmt.Fprintln(out, p)
+		return nil
+	}
+	if listFiles {
+		files, err := clilog.ListFiles(30)
+		if err != nil {
+			fmt.Fprintf(errOut, "Error listing logs: %v\n", err)
+			return cli.ExitCodeError(1, err.Error())
+		}
+		if len(files) == 0 {
+			fmt.Fprintf(out, "No session logs found in %s\n", clilog.Dir())
+			return nil
+		}
+		fmt.Fprintf(out, "Session logs in %s:\n", clilog.Dir())
+		for _, f := range files {
+			fmt.Fprintf(out, "  %s  (%d bytes, %s)\n", f.Name, f.Size, f.ModTime.Format("2006-01-02 15:04:05"))
+		}
+		return nil
+	}
+	p := clilog.ResolveReadablePath()
+	if p == "" {
+		fmt.Fprintf(out, "No session logs found in %s\n", clilog.Dir())
+		return nil
+	}
+	lines, err := clilog.Tail(p, n)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error reading %s: %v\n", p, err)
+		return cli.ExitCodeError(1, err.Error())
+	}
+	fmt.Fprintf(out, "==> %s <==\n", p)
+	for _, line := range lines {
+		fmt.Fprintln(out, line)
+	}
+	return nil
 }
 
 func proxySubcommand() cliflags.SubcommandSpec {

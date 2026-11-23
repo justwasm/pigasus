@@ -11,6 +11,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
@@ -39,6 +40,7 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 					delay = retry.MaxConnectionRetryInterval
 				}
 			}
+			clilog.Logf("streampipe", "endpoint=%s attempt=%d/%d retry_in=%s reason=%s", endpointURL, attempt+1, maxAttempts, delay.Round(time.Millisecond), apierror.FormatRetryReason(lastErr))
 			if notify != nil {
 				notify(backend.RetryProgress{
 					Attempt:     attempt + 1,
@@ -60,7 +62,7 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 					Attempt:     attempt + 1,
 					MaxAttempts: maxAttempts,
 					RetryAt:     time.Time{},
-					Err:         nil,
+					Err:         lastErr,
 				})
 			}
 		}
@@ -73,6 +75,7 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 			return result, nil
 		}
 		if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) {
+			clilog.Logf("streampipe", "endpoint=%s attempt=%d/%d non_retryable err=%v", endpointURL, attempt+1, maxAttempts, err)
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
@@ -80,11 +83,13 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 		}
 		isRetryable := retry.IsConnectionDropped(err) || apierror.IsRetryableStatusErr(err)
 		if !isRetryable {
+			clilog.Logf("streampipe", "endpoint=%s attempt=%d/%d abort err=%v", endpointURL, attempt+1, maxAttempts, err)
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
 			return zero, err
 		}
+		clilog.Logf("streampipe", "endpoint=%s attempt=%d/%d failed (retryable) err=%v", endpointURL, attempt+1, maxAttempts, err)
 		lastErr = err
 	}
 	if notify != nil {
@@ -93,6 +98,7 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 	if lastErr == nil {
 		lastErr = &retry.ConnectionDroppedError{URL: endpointURL, Err: errors.New("max connection retries exceeded")}
 	}
+	clilog.Logf("streampipe", "endpoint=%s exhausted attempts=%d err=%v", endpointURL, maxAttempts, lastErr)
 	return zero, lastErr
 }
 
@@ -157,6 +163,7 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 		}
 
 		delay := retry.NextConnectionRetryDelay(attempt)
+		clilog.Logf("streampipe", "endpoint=%s mid_stream attempt=%d/%d retry_in=%s err=%v", p.EndpointURL, attempt+2, maxAttempts, delay.Round(time.Millisecond), err)
 		if notify != nil {
 			notify(backend.RetryProgress{
 				Attempt:     attempt + 2,
@@ -179,12 +186,13 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 				Attempt:     attempt + 2,
 				MaxAttempts: maxAttempts,
 				RetryAt:     time.Time{},
-				Err:         nil,
+				Err:         err,
 			})
 		}
 
 		newResp, openErr := p.Open(ctx, req)
 		if openErr != nil {
+			clilog.Logf("streampipe", "endpoint=%s mid_stream reopen failed err=%v", p.EndpointURL, openErr)
 			if apierror.IsQuotaReachedErr(openErr) || apierror.IsAuthFailureErr(openErr) || !retry.IsConnectionDropped(openErr) {
 				out <- backend.StreamChunk{Error: openErr, Done: true}
 				return

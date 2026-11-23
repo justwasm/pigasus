@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pigasus">
   <title>Pigasus · Multimodal Live & Modern Chatbot</title>
   
   <!-- Preconnect to Google Fonts -->
@@ -10,8 +15,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="style.css?v=20261121_modern_v2">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css?v=20261123_termux_v16">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   
   <script>
     // Anti-flash dark theme boot (Reference: Jetski Web / Antigravity)
@@ -55,8 +63,11 @@
 
       <!-- Session Filter / Search Bar -->
       <div class="sidebar-search-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="sidebar-session-search" placeholder="Search conversations..." class="sidebar-search-input" autocomplete="off">
+        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="sidebar-session-search" placeholder="Search conversations..." class="sidebar-search-input" aria-label="Search conversations" autocomplete="off">
       </div>
 
       <!-- Saved Sessions List -->
@@ -81,9 +92,9 @@
             <span class="status-indicator-dot online"></span>
           </div>
           <div class="user-profile-info">
-            <div id="bar-auth-identity" class="user-email">Not Signed In</div>
+            <div id="bar-auth-identity" class="user-email">Backend Auto-Routing</div>
             <div class="user-meta-sub">
-              <span id="bar-auth-mode">Google OAuth</span>
+              <span id="bar-auth-mode">Aggregate Pool</span>
             </div>
           </div>
           <div class="settings-gear-icon" aria-hidden="true">⚙️</div>
@@ -102,11 +113,11 @@
          MAIN CHAT WORKSPACE
          ========================================================================= -->
     <main class="chat-workspace">
-      <!-- Top Workspace Header -->
+      <!-- Top Workspace Header (Compact Single Row) -->
       <header class="workspace-header">
         <div class="header-left">
           <button type="button" id="btn-toggle-sidebar" class="btn-icon header-sidebar-toggle" title="Toggle Sidebar (Ctrl+B)" aria-label="Toggle Sidebar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="3" y1="12" x2="21" y2="12"></line>
               <line x1="3" y1="6" x2="21" y2="6"></line>
               <line x1="3" y1="18" x2="21" y2="18"></line>
@@ -114,106 +125,28 @@
           </button>
           <div class="active-session-title-wrap">
             <h1 id="header-session-title" class="header-session-title" title="Click to rename session">New Live Session</h1>
-            <button type="button" id="btn-header-rename" class="btn-rename-icon" title="Rename Session">✏️</button>
+            <button type="button" id="btn-header-rename" class="btn-rename-icon" title="Rename Session" aria-label="Rename Session">✏️</button>
           </div>
-          <button type="button" id="header-model-pill" class="model-pill model-pill-interactive" title="Click to toggle Extended Thinking Mode">
-            <span class="pill-spark">✨</span>
-            <span id="header-model-name">Gemini 3.8 Live</span>
-            <span id="header-think-badge" class="pill-badge-think hidden">Thinking 💭</span>
+        </div>
+
+        <div class="header-right">
+          <div id="live-status-pill" class="live-status-pill" title="Live audio stream connection status">
+            <span id="live-dot" class="dot dot-disconnected"></span>
+            <span id="live-status-text" class="status-label">Offline</span>
+          </div>
+          <button type="button" id="btn-header-new-chat" class="btn-icon header-new-chat-btn" title="New Chat (⌘N)" aria-label="New Chat">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+          </button>
+          <button type="button" id="btn-theme-toggle" class="btn-theme-toggle" title="Toggle Light / Dark Mode" aria-label="Toggle Light or Dark Mode">
+            <span id="theme-toggle-icon" class="theme-icon" aria-hidden="true">🌙</span>
+          </button>
+          <button type="button" id="btn-open-settings-top" class="btn-icon-setting" title="Settings, API Keys & OAuth" aria-label="Open Settings">
+            <span aria-hidden="true">⚙️</span>
           </button>
         </div>
-
-        <!-- Live Controls Pill Bar -->
-        <div class="header-right">
-          <!-- Duplex Status Pill -->
-          <div class="live-status-pill" title="Live audio stream connection status">
-            <span id="live-dot" class="dot dot-disconnected"></span>
-            <span id="live-status-text" class="status-label">Disconnected</span>
-            <span id="live-duplex-state" class="duplex-tag">Full Duplex</span>
-          </div>
-
-          <!-- Quick Voice Persona Selector -->
-          <div class="header-control-group voice-group">
-            <label for="live-voice-select" class="control-label">Voice:</label>
-            <select id="live-voice-select" class="header-select voice-select">
-              <optgroup label="Antigravity 9 Canonical Personas (♪ with MP3 previews)">
-                <option value="Fola" data-preview="fola" selected>Fola · Friendly (Default)</option>
-                <option value="Arlo" data-preview="arlo">Arlo · Confident</option>
-                <option value="Cleo" data-preview="cleo">Cleo · Warm</option>
-                <option value="Finn" data-preview="finn">Finn · Approachable</option>
-                <option value="Gero" data-preview="gero">Gero · Clear</option>
-                <option value="Lora" data-preview="lora">Lora · Friendly</option>
-                <option value="Neno" data-preview="neno">Neno · Deep Velvet</option>
-                <option value="Olin" data-preview="olin">Olin · Light & Precise</option>
-                <option value="Tari" data-preview="tari">Tari · Confident</option>
-              </optgroup>
-              <optgroup label="Direct Gemini Prebuilt Voices">
-                <option value="Aoede" data-preview="fola">Aoede</option>
-                <option value="Puck" data-preview="arlo">Puck</option>
-                <option value="Kore" data-preview="cleo">Kore</option>
-                <option value="Fenrir" data-preview="finn">Fenrir</option>
-                <option value="Charon" data-preview="neno">Charon</option>
-                <option value="Zephyr" data-preview="tari">Zephyr</option>
-                <option value="Leda">Leda</option>
-                <option value="Orus">Orus</option>
-              </optgroup>
-            </select>
-            <select id="voice-sample-variant" class="visually-hidden">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-            </select>
-            <button type="button" id="btn-audition-voice" class="btn-audition-pill" title="Audition MP3 sample for selected voice">
-              <span>♪</span> Audition
-            </button>
-          </div>
-
-          <!-- Quick Microphone Selector with Hotplug Detection -->
-          <div class="header-control-group mic-group">
-            <label for="live-mic-select" class="control-label">Mic:</label>
-            <select id="live-mic-select" class="header-select mic-select">
-              <option value="">Default System Microphone</option>
-            </select>
-            <span id="mic-hotplug-indicator" class="mic-hotplug-badge" title="Hotplug auto-detection active (detects plug & unplug without page refresh)">⚡ Auto</span>
-          </div>
-
-          <!-- Primary Live Connection & Mute Buttons -->
-          <div class="header-action-buttons">
-            <button type="button" id="btn-toggle-live" class="btn-connect-live">
-              <span class="btn-live-icon">▶</span>
-              <span class="btn-live-text">Connect Live</span>
-            </button>
-            <button type="button" id="btn-toggle-mic" class="btn-mute-toggle" disabled title="Mute/Unmute Microphone">
-              🎤
-            </button>
-            <button type="button" id="btn-theme-toggle" class="btn-theme-toggle" title="Toggle Light / Dark Mode" aria-label="Toggle Light or Dark Mode">
-              <span id="theme-toggle-icon" class="theme-icon">🌙</span>
-            </button>
-            <button type="button" id="btn-open-settings-top" class="btn-icon-setting" title="Settings, API Keys & OAuth">
-              ⚙️
-            </button>
-          </div>
-        </div>
       </header>
-
-      <!-- Floating Live Audio Visualizer Banner (Visible when Live Audio is Streaming) -->
-      <div id="live-visualizer-bar" class="live-visualizer-bar hidden" aria-label="Audio stream visualizer">
-        <div class="vis-pill-wrap">
-          <div class="vis-wave-container">
-            <canvas id="waveform-canvas" width="240" height="32" class="vis-canvas"></canvas>
-          </div>
-          <div class="vis-meter-container">
-            <div class="mic-meter-track">
-              <div id="mic-meter-fill" class="mic-meter-fill"></div>
-            </div>
-            <div class="vis-meter-meta">
-              <span class="mic-val-wrap">Mic: <strong id="mic-meter-val">0%</strong></span>
-              <span id="mic-status-text" class="mic-status-label">Muted</span>
-              <span id="audio-state-indicator" class="audio-state-pill">Idle</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- Central Scrollable Message Viewport -->
       <div class="chat-stream-viewport">
@@ -273,6 +206,19 @@
       <!-- Floating Bottom Composer Area -->
       <footer class="chat-composer-section">
         <div class="composer-box">
+          <!-- Full-Width Inline Live Audio Visualizer Strip (Visible when Live is active) -->
+          <div id="live-visualizer-bar" class="composer-live-strip hidden" aria-label="Audio stream visualizer">
+            <div class="vis-wave-container">
+              <canvas id="waveform-canvas" width="360" height="20" class="vis-canvas"></canvas>
+            </div>
+            <div class="vis-meter-container">
+              <div class="mic-meter-track" aria-hidden="true">
+                <div id="mic-meter-fill" class="mic-meter-fill"></div>
+              </div>
+              <span class="mic-val-wrap"><strong id="mic-meter-val">0%</strong></span>
+            </div>
+          </div>
+
           <form id="live-text-form" class="composer-form">
             <div class="composer-input-row">
               <textarea
@@ -282,53 +228,184 @@
                 autocomplete="off"
                 required
               ></textarea>
-              <div class="composer-action-group">
-                <button type="button" id="btn-clear-transcript" class="btn-composer-icon" title="Clear current transcript view (memory preserved)">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  </svg>
-                </button>
-                <button type="submit" id="btn-live-text-send" class="btn-send-round" aria-label="Send message">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"></line>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                  </svg>
-                </button>
-              </div>
+              <button type="submit" id="btn-live-text-send" class="btn-send-round" aria-label="Send message" title="Send message">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
             </div>
-            <div class="composer-toolbar-bottom">
-              <div class="composer-controls-left">
-                <!-- Functional Live Model Selector Capsule -->
-                <div class="model-select-capsule" title="Switch Live Model Variant">
-                  <span class="capsule-icon">✨</span>
-                  <select id="composer-model-select" class="composer-model-select" aria-label="Switch Live Model Variant">
-                    <option value="models/gemini-3.8-live" selected>Gemini 3.8 Live (Standard ⚡)</option>
-                    <option value="models/gemini-3.8-live-extended-thinking">Gemini 3.8 Live (Extended Thinking 💭)</option>
-                    <option value="models/gemini-2.0-flash-realtime-exp">Gemini 2.0 Flash Realtime 🚀</option>
-                  </select>
-                  <span class="capsule-chevron">▾</span>
-                </div>
-
-                <!-- Interactive Barge-in Toggle -->
-                <button type="button" id="btn-toggle-bargein" class="composer-toolbar-btn bargein-toggle active" title="Toggle Full-Duplex Instant Barge-in (Interruption)">
-                  <span id="bargein-badge-icon">⚡</span>
-                  <span id="bargein-badge-text">Barge-in On</span>
-                </button>
-
-                <!-- Interactive Voice Indicator -->
-                <button type="button" id="btn-composer-voice" class="composer-toolbar-btn voice-indicator" title="Current voice persona (Click to select voice)">
-                  <span>🎙️</span>
-                  <span id="composer-voice-label">Voice: Fola</span>
+            <div class="composer-toolbar-bottom" role="toolbar" aria-label="Composer controls" focusgroup="toolbar wrap">
+              <div class="composer-controls-left" role="group" aria-label="Model, voice and audio settings">
+                <!-- Unified Model + Voice Popover Trigger -->
+                <button type="button" id="btn-composer-voice" class="composer-toolbar-btn composer-unified-trigger" popovertarget="composer-audio-popover" aria-expanded="false" title="Model, voice persona, duplex & microphone settings">
+                  <span class="capsule-icon" aria-hidden="true">✨</span>
+                  <span id="composer-unified-label" class="composer-unified-label">
+                    <span id="composer-model-label">Gemini 3.8 Live</span>
+                    <span class="unified-sep" aria-hidden="true">·</span>
+                    <span id="composer-voice-label">Fola</span>
+                  </span>
+                  <span id="composer-duplex-dot" class="unified-duplex-tag hidden" title="Half-Duplex mode">Half</span>
+                  <span class="capsule-chevron-inline" aria-hidden="true">▾</span>
                 </button>
               </div>
 
-              <!-- Engine & Reference Tag -->
-              <div class="composer-disclaimer-wrap">
-                <span class="composer-engine-tag" title="Powered by Pigasus Engine & Google Antigravity Architecture">Antigravity Reference · Pigasus</span>
+              <div class="composer-voice-controls" role="group" aria-label="Voice controls">
+                <button type="button" id="btn-toggle-mic" class="btn-mute-toggle hidden" disabled title="Mute / Unmute Microphone" aria-label="Mute microphone" aria-pressed="false">
+                  🎤
+                </button>
+                <button type="button" id="btn-toggle-live" class="btn-connect-live" title="Connect Live Voice" aria-label="Connect Live Voice">
+                  <span class="btn-live-icon" aria-hidden="true">▶</span>
+                  <span class="btn-live-text">Live</span>
+                </button>
               </div>
             </div>
           </form>
+
+          <!-- Native Popover for Model, Antigravity Voice Personas, Samples, Duplex & Microphone -->
+          <div id="composer-audio-popover" popover="auto" class="composer-audio-popover" aria-label="Model, voice and microphone settings">
+            <div class="popover-section">
+              <label for="composer-model-select" class="popover-label">Live Model</label>
+              <select id="composer-model-select" class="popover-select" aria-label="Switch Live Model Variant">
+                <option value="models/gemini-3.8-live" selected>Gemini 3.8 Live</option>
+                <option value="models/gemini-3.8-live-extended-thinking">Gemini 3.8 Thinking</option>
+                <option value="models/gemini-2.0-flash-realtime-exp">Gemini 2.0 Flash</option>
+              </select>
+            </div>
+
+            <div class="popover-section popover-section-divider">
+              <div class="popover-label-row">
+                <label for="live-voice-select" class="popover-label">Antigravity Voice Personas</label>
+                <span id="voice-persona-meta" class="popover-meta-badge">Female · Aoede</span>
+              </div>
+
+              <div id="voice-persona-grid" class="persona-grid" role="group" aria-label="Antigravity 9 Canonical Personas">
+                <button type="button" class="persona-chip" data-voice="Fola" aria-pressed="true" title="Fola · Clear and friendly (Default) · Female → Aoede">
+                  <span class="persona-name">Fola</span>
+                  <span class="persona-trait">Friendly</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Arlo" aria-pressed="false" title="Arlo · Confident and clear · Male → Puck">
+                  <span class="persona-name">Arlo</span>
+                  <span class="persona-trait">Confident</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Cleo" aria-pressed="false" title="Cleo · Warm and engaging · Female → Kore">
+                  <span class="persona-name">Cleo</span>
+                  <span class="persona-trait">Warm</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Finn" aria-pressed="false" title="Finn · Warm and approachable · Male → Fenrir">
+                  <span class="persona-name">Finn</span>
+                  <span class="persona-trait">Approachable</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Gero" aria-pressed="false" title="Gero · Clear and friendly · Male → Puck">
+                  <span class="persona-name">Gero</span>
+                  <span class="persona-trait">Clear</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Lora" aria-pressed="false" title="Lora · Clear and friendly · Female → Aoede">
+                  <span class="persona-name">Lora</span>
+                  <span class="persona-trait">Friendly</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Neno" aria-pressed="false" title="Neno · Deep and velvety · Male → Charon">
+                  <span class="persona-name">Neno</span>
+                  <span class="persona-trait">Velvet</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Olin" aria-pressed="false" title="Olin · Light and precise · Male → Fenrir">
+                  <span class="persona-name">Olin</span>
+                  <span class="persona-trait">Precise</span>
+                </button>
+                <button type="button" class="persona-chip" data-voice="Tari" aria-pressed="false" title="Tari · Confident and clear · Female → Kore">
+                  <span class="persona-name">Tari</span>
+                  <span class="persona-trait">Confident</span>
+                </button>
+              </div>
+
+              <div class="popover-row popover-voice-audition-row">
+                <select id="live-voice-select" class="popover-select popover-select-compact" aria-label="All voices including Gemini prebuilt">
+                  <optgroup label="Antigravity 9 Canonical Personas">
+                    <option value="Fola" data-preview="fola" data-meta="Female · Aoede" selected>Fola · Friendly (Default)</option>
+                    <option value="Arlo" data-preview="arlo" data-meta="Male · Puck">Arlo · Confident</option>
+                    <option value="Cleo" data-preview="cleo" data-meta="Female · Kore">Cleo · Warm</option>
+                    <option value="Finn" data-preview="finn" data-meta="Male · Fenrir">Finn · Approachable</option>
+                    <option value="Gero" data-preview="gero" data-meta="Male · Puck">Gero · Clear</option>
+                    <option value="Lora" data-preview="lora" data-meta="Female · Aoede">Lora · Friendly</option>
+                    <option value="Neno" data-preview="neno" data-meta="Male · Charon">Neno · Deep Velvet</option>
+                    <option value="Olin" data-preview="olin" data-meta="Male · Fenrir">Olin · Light &amp; Precise</option>
+                    <option value="Tari" data-preview="tari" data-meta="Female · Kore">Tari · Confident</option>
+                  </optgroup>
+                  <optgroup label="Direct Gemini Prebuilt Voices">
+                    <option value="Aoede" data-preview="fola" data-meta="Gemini Prebuilt · Fola sample">Aoede</option>
+                    <option value="Puck" data-preview="arlo" data-meta="Gemini Prebuilt · Arlo sample">Puck</option>
+                    <option value="Kore" data-preview="cleo" data-meta="Gemini Prebuilt · Cleo sample">Kore</option>
+                    <option value="Fenrir" data-preview="finn" data-meta="Gemini Prebuilt · Finn sample">Fenrir</option>
+                    <option value="Charon" data-preview="neno" data-meta="Gemini Prebuilt · Neno sample">Charon</option>
+                    <option value="Zephyr" data-meta="Gemini Prebuilt · No sample">Zephyr</option>
+                    <option value="Leda" data-meta="Gemini Prebuilt · No sample">Leda</option>
+                    <option value="Orus" data-meta="Gemini Prebuilt · No sample">Orus</option>
+                  </optgroup>
+                </select>
+                <div id="audition-samples-group" class="audition-samples-group" role="group" aria-label="Audition voice samples">
+                  <button type="button" class="btn-sample-play" data-sample="1" aria-pressed="false" aria-label="Play sample 1 of 3" title="Play sample 1 of 3">
+                    <span class="sample-icon" aria-hidden="true">▶</span><span>1</span>
+                  </button>
+                  <button type="button" class="btn-sample-play" data-sample="2" aria-pressed="false" aria-label="Play sample 2 of 3" title="Play sample 2 of 3">
+                    <span class="sample-icon" aria-hidden="true">▶</span><span>2</span>
+                  </button>
+                  <button type="button" class="btn-sample-play" data-sample="3" aria-pressed="false" aria-label="Play sample 3 of 3" title="Play sample 3 of 3">
+                    <span class="sample-icon" aria-hidden="true">▶</span><span>3</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="popover-section popover-section-divider">
+              <div class="popover-label-row">
+                <span class="popover-label">Audio Mode</span>
+                <span class="popover-hint-text">Headphones recommended</span>
+              </div>
+              <button type="button" id="btn-toggle-bargein" class="popover-duplex-btn bargein-toggle active" aria-pressed="true" title="Toggle Full-Duplex Instant Barge-in (Interruption)">
+                <span id="bargein-badge-icon" aria-hidden="true">⚡</span>
+                <span id="bargein-badge-text">Full Duplex · Instant Barge-in</span>
+                <span id="bargein-state-pill" class="duplex-state-pill">ON</span>
+              </button>
+            </div>
+
+            <div class="popover-section popover-section-divider">
+              <div class="popover-label-row">
+                <label for="live-mic-select" class="popover-label">Microphone Input</label>
+                <span id="mic-hotplug-indicator" class="mic-hotplug-badge" title="Hotplug auto-detection active">⚡ Auto</span>
+              </div>
+              <select id="live-mic-select" class="popover-select">
+                <option value="">Default System Microphone</option>
+              </select>
+            </div>
+
+            <div class="popover-section popover-section-divider">
+              <div class="popover-label-row">
+                <span class="popover-label">Echo Cancellation (AEC)</span>
+                <span id="popover-aec-badge" class="popover-meta-badge">AEC ON</span>
+              </div>
+              <label class="popover-switch-row" for="popover-opt-aec">
+                <span class="popover-switch-copy">
+                  <span class="popover-switch-title">Browser Echo Cancellation</span>
+                  <span class="popover-hint-text">Filters speaker playback from mic (headphones still best)</span>
+                </span>
+                <input type="checkbox" id="popover-opt-aec" class="popover-switch-input" switch checked>
+              </label>
+              <div class="popover-subchecks-row">
+                <label class="popover-subcheck-item" for="popover-opt-ns">
+                  <input type="checkbox" id="popover-opt-ns" checked>
+                  <span>Noise Suppression</span>
+                </label>
+                <label class="popover-subcheck-item" for="popover-opt-agc">
+                  <input type="checkbox" id="popover-opt-agc" checked>
+                  <span>Auto Gain</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="popover-footer-row">
+              <button type="button" id="btn-popover-mic-test" class="btn btn-sm btn-outline">🎤 Mic Test &amp; Diagnostics →</button>
+            </div>
+          </div>
         </div>
       </footer>
     </main>
@@ -354,7 +431,7 @@
         <nav class="settings-sidebar-nav" aria-label="Settings Categories">
           <button type="button" class="settings-nav-item active" data-tab="st-auth-tab">
             <span class="nav-icon">🔐</span>
-            <span>Google OAuth</span>
+            <span>Auth &amp; OAuth</span>
           </button>
           <button type="button" class="settings-nav-item" data-tab="st-apikey-tab">
             <span class="nav-icon">✨</span>
@@ -368,6 +445,10 @@
             <span class="nav-icon">🎙️</span>
             <span>Voice & System</span>
           </button>
+          <button type="button" class="settings-nav-item" data-tab="st-mic-tab">
+            <span class="nav-icon">🎤</span>
+            <span>Mic Test</span>
+          </button>
           <button type="button" class="settings-nav-item" data-tab="st-sessions-tab">
             <span class="nav-icon">📁</span>
             <span>All Sessions</span>
@@ -376,62 +457,23 @@
 
         <!-- Right Content Panes -->
         <div class="settings-content-wrap">
-          <!-- PANE 1: Google OAuth 2.0 PKCE -->
+          <!-- PANE 1: CLI Auto-Auth & Google OAuth 2.0 PKCE Fallback -->
           <div id="st-auth-tab" class="settings-pane active">
             <div class="pane-header">
-              <h4>Google OAuth 2.0 PKCE Authorization</h4>
-              <p>Authenticates with Google Cloud Antigravity client credentials. Generates a cryptographic PKCE challenge, opens Google's sign-in page, and exchanges the authorization code for an OAuth Bearer token.</p>
+              <h4>CLI Credentials &amp; Google OAuth</h4>
+              <p>Active CLI credentials (<code>~/.openagy</code> / <code>~/.gemini</code>) are automatically loaded and applied by default. Manual Google OAuth 2.0 PKCE login is available below as an alternative.</p>
             </div>
 
-            <!-- Step 1: Start Flow -->
-            <div class="flow-step-box">
-              <div class="step-num-badge">1</div>
-              <div class="step-body">
-                <h5>Initiate PKCE Authorization</h5>
-                <p>Generate a unique PKCE verifier and Google consent URL.</p>
-                <div class="btn-group-row">
-                  <button type="button" id="btn-start-oauth" class="btn btn-primary">
-                    Start Google OAuth Login
-                  </button>
-                  <button type="button" id="btn-load-cli-token" class="btn btn-outline" title="Imports token from ~/.openagy or ~/.gemini">
-                    Auto-Fill Active CLI Token
-                  </button>
-                </div>
-              </div>
+            <div id="cli-auth-auto-banner" class="status-msg-modern info" role="status" aria-live="polite">
+              Checking local CLI credentials...
             </div>
-
-            <!-- Auth URL Display -->
-            <div id="auth-url-container" class="url-box-modern hidden">
-              <label for="auth-url-input">Google Consent URL:</label>
-              <div class="input-with-button">
-                <input type="text" id="auth-url-input" readonly>
-                <button type="button" id="btn-copy-url" class="btn btn-sm btn-outline">Copy</button>
-                <button type="button" id="btn-open-url" class="btn btn-sm btn-primary">Open ↗</button>
-              </div>
-              <small class="helper-note">Click <strong>Open ↗</strong>, approve access with your Google account, then copy the resulting code from the browser redirect address.</small>
-            </div>
-
-            <!-- Step 2: Code Exchange Form -->
-            <form id="code-exchange-form" class="flow-step-box">
-              <div class="step-num-badge">2</div>
-              <div class="step-body">
-                <h5>Exchange Authorization Code</h5>
-                <div class="form-field">
-                  <label for="auth-code-input">Paste Authorization Code or Redirect URL:</label>
-                  <input type="text" id="auth-code-input" name="code" placeholder="4/0Abc... or https://antigravity.google/oauth-callback?code=..." required autocomplete="off">
-                </div>
-                <button type="submit" id="btn-exchange-code" class="btn btn-success">
-                  Exchange for OAuth Token
-                </button>
-              </div>
-            </form>
 
             <div id="auth-status-msg" class="status-msg-modern hidden" role="status" aria-live="polite"></div>
 
-            <!-- Active Token Card -->
+            <!-- Active Token Card (Primary) -->
             <div class="token-summary-card">
               <div class="card-title-row">
-                <h5>Cached OAuth Credentials (accounts.json)</h5>
+                <h5>Active OAuth Credentials (CLI Auto-Fill / accounts.json)</h5>
               </div>
               <div class="token-meta-grid">
                 <div><span>Email:</span> <strong id="token-account-email">None</strong></div>
@@ -451,12 +493,59 @@
                 <textarea id="oauth-raw-code-display" rows="2" readonly placeholder="No raw code cached..."></textarea>
               </details>
               <div class="btn-group-row">
-                <button type="button" id="btn-copy-token" class="btn btn-sm btn-outline">Copy Token</button>
+                <button type="button" id="btn-load-cli-token" class="btn btn-sm btn-outline" title="Re-syncs active token from ~/.openagy or ~/.gemini">🔄 Re-Sync CLI Token</button>
                 <button type="button" id="btn-refresh-token" class="btn btn-sm btn-outline">🔄 Refresh</button>
+                <button type="button" id="btn-copy-token" class="btn btn-sm btn-outline">Copy Token</button>
                 <button type="button" id="btn-use-token-chat" class="btn btn-sm btn-primary">Apply to LiveChat</button>
                 <button type="button" id="btn-clear-token" class="btn btn-sm btn-danger">Clear</button>
               </div>
             </div>
+
+            <!-- Alternative: Manual Google OAuth 2.0 PKCE -->
+            <details id="oauth-fallback-details" class="oauth-fallback-details">
+              <summary>Alternative: Sign in manually with Google OAuth 2.0 PKCE</summary>
+              <div class="oauth-fallback-body">
+                <!-- Step 1: Start Flow -->
+                <div class="flow-step-box">
+                  <div class="step-num-badge">1</div>
+                  <div class="step-body">
+                    <h5>Initiate PKCE Authorization</h5>
+                    <p>Generate a unique PKCE verifier and Google consent URL if you want to sign in with a different Google account or in Static Standalone mode.</p>
+                    <div class="btn-group-row">
+                      <button type="button" id="btn-start-oauth" class="btn btn-primary">
+                        Start Google OAuth Login
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Auth URL Display -->
+                <div id="auth-url-container" class="url-box-modern hidden">
+                  <label for="auth-url-input">Google Consent URL:</label>
+                  <div class="input-with-button">
+                    <input type="text" id="auth-url-input" readonly>
+                    <button type="button" id="btn-copy-url" class="btn btn-sm btn-outline">Copy</button>
+                    <button type="button" id="btn-open-url" class="btn btn-sm btn-primary">Open ↗</button>
+                  </div>
+                  <small class="helper-note">Click <strong>Open ↗</strong>, approve access with your Google account, then copy the resulting code from the browser redirect address.</small>
+                </div>
+
+                <!-- Step 2: Code Exchange Form -->
+                <form id="code-exchange-form" class="flow-step-box">
+                  <div class="step-num-badge">2</div>
+                  <div class="step-body">
+                    <h5>Exchange Authorization Code</h5>
+                    <div class="form-field">
+                      <label for="auth-code-input">Paste Authorization Code or Redirect URL:</label>
+                      <input type="text" id="auth-code-input" name="code" placeholder="4/0Abc... or https://antigravity.google/oauth-callback?code=..." required autocomplete="off">
+                    </div>
+                    <button type="submit" id="btn-exchange-code" class="btn btn-success">
+                      Exchange for OAuth Token
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </details>
           </div>
 
           <!-- PANE 2: Gemini API Key -->
@@ -486,15 +575,19 @@
             <form id="proxy-config-form" class="settings-form">
               <div class="form-field">
                 <label for="cfg-proxy-url">Pigasus Proxy Address:</label>
-                <input type="url" id="cfg-proxy-url" placeholder="http://127.0.0.1:8085" value="http://127.0.0.1:8085">
-                <small class="helper-note">Forwarding paths include <code>/v1/live</code> and <code>/v1internal:streamGenerateContent</code>.</small>
+                <input type="url" id="cfg-proxy-url" placeholder="http://127.0.0.1:8085 (optional)">
+                <small class="helper-note">Optional. Only used when Proxy auth mode is selected. Forwarding paths include <code>/v1/live</code> and <code>/v1internal:streamGenerateContent</code>.</small>
               </div>
               <fieldset class="auth-radio-fieldset">
                 <legend>Default Authentication Mode</legend>
                 <div class="radio-options">
                   <label class="radio-item">
-                    <input type="radio" name="default_auth" value="oauth" checked>
-                    <span>Google OAuth Bearer Token (Antigravity)</span>
+                    <input type="radio" name="default_auth" value="aggregate" checked>
+                    <span>Backend Aggregate Pool (Quota-Aware Auto Failover · Recommended)</span>
+                  </label>
+                  <label class="radio-item">
+                    <input type="radio" name="default_auth" value="oauth">
+                    <span>Google OAuth Bearer Token (Single Account)</span>
                   </label>
                   <label class="radio-item">
                     <input type="radio" name="default_auth" value="api_key">
@@ -531,6 +624,7 @@
               <div class="form-field">
                 <label for="live-auth-select">Live Auth Routing:</label>
                 <select id="live-auth-select">
+                  <option value="aggregate">Backend Aggregate Pool (Auto Failover)</option>
                   <option value="oauth">OAuth Token via Demo Bridge</option>
                   <option value="api_key">Gemini API Key (Direct / Bridge)</option>
                   <option value="proxy">Pigasus Proxy (Alt-Backend)</option>
@@ -568,10 +662,94 @@
                   <span>Auto-reconnect on unexpected disconnect</span>
                 </label>
               </div>
+              <div class="mic-quick-banner">
+                <div class="mic-quick-text">
+                  <strong>Microphone Troubleshooting</strong>
+                  <p class="helper-note">Check browser permissions, live input level, sample rate, and record/playback loopback.</p>
+                </div>
+                <button type="button" id="btn-goto-mic-test" class="btn btn-outline btn-sm">Open Mic Test →</button>
+              </div>
             </form>
           </div>
 
-          <!-- PANE 5: Sessions Management -->
+          <!-- PANE 5: Microphone Test & Diagnostics -->
+          <div id="st-mic-tab" class="settings-pane">
+            <div class="pane-header">
+              <h4>Microphone Test &amp; Diagnostics</h4>
+              <p>Verify browser permissions, hardware sample rate, live input level, and record/playback loopback before starting LiveChat.</p>
+            </div>
+
+            <div class="mic-diag-grid" aria-label="Microphone environment diagnostics">
+              <div class="mic-diag-item">
+                <span class="mic-diag-label">Secure Context</span>
+                <strong id="mic-diag-secure" class="mic-diag-value">Checking...</strong>
+              </div>
+              <div class="mic-diag-item">
+                <span class="mic-diag-label">Mic Permission</span>
+                <strong id="mic-diag-permission" class="mic-diag-value">Checking...</strong>
+              </div>
+              <div class="mic-diag-item">
+                <span class="mic-diag-label">Audio Sample Rate</span>
+                <strong id="mic-diag-samplerate" class="mic-diag-value">-</strong>
+              </div>
+              <div class="mic-diag-item">
+                <span class="mic-diag-label">Active Track</span>
+                <strong id="mic-diag-track" class="mic-diag-value">Not started</strong>
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label for="mic-test-device-select">Input Microphone Device:</label>
+              <div class="input-with-button">
+                <select id="mic-test-device-select" name="mic_device">
+                  <option value="">Default System Microphone</option>
+                </select>
+                <button type="button" id="btn-mic-test-refresh" class="btn btn-outline btn-sm">Refresh</button>
+              </div>
+              <small class="helper-note">Synced with the main LiveChat microphone selector (also accessible on mobile screens).</small>
+            </div>
+
+            <fieldset class="auth-radio-fieldset mic-constraints-fieldset">
+              <legend>Audio Processing Constraints (Applied to Test &amp; LiveChat)</legend>
+              <div class="mic-constraints-row">
+                <label class="check-item">
+                  <input type="checkbox" id="mic-opt-aec" checked>
+                  <span>Echo Cancellation</span>
+                </label>
+                <label class="check-item">
+                  <input type="checkbox" id="mic-opt-ns" checked>
+                  <span>Noise Suppression</span>
+                </label>
+                <label class="check-item">
+                  <input type="checkbox" id="mic-opt-agc" checked>
+                  <span>Auto Gain Control</span>
+                </label>
+              </div>
+              <small class="helper-note">Tip: On some Android devices, disabling Echo Cancellation or Noise Suppression resolves muffled or silent mic input.</small>
+            </fieldset>
+
+            <div class="mic-test-meter-card">
+              <canvas id="mic-test-waveform" width="480" height="64" class="mic-test-canvas" aria-label="Microphone test waveform"></canvas>
+              <div id="mic-test-meter-role" class="mic-test-bar-track" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Microphone input level">
+                <div id="mic-test-meter-fill" class="mic-test-bar-fill"></div>
+              </div>
+              <div class="mic-test-meta-row">
+                <span>Input Level: <strong id="mic-test-level-val">0%</strong> (<span id="mic-test-db-val">-∞ dBFS</span>)</span>
+                <span id="mic-test-signal-badge" class="badge-tier">Idle</span>
+              </div>
+            </div>
+
+            <div class="btn-group-row">
+              <button type="button" id="btn-mic-test-toggle" class="btn btn-primary">🎤 Start Mic Test</button>
+              <button type="button" id="btn-mic-test-record" class="btn btn-outline" disabled>⏺ Record 5s &amp; Play Back</button>
+              <button type="button" id="btn-mic-test-tone" class="btn btn-outline">🔊 Test Speaker Tone</button>
+            </div>
+
+            <div id="mic-test-status" class="status-msg-modern hidden" role="status" aria-live="polite"></div>
+            <div id="mic-test-track-details" class="mic-track-details hidden"></div>
+          </div>
+
+          <!-- PANE 6: Sessions Management -->
           <div id="st-sessions-tab" class="settings-pane">
             <div class="pane-header">
               <h4>All Conversation Sessions</h4>
@@ -612,7 +790,7 @@
     <button class="nav-tab" data-tab="settings-tab"></button>
     <div id="auth-tab" class="tab-pane"></div>
     <div id="chat-tab" class="tab-pane">
-      <select id="chat-auth-select"><option value="oauth">OAuth</option></select>
+      <select id="chat-auth-select"><option value="aggregate">Aggregate</option><option value="oauth">OAuth</option><option value="api_key">API Key</option><option value="proxy">Proxy</option></select>
       <select id="chat-model-select"><option value="gemini-3.8-flash">Gemini 3.8 Flash</option></select>
       <button id="btn-clear-chat"></button>
       <div id="chat-messages"></div>
@@ -625,6 +803,6 @@
     <div id="settings-tab" class="tab-pane"></div>
   </div>
 
-  <script src="app.js?v=20261121_modern_v2"></script>
+  <script src="app.js?v=20261123_termux_v16"></script>
 </body>
 </html>

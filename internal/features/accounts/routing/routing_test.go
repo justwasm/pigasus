@@ -954,3 +954,55 @@ func TestUnquarantine_ClearsStatus(t *testing.T) {
 		t.Errorf("expected account to be enabled in store, got disabled=%v", acc.Disabled)
 	}
 }
+
+func TestRoutedClientFailover_ModelAccessAndCapacityFastSwitch(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled": true,
+	},
+		accounts.Account{Email: "noaccess@example.com", Quota: quotaSnapshot(0.9), Token: token("noaccess")},
+		accounts.Account{Email: "healthy@example.com", Quota: quotaSnapshot(0.9), Token: token("healthy")},
+	)
+
+	var sawZeroRetryOnFirst bool
+	calls := 0
+	inner := &customClient{
+		fn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			calls++
+			_, _ = r.TokenFunc(ctx)
+			email := r.LastRouted()
+			if calls == 1 {
+				if maxR, ok := backend.MaxRetriesFromContext(ctx); ok && maxR == 0 {
+					sawZeroRetryOnFirst = true
+				}
+			}
+			if email == "noaccess@example.com" {
+				return nil, apierror.NewHTTPError(403, []byte(`{"error":{"code":403,"message":"Your account does not have access to this model","status":"PERMISSION_DENIED"}}`), "")
+			}
+			out := make(chan backend.StreamChunk, 1)
+			out <- backend.StreamChunk{Text: "switched ok", Done: true}
+			close(out)
+			return out, nil
+		},
+	}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "claude-sonnet-4-6"})
+	if err != nil {
+		t.Fatalf("expected failover on 403 model access error, got: %v", err)
+	}
+	var texts []string
+	for chunk := range out {
+		if chunk.Text != "" {
+			texts = append(texts, chunk.Text)
+		}
+	}
+	if len(texts) == 0 || texts[0] != "switched ok" {
+		t.Errorf("got texts %v, want ['switched ok']", texts)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+	if !sawZeroRetryOnFirst {
+		t.Errorf("expected MaxRetries=0 on non-final account attempt for fast failover")
+	}
+}

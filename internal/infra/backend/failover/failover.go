@@ -14,6 +14,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
@@ -313,6 +314,7 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 				}
 				if hasRemainingBackup {
 					next := candidates[i+1]
+					clilog.Logf("failover", "%s -> %s (model=%s) err=%v", target.Name, next.Name, targetModel(next, req.Model), err)
 					broadcastEvent(ctx, Event{
 						FromTarget:   target.Name,
 						ToTarget:     next.Name,

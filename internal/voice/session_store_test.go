@@ -1,7 +1,9 @@
 package voice
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -154,5 +156,48 @@ func TestNativeLiveSession_SetConversationHistory(t *testing.T) {
 	}
 	if got[1].Content != "Welcome back!" {
 		t.Errorf("turn 1 content = %q, want 'Welcome back!'", got[1].Content)
+	}
+}
+
+func TestLiveSessionStore_ConcurrentSaveSameID(t *testing.T) {
+	tempDir := t.TempDir()
+	SetLiveSessionDirOverride(tempDir)
+	defer SetLiveSessionDirOverride("")
+
+	const workers = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			err := SaveLiveSession(&LiveSessionData{
+				ID:    "concurrent-session-1",
+				Title: fmt.Sprintf("Concurrent Save %d", idx),
+				Model: "models/gemini-3.8-live",
+				Voice: "Fola",
+				Turns: []LiveTurnRecord{
+					{Role: "User", Content: fmt.Sprintf("Turn %d", idx)},
+				},
+			})
+			if err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent SaveLiveSession failed: %v", err)
+	}
+
+	loaded, err := LoadLiveSession("concurrent-session-1")
+	if err != nil {
+		t.Fatalf("LoadLiveSession after concurrent saves failed: %v", err)
+	}
+	if loaded.ID != "concurrent-session-1" {
+		t.Errorf("loaded ID = %q, want concurrent-session-1", loaded.ID)
 	}
 }

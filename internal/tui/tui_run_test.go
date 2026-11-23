@@ -463,12 +463,12 @@ func Test_CursorTracksTypedText(t *testing.T) {
 // account-routing policy that decides which account serves a turn.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
 	got := len(slashcommands.Default)
-	if got != 116 {
-		t.Fatalf("expected 116 slash commands in catalog (106 ref incl. /projects + superset commands), got %d", got)
+	if got != 117 {
+		t.Fatalf("expected 117 slash commands in catalog (106 ref incl. /projects + superset commands), got %d", got)
 	}
 	filtered := len(slashcommands.Filter("/"))
-	if filtered != 116 {
-		t.Fatalf("expected 116 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
+	if filtered != 117 {
+		t.Fatalf("expected 117 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
 	}
 }
 

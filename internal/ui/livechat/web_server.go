@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,13 +22,20 @@ import (
 )
 
 func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir string, workspace string) error {
+	return runWebServerWithHost("127.0.0.1", port, defaultProxy, noBrowser, customWebDir, workspace)
+}
+
+func runWebServerWithHost(host string, port int, defaultProxy string, noBrowser bool, customWebDir string, workspace string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	defaultProxy = strings.TrimSpace(defaultProxy)
 	if defaultProxy == "" {
-		if envProxy := os.Getenv("OPENAGY_VOICE_ALT_BACKEND"); envProxy != "" {
+		if envProxy := strings.TrimSpace(os.Getenv("OPENAGY_VOICE_ALT_BACKEND")); envProxy != "" {
 			defaultProxy = envProxy
-		} else if envProxy := os.Getenv("PIGASUS_VOICE_ALT_BACKEND"); envProxy != "" {
+		} else if envProxy := strings.TrimSpace(os.Getenv("PIGASUS_VOICE_ALT_BACKEND")); envProxy != "" {
 			defaultProxy = envProxy
-		} else {
-			defaultProxy = "http://127.0.0.1:8085"
 		}
 	}
 
@@ -48,6 +56,9 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
+		if strings.HasSuffix(r.URL.Path, ".webmanifest") {
+			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 
@@ -130,13 +141,18 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 			return
 		}
 
+		email := tok.UserEmail()
+		if email == "" {
+			email = auth.EffectiveUserEmail()
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"available":     true,
 			"access_token":  tok.Token.AccessToken,
 			"refresh_token": tok.Token.RefreshToken,
 			"token_type":    tok.Token.TokenType,
 			"expiry":        tok.Token.Expiry,
-			"email":         tok.UserEmail(),
+			"email":         email,
+			"plan_tier":     "Google AI Pro (CLI)",
 		})
 	})
 
@@ -189,10 +205,31 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 			maskedKey = existingKey[:4] + "..." + existingKey[len(existingKey)-4:]
 		}
 
+		hasOAuth := false
+		oauthEmail := ""
+		if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && (tok.Token.AccessToken != "" || tok.Token.RefreshToken != "") {
+			hasOAuth = true
+			oauthEmail = tok.UserEmail()
+			if oauthEmail == "" {
+				if em := strings.TrimSpace(os.Getenv("AGY_USER_EMAIL")); em != "" {
+					oauthEmail = em
+				} else if em := strings.TrimSpace(os.Getenv("OPENAGY_USER_EMAIL")); em != "" {
+					oauthEmail = em
+				}
+			}
+		}
+
+		aggEnabled, poolTotal, poolHealthy := aggregatePoolStatus(r.Context())
+
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"default_proxy":           defaultProxy,
 			"has_api_key":             hasKey,
 			"masked_api_key":          maskedKey,
+			"has_oauth_token":         hasOAuth || poolTotal > 0,
+			"oauth_email":             oauthEmail,
+			"aggregate_enabled":       aggEnabled,
+			"pool_account_count":      poolTotal,
+			"pool_healthy_count":      poolHealthy,
 			"generative_language_url": endpoints.Current().GenerativeLanguage,
 			"cloudcode_url":           endpoints.Current().CloudCode,
 			"workspace":               workspace,
@@ -219,8 +256,11 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 			return
 		}
 
-		if req.ProxyURL == "" {
+		if req.ProxyURL == "" && defaultProxy != "" {
 			req.ProxyURL = defaultProxy
+		}
+		if strings.TrimSpace(req.AuthMode) == "" && strings.TrimSpace(req.APIKey) == "" && strings.TrimSpace(req.ProxyURL) == "" {
+			req.AuthMode = "aggregate"
 		}
 
 		if err := HandleChat(r.Context(), w, &req); err != nil {
@@ -230,7 +270,7 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 	})
 
 	// 5. WebSocket Live Chat Bridge
-	mux.HandleFunc("/api/live-ws", HandleLiveWebSocket)
+	mux.HandleFunc("/api/live-ws", handleLiveWebSocketWithDefaultProxy(defaultProxy))
 
 	// 6. Session Persistence API (Parity with TUI disk storage)
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -285,6 +325,7 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 				data.CreatedAt = time.Now()
 			}
 			if err := voice.SaveLiveSession(&data); err != nil {
+				log.Printf("[livechat-web] save session error (id=%q): %v", data.ID, err)
 				writeJSONError(w, http.StatusInternalServerError, "failed to save session: "+err.Error())
 				return
 			}
@@ -365,11 +406,11 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 	})
 
 	// Bind HTTP Listener
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Printf("[livechat-web] Port %d unavailable (%v), selecting dynamic port...", port, err)
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		log.Printf("[livechat-web] Port %d unavailable on %s (%v), selecting dynamic port...", port, host, err)
+		ln, err = net.Listen("tcp", net.JoinHostPort(host, "0"))
 		if err != nil {
 			return fmt.Errorf("failed to bind server: %w", err)
 		}
@@ -377,12 +418,34 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 	defer ln.Close()
 
 	actualPort := ln.Addr().(*net.TCPAddr).Port
-	localURL := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
+	listeners := []net.Listener{ln}
+
+	// On Termux / Android Chrome, http://localhost:<port> often resolves to ::1 first.
+	// Best-effort bind the IPv6 loopback on the same port when listening on 127.0.0.1.
+	if host == "127.0.0.1" {
+		if ln6, err6 := net.Listen("tcp6", net.JoinHostPort("::1", strconv.Itoa(actualPort))); err6 == nil {
+			defer ln6.Close()
+			listeners = append(listeners, ln6)
+		}
+	}
+
+	displayHost := host
+	if host == "0.0.0.0" || host == "::" {
+		displayHost = "127.0.0.1"
+	}
+	localURL := fmt.Sprintf("http://%s", net.JoinHostPort(displayHost, strconv.Itoa(actualPort)))
+	proxyDisplay := defaultProxy
+	if proxyDisplay == "" {
+		proxyDisplay = "(none - direct OAuth/API Key bridge)"
+	}
 
 	log.Printf("==================================================================")
 	log.Printf(" 🎙️  Pigasus LiveChat Embedded Web UI Server")
 	log.Printf(" Local Web URL:   %s", localURL)
-	log.Printf(" Default Proxy:   %s", defaultProxy)
+	if host == "127.0.0.1" || host == "0.0.0.0" || host == "::" {
+		log.Printf(" Localhost URL:   http://localhost:%d", actualPort)
+	}
+	log.Printf(" Default Proxy:   %s", proxyDisplay)
 	log.Printf(" Workspace:       %s", workspace)
 	log.Printf(" Asset Source:    %s", sourceDesc)
 	log.Printf(" Controls:        Ctrl+C to stop")
@@ -393,20 +456,23 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 	}
 
 	srv := &http.Server{
-		Handler:      mux,
-		ReadTimeout:  120 * time.Second,
-		WriteTimeout: 120 * time.Second,
+		Handler:           mux,
+		ReadHeaderTimeout: 30 * time.Second,
+		WriteTimeout:      0, // Allow long-lived SSE /api/chat and WebSocket streams
 	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-	serverErrCh := make(chan error, 1)
-	go func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			serverErrCh <- err
-		}
-	}()
+	serverErrCh := make(chan error, len(listeners))
+	for _, l := range listeners {
+		listener := l
+		go func() {
+			if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+				serverErrCh <- err
+			}
+		}()
+	}
 
 	select {
 	case err := <-serverErrCh:
@@ -437,16 +503,47 @@ func writeJSONError(w http.ResponseWriter, status int, message string) {
 	})
 }
 
+func isTermuxEnv(goos, termuxVersion, prefix string) bool {
+	return goos == "android" || strings.TrimSpace(termuxVersion) != "" || strings.Contains(prefix, "com.termux")
+}
+
+func resolveBrowserCommands(goos, termuxVersion, prefix, targetURL string, lookPath func(string) (string, error)) [][]string {
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	if isTermuxEnv(goos, termuxVersion, prefix) {
+		var cmds [][]string
+		if _, err := lookPath("termux-open-url"); err == nil {
+			cmds = append(cmds, []string{"termux-open-url", targetURL})
+		}
+		if _, err := lookPath("am"); err == nil {
+			cmds = append(cmds, []string{"am", "start", "-a", "android.intent.action.VIEW", "-d", targetURL})
+		}
+		if _, err := lookPath("xdg-open"); err == nil {
+			cmds = append(cmds, []string{"xdg-open", targetURL})
+		}
+		return cmds
+	}
+	switch goos {
+	case "darwin":
+		return [][]string{{"open", targetURL}}
+	case "windows":
+		return [][]string{{"rundll32", "url.dll,FileProtocolHandler", targetURL}}
+	default:
+		return [][]string{{"xdg-open", targetURL}}
+	}
+}
+
 func openBrowser(url string) {
 	time.Sleep(350 * time.Millisecond)
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
+	cmds := resolveBrowserCommands(runtime.GOOS, os.Getenv("TERMUX_VERSION"), os.Getenv("PREFIX"), url, exec.LookPath)
+	for _, args := range cmds {
+		if len(args) == 0 {
+			continue
+		}
+		cmd := exec.Command(args[0], args[1:]...)
+		if err := cmd.Start(); err == nil {
+			return
+		}
 	}
-	_ = cmd.Start()
 }

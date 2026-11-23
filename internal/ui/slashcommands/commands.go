@@ -300,6 +300,7 @@ func buildCatalogue() []Command {
 		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota", "credits"}, Dispatched: true},
 		{Name: "/voice", Description: "Dictate a prompt or talk with the agent by voice", Aliases: []string{"record"}, Dispatched: true},
 		{Name: "/wire", Description: "Toggle real-time streaming wire diagnostics HUD overlay", Dispatched: true},
+		{Name: "/logs", Description: "View live session logs (~/.openagy/log/)", Aliases: []string{"log"}, Dispatched: true},
 		{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
 		{Name: "/pool", Description: "Configure the account-pool routing policy"},
 		{Name: "/provider", Description: "Manage custom model providers and endpoints", Aliases: []string{"providers"}},
@@ -389,7 +390,7 @@ func assignCommandScope(c *Command) {
 	switch name {
 	case "help", "clear", "exit", "copy", "codesearch", "keybindings",
 		"open", "statusline", "title", "diff", "artifact", "changelog",
-		"btw", "resume", "rename", "rewind", "feedback", "logout", "terminal":
+		"btw", "resume", "rename", "rewind", "feedback", "logout", "terminal", "logs":
 		c.Scope = ScopeHost
 	case "model":
 		c.Scope = ScopeCapability

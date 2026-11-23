@@ -55,6 +55,7 @@ import (
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
@@ -294,12 +295,13 @@ func (r *Router) SetLogWriter(w io.Writer) {
 	r.mu.Unlock()
 }
 
-// logf writes one routing line.
+// logf writes one routing line to the session log and any configured writer.
 func (r *Router) logf(format string, args ...any) {
+	clilog.Logf("account-pool", format, args...)
 	r.mu.Lock()
 	w := r.log
 	r.mu.Unlock()
-	if w == nil {
+	if w == nil || w == io.Discard {
 		return
 	}
 	fmt.Fprintf(w, format+"\n", args...)
@@ -1441,6 +1443,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 			activeEmail = c.router.currentAccountEmail()
 		}
 		if err != nil {
+			c.router.logf("[account-pool] %s failed for %s (routing off): %v", activeEmail, req.Model, err)
 			if apierror.IsAccountDisabledErr(err) {
 				c.router.Quarantine(activeEmail, apierror.AccountDisabledReason(err))
 			}
@@ -1464,6 +1467,11 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		var slot routeSlot
 		callCtx := withRouteSlot(WithModel(ctx, req.Model), &slot)
+		if attempt+1 < maxAttempts {
+			// Fast failover while backup accounts remain: avoid sleeping through
+			// multi-minute transport backoff on a single failing/throttled account.
+			callCtx = backend.ContextWithMaxRetries(callCtx, 0)
+		}
 		out, err := c.inner.Stream(callCtx, req)
 		if err != nil {
 			lastErr = err
@@ -1503,6 +1511,15 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 				}
 				return nil, err
 			}
+			if !apierror.IsQuotaReachedErr(err) && (apierror.IsModelAccessErr(err) || apierror.IsRetryableStatusErr(err)) {
+				c.router.ExcludeForModel(email, family)
+				c.router.logf("[account-pool] %s failed for %s (%s); trying another account (attempt %d/%d)", email, req.Model, apierror.FormatRetryReason(err), attempt+1, maxAttempts)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return nil, err
+			}
+			c.router.logf("[account-pool] %s failed for %s (no failover): %v", email, req.Model, err)
 			return nil, err
 		}
 
@@ -1581,6 +1598,15 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 				}
 				return errorChunkChan(firstNonEmpty), nil
 			}
+			if !apierror.IsQuotaReachedErr(firstNonEmpty.Error) && (apierror.IsModelAccessErr(firstNonEmpty.Error) || apierror.IsRetryableStatusErr(firstNonEmpty.Error)) {
+				c.router.ExcludeForModel(email, family)
+				c.router.logf("[account-pool] %s stream failed for %s (%s); switching account (attempt %d/%d)", email, req.Model, apierror.FormatRetryReason(firstNonEmpty.Error), attempt+1, maxAttempts)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return errorChunkChan(firstNonEmpty), nil
+			}
+			c.router.logf("[account-pool] %s stream failed for %s (no failover): %v", email, req.Model, firstNonEmpty.Error)
 			return errorChunkChan(firstNonEmpty), nil
 		}
 

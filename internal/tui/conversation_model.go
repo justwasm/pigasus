@@ -17,6 +17,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	sp "charm.land/bubbles/v2/spinner"
@@ -113,13 +114,19 @@ type ModelRetry struct {
 	Attempt     int
 	MaxAttempts int
 	RetryAt     time.Time
+	Reason      string
 }
 
 func (c *ConversationModel) SetModelRetry(attempt, maxAttempts int, retryAt time.Time) {
+	c.SetModelRetryWithReason(attempt, maxAttempts, retryAt, "")
+}
+
+func (c *ConversationModel) SetModelRetryWithReason(attempt, maxAttempts int, retryAt time.Time, reason string) {
 	c.modelRetry = &ModelRetry{
 		Attempt:     attempt,
 		MaxAttempts: maxAttempts,
 		RetryAt:     retryAt,
+		Reason:      strings.TrimSpace(reason),
 	}
 }
 
@@ -132,6 +139,9 @@ func (c *ConversationModel) ClearModelRetry() {
 //
 //	when remaining > 0: "Model unavailable, retrying in 12s (attempt 2/10)"
 //	when remaining <= 0: "Model unavailable, retrying (attempt 2/10)"
+//
+// When a non-empty Reason is attached, it is appended concisely so the user
+// can see why the request is retrying (e.g. HTTP 503 / 429 / capacity).
 func (c *ConversationModel) ModelRetryStatus() (string, bool) {
 	if c.modelRetry == nil {
 		return "", false
@@ -149,10 +159,16 @@ func (c *ConversationModel) ModelRetryStatus() (string, bool) {
 			rem = 0
 		}
 	}
+	var base string
 	if rem > 0 {
-		return fmt.Sprintf("Model unavailable, retrying in %ds%s", rem, attemptStr), true
+		base = fmt.Sprintf("Model unavailable, retrying in %ds%s", rem, attemptStr)
+	} else {
+		base = fmt.Sprintf("Model unavailable, retrying%s", attemptStr)
 	}
-	return fmt.Sprintf("Model unavailable, retrying%s", attemptStr), true
+	if c.modelRetry.Reason != "" {
+		return base + " — " + c.modelRetry.Reason + " (/logs)", true
+	}
+	return base, true
 }
 
 // ---- turn lifecycle ----

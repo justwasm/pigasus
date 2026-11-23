@@ -45,6 +45,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tuistore"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/interaction"
@@ -76,6 +77,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/modelargpopup"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
@@ -373,6 +375,7 @@ func (c *turnCollector) notice(n *agentlink.Notice) {
 				attempt:       n.Attempt,
 				maxAttempts:   n.MaxAttempts,
 				retryAtUnixMS: n.RetryAtUnixMS,
+				reason:        clilog.Sanitize(n.Text),
 			})
 		}
 	case agentlink.NoticeFailover:
@@ -398,6 +401,7 @@ type modelRetryStatusMsg struct {
 	attempt       int
 	maxAttempts   int
 	retryAtUnixMS int64
+	reason        string
 }
 
 type steerAppliedMsg struct {
@@ -875,11 +879,15 @@ func (m *RootModel) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	// canceled in the pre-send window which aborts the send and shows
 	// "Message not sent: canceled before it was sent" (AGY 1.5.14).
 	if msg.Err != nil {
+		clilog.Logf("tui", "turn failed: %v", msg.Err)
 		if strings.Contains(msg.Err.Error(), "canceled before it was sent") {
 			m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow("Message not sent: canceled before it was sent"))
 		} else if !m.conversation.turnInterrupted {
 			if message, ok := agentturn.TurnErrorMessage(msg.Err); ok {
 				m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow(message))
+				if logPath := clilog.Path(); logPath != "" {
+					m.conversation.response = append(m.conversation.response, cDimGrayOpen+"  ⎿  See /logs or "+logPath+cDimGrayClose)
+				}
 			}
 		}
 	}
@@ -2281,6 +2289,9 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 		if m.overlays.panel.kind == panelregistry.CodeSearch && m.viewport.height > 0 {
 			// Cycle 381: the panel owns the tick; the host only arms it.
 			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
+		}
+		if m.overlays.panel.kind == panelregistry.Logs {
+			return true, tea.Batch(syncCmd, logspanel.Tick())
 		}
 		return true, syncCmd
 	}

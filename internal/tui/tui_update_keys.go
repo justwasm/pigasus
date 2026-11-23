@@ -42,6 +42,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/helppanel"
 	"github.com/justwasm/pigasus/internal/ui/views/hookspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/mentionpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/modelargpopup"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
@@ -1510,6 +1511,9 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 		if m.overlays.panel.kind == panelregistry.CodeSearch && m.viewport.height > 0 {
 			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
 		}
+		if m.overlays.panel.kind == panelregistry.Logs {
+			return true, tea.Batch(syncCmd, logspanel.Tick())
+		}
 		return true, syncCmd
 	}
 	if cleanCmd == "clear" || cleanCmd == "terminal" {
@@ -2304,6 +2308,14 @@ func (m *RootModel) updateUsageQuotaTickMsg() (tea.Model, tea.Cmd) {
 	return m, usagepanel.QuotaTick()
 }
 
+func (m *RootModel) updateLogsTickMsg() (tea.Model, tea.Cmd) {
+	if m.overlays.panel.kind != panelregistry.Logs {
+		return m, nil
+	}
+	m.invalidateViewCache()
+	return m, logspanel.Tick()
+}
+
 func (m *RootModel) updateCompactStartMsg(msg compactStartMsg) (tea.Model, tea.Cmd) {
 	m.session.store.CompactStart = msg.StartedAt
 	m.session.store.CompactEnd = time.Time{}
@@ -2592,6 +2604,9 @@ func (m *RootModel) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return mod, cmd, true
 	case codesearchpanel.TickMsg:
 		mod, cmd := m.updateCSTickMsg()
+		return mod, cmd, true
+	case logspanel.TickMsg:
+		mod, cmd := m.updateLogsTickMsg()
 		return mod, cmd, true
 	}
 	return m, nil, false

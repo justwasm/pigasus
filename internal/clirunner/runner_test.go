@@ -9,6 +9,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/clirunner"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 )
 
 func TestSetupCLIParser_SubcommandsRegistered(t *testing.T) {
@@ -203,5 +204,43 @@ func TestSetupCLIParser_UnexpectedPositionalArg_PrintsPromptsReadOnlyFrom(t *tes
 	want := "Error: unexpected argument \"skill\".\nPrompts are read only from -p/--print, -i/--prompt-interactive, or stdin, so this argument would have been ignored.\n"
 	if errOut.String() != want {
 		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}
+
+func TestSetupCLIParser_LogsSubcommand(t *testing.T) {
+	clilog.ResetForTest()
+	t.Cleanup(clilog.ResetForTest)
+
+	home := t.TempDir()
+	t.Setenv("OPENAGY_CONFIG_HOME", home)
+	t.Setenv(clilog.EnvLog, "")
+
+	logPath := clilog.Init()
+	if logPath == "" {
+		t.Fatal("clilog.Init() returned empty path")
+	}
+	clilog.Logf("streampipe", "line-1")
+	clilog.Logf("streampipe", "line-2")
+	clilog.Logf("streampipe", "line-3")
+
+	p := clirunner.SetupCLIParser("pigasus")
+	var out, errOut bytes.Buffer
+	p.SetOut(&out)
+	p.SetErr(&errOut)
+
+	if err := p.ExecuteArgs([]string{"logs", "--path"}); err != nil {
+		t.Fatalf("logs --path error: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != logPath {
+		t.Errorf("logs --path = %q, want %q", strings.TrimSpace(out.String()), logPath)
+	}
+
+	out.Reset()
+	if err := p.ExecuteArgs([]string{"logs", "-n", "2"}); err != nil {
+		t.Fatalf("logs -n 2 error: %v", err)
+	}
+	got := out.String()
+	if strings.Contains(got, "line-1") || !strings.Contains(got, "line-2") || !strings.Contains(got, "line-3") {
+		t.Errorf("logs -n 2 unexpected output:\n%s", got)
 	}
 }

@@ -325,8 +325,10 @@ type AICodeLiveSession struct {
 	closedCh chan struct{}
 	eventsCh chan *LiveServerEvent
 
-	// earlyBuf retains initial audio chunks in case fallback activation is required.
+	// earlyBuf / earlyTexts retain initial audio/text chunks in case fallback activation is required.
+	confirmed    bool
 	earlyBuf     [][]byte
+	earlyTexts   []string
 	fallbackOnce sync.Once
 }
 
@@ -363,7 +365,9 @@ func (s *AICodeLiveSession) readLoop() {
 
 		isFirst = false
 		s.mu.Lock()
-		s.earlyBuf = nil // clear early buffer once first packet is confirmed
+		s.confirmed = true
+		s.earlyBuf = nil   // clear early buffer once first packet is confirmed
+		s.earlyTexts = nil // clear early text buffer once first packet is confirmed
 		s.mu.Unlock()
 
 		msg := resp.GetMessage()
@@ -431,10 +435,15 @@ func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
 		s.mu.Lock()
 		s.fallbackSession = fbSess
 		buf := s.earlyBuf
+		texts := s.earlyTexts
 		s.earlyBuf = nil
+		s.earlyTexts = nil
 		s.mu.Unlock()
 
-		// Replay buffered early mic audio to fallback session
+		// Replay buffered early text and mic audio to fallback session
+		for _, txt := range texts {
+			_ = fbSess.SendText(txt)
+		}
 		for _, chunk := range buf {
 			_ = fbSess.SendAudio(chunk)
 		}
@@ -482,10 +491,12 @@ func (s *AICodeLiveSession) SendAudio(pcm16k []byte) error {
 	}
 
 	// Buffer initial chunks until first successful receive confirms backend availability
-	if len(s.earlyBuf) < 16 {
+	buffered := false
+	if !s.confirmed && len(s.earlyBuf) < 16 {
 		chunkCopy := make([]byte, len(pcm16k))
 		copy(chunkCopy, pcm16k)
 		s.earlyBuf = append(s.earlyBuf, chunkCopy)
+		buffered = true
 	}
 	s.mu.Unlock()
 
@@ -502,6 +513,9 @@ func (s *AICodeLiveSession) SendAudio(pcm16k []byte) error {
 	s.writeMu.Unlock()
 	if err != nil {
 		if s.fallback != nil && s.tryActivateFallback(err) {
+			if buffered {
+				return nil
+			}
 			s.mu.Lock()
 			fb := s.fallbackSession
 			s.mu.Unlock()
@@ -531,6 +545,12 @@ func (s *AICodeLiveSession) SendText(text string) error {
 		s.mu.Unlock()
 		return fb.SendText(text)
 	}
+
+	buffered := false
+	if !s.confirmed && len(s.earlyTexts) < 16 {
+		s.earlyTexts = append(s.earlyTexts, text)
+		buffered = true
+	}
 	s.mu.Unlock()
 
 	req := &voicepb.StreamVoiceRequest{
@@ -545,8 +565,23 @@ func (s *AICodeLiveSession) SendText(text string) error {
 	}
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.stream.SendMsg(req)
+	err := s.stream.SendMsg(req)
+	s.writeMu.Unlock()
+	if err != nil {
+		if s.fallback != nil && s.tryActivateFallback(err) {
+			if buffered {
+				return nil
+			}
+			s.mu.Lock()
+			fb := s.fallbackSession
+			s.mu.Unlock()
+			if fb != nil {
+				return fb.SendText(text)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // SendToolResponse sends the result of a tool execution back into the session.

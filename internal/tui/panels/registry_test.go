@@ -29,6 +29,8 @@ func (m *mockHost) PanelUsageLines() []string           { return []string{"usage
 func (m *mockHost) UsageViewerSpec() tuiviewer.Spec     { return tuiviewer.Spec{Total: 10} }
 func (m *mockHost) PanelChangelogLines() []string       { return []string{"changelog row"} }
 func (m *mockHost) ChangelogViewerSpec() tuiviewer.Spec { return tuiviewer.Spec{Total: 20} }
+func (m *mockHost) PanelLogsLines() []string            { return []string{"logs row"} }
+func (m *mockHost) LogsViewerSpec() tuiviewer.Spec      { return tuiviewer.Spec{Total: 30} }
 
 type mockInteractivePanel struct {
 	lines   []string

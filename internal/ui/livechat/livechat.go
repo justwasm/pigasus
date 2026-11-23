@@ -2402,9 +2402,10 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("livechat", flag.ContinueOnError)
 	webFlag := fs.Bool("web", false, "Start embedded LiveChat Web UI server")
 	webShortFlag := fs.Bool("w", false, "Alias for --web")
+	hostFlag := fs.String("host", "127.0.0.1", "HTTP server host to bind for Web UI (e.g. 127.0.0.1, localhost, 0.0.0.0)")
 	portFlag := fs.Int("port", 8090, "HTTP server port to listen on for Web UI")
 	noBrowserFlag := fs.Bool("no-browser", false, "Do not automatically open browser on startup in web mode")
-	proxyFlag := fs.String("proxy", "", "Default Pigasus proxy URL (e.g. http://127.0.0.1:8085)")
+	proxyFlag := fs.String("proxy", "", "Optional Pigasus proxy URL (e.g. http://127.0.0.1:8085)")
 	webDirFlag := fs.String("web-dir", "", "Custom directory for web assets (overrides embedded assets for local development)")
 
 	apiKeyFlag := fs.String("api-key", "", "Gemini API Key (defaults to credentials in ~/.openagy/config.json or $GEMINI_API_KEY)")
@@ -2436,7 +2437,7 @@ func Run(args []string) error {
 	}
 
 	if *webFlag || *webShortFlag {
-		if err := runWebServer(*portFlag, *proxyFlag, *noBrowserFlag, *webDirFlag, absWs); err != nil {
+		if err := runWebServerWithHost(*hostFlag, *portFlag, *proxyFlag, *noBrowserFlag, *webDirFlag, absWs); err != nil {
 			return fmt.Errorf("livechat web server error: %w", err)
 		}
 		return nil

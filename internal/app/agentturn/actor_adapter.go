@@ -12,6 +12,7 @@ import (
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	"github.com/justwasm/pigasus/internal/features/models"
@@ -857,7 +858,9 @@ func RunActorTurnOnActorWithPermHandler(
 			Provider:     provider,
 			Tools:        actorTools,
 			ShouldRecover: func(err error) bool {
-				return IsTransientNetworkErr(err) || failover.IsMidStreamRecoverable(err)
+				recover := IsTransientNetworkErr(err) || failover.IsMidStreamRecoverable(err)
+				clilog.Logf("agentturn", "should_recover=%v err=%v", recover, err)
+				return recover
 			},
 			MaxRecoveries: autoContMaxNetworkDepth,
 			Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {

@@ -175,3 +175,19 @@ func TestHTTPErrorMessage_VertexModelAccess(t *testing.T) {
 		t.Errorf("unrelated 404 = %q", got)
 	}
 }
+
+func TestIsModelAccessErrAndFormatRetryReason(t *testing.T) {
+	err403 := NewHTTPError(403, []byte(`{"error":{"message":"Permission denied for model"}}`), "https://example.com")
+	if !IsModelAccessErr(err403) {
+		t.Error("expected 403 to be classified as model access error")
+	}
+	errQuota := NewHTTPError(403, []byte(`{"error":{"message":"Weekly quota exhausted"}}`), "https://example.com")
+	if IsModelAccessErr(errQuota) {
+		t.Error("quota 403 must not be classified as model access error")
+	}
+	err503 := NewHTTPError(503, []byte(`{"error":{"message":"MODEL_CAPACITY_EXHAUSTED\nplease retry"}}`), "https://example.com")
+	got := FormatRetryReason(err503)
+	if got != "HTTP 503: MODEL_CAPACITY_EXHAUSTED please retry" {
+		t.Errorf("FormatRetryReason = %q", got)
+	}
+}

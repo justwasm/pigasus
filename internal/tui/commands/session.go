@@ -26,6 +26,8 @@ type SessionHost interface {
 	OpenResumePicker() error
 	// ResumeConversationByID resumes a specific conversation by ID or prefix.
 	ResumeConversationByID(id string) error
+	// ShowLogs opens the live-updating session log viewer panel.
+	ShowLogs(args string) tea.Cmd
 }
 
 // RegisterSessionCommands attaches the session-level commands — clear,
@@ -89,5 +91,12 @@ func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 			h.SlashRespond("/resume", "Failed to list conversations: "+err.Error())
 		}
 		return true, nil
+	})
+
+	d.Register("logs", func(args string) (bool, tea.Cmd) {
+		return true, h.ShowLogs(args)
+	})
+	d.Register("log", func(args string) (bool, tea.Cmd) {
+		return true, h.ShowLogs(args)
 	})
 }

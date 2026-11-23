@@ -95,6 +95,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/helppanel"
 	"github.com/justwasm/pigasus/internal/ui/views/hookspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/hostactions"
+	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/mentionpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionspanel"
@@ -1429,13 +1430,52 @@ func (m *RootModel) viewerVPWidth() int {
 }
 
 func (m *RootModel) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
+	if m.overlays.panel.kind == panelregistry.Logs {
+		if key.Mod == 0 && (key.Code == 'f' || key.Code == 'F' || key.Text == "f" || key.Text == "F") {
+			m.overlays.panel.logsFollow = !m.overlays.panel.logsFollow
+			if m.overlays.panel.logsFollow {
+				m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
+			}
+			m.invalidateViewCache()
+			return true, nil
+		}
+		if key.Mod == 0 && (key.Code == 'r' || key.Code == 'R' || key.Text == "r" || key.Text == "R") {
+			if m.overlays.panel.logsFollow {
+				m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
+			}
+			m.invalidateViewCache()
+			return true, nil
+		}
+	}
+	prevOffset := m.overlays.panel.window
 	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.overlays.panel.window)
 	m.overlays.panel.window = offset
+	if m.overlays.panel.kind == panelregistry.Logs {
+		switch tuilib.ClassifyViewerNavKey(key) {
+		case tuilib.NavUp, tuilib.NavPageUp, tuilib.NavHalfPageUp, tuilib.NavTop:
+			m.overlays.panel.logsFollow = false
+		case tuilib.NavBottom:
+			m.overlays.panel.logsFollow = true
+		case tuilib.NavDown, tuilib.NavPageDown, tuilib.NavHalfPageDown:
+			if offset >= tuiviewer.MaxOffset(m.logsViewerSpec()) {
+				m.overlays.panel.logsFollow = true
+			} else if offset < prevOffset {
+				m.overlays.panel.logsFollow = false
+			}
+		}
+	}
 	return handled, cmd
 }
 
 func (m *RootModel) scrollViewerPanel(delta int) {
 	m.overlays.panel.window = m.viewerPanel().Scroll(delta, m.overlays.panel.window)
+	if m.overlays.panel.kind == panelregistry.Logs {
+		if delta < 0 {
+			m.overlays.panel.logsFollow = false
+		} else if delta > 0 && m.overlays.panel.window >= tuiviewer.MaxOffset(m.logsViewerSpec()) {
+			m.overlays.panel.logsFollow = true
+		}
+	}
 }
 
 // listResumeConversations returns the store's conversations for the /resume picker.
@@ -1733,6 +1773,24 @@ func (m *RootModel) changelogViewerSpec() tuiviewer.Spec {
 		Visible: changelog.VisibleRows(m.viewport.height),
 		Total:   changelog.TotalLines,
 	}
+}
+
+func (m *RootModel) logsState() logspanel.State {
+	return logspanel.LoadState(m.viewport.width, m.viewport.height, m.overlays.panel.logsFollow)
+}
+
+func (m *RootModel) logsViewerSpec() tuiviewer.Spec {
+	return logspanel.Spec(m.logsState())
+}
+
+func (m *RootModel) panelLogsLines() []string {
+	st := m.logsState()
+	spec := logspanel.Spec(st)
+	if m.overlays.panel.logsFollow {
+		m.overlays.panel.window = tuiviewer.MaxOffset(spec)
+	}
+	rows, start, end := m.viewerWindow(spec)
+	return logspanel.PanelLines(st, rows, start, end, spec.Total)
 }
 
 func (m *RootModel) viewerWindow(spec tuiviewer.Spec) (rows []string, start, end int) {
@@ -2734,32 +2792,33 @@ const (
 )
 
 type slashPanel struct {
-	kind   panelregistry.Kind
-	cmd    string
-	cursor int
-	window int
-	ag     *agentspanel.Panel
-	fb     *feedbackpanel.Panel
-	cr     *creditspanel.Panel
-	plg    *pluginsui.Panel
-	rn     *renamepanel.Panel
-	ad     *adddirpanel.Panel
-	vw     *viewerpanel.Panel
-	csp    *codesearchpanel.Panel
-	quota  quotaState
-	prov   *providerpanel.Panel
-	acct   *accountspanel.Panel
-	cfg    *configpanel.Panel
-	mdl    *modelpicker.Panel
-	sk     *skillsui.Panel
-	perm   *permissionspanel.Panel
-	hk     *hookspanel.Panel
-	tp     *taskspanel.Panel
-	ef     *effortpanel.Panel
-	proj   *projectspanel.Panel
-	ctxp   *contextpanel.Panel
-	hist   *historypanel.Panel
-	term   *terminalpanel.Panel
+	kind       panelregistry.Kind
+	cmd        string
+	cursor     int
+	window     int
+	logsFollow bool
+	ag         *agentspanel.Panel
+	fb         *feedbackpanel.Panel
+	cr         *creditspanel.Panel
+	plg        *pluginsui.Panel
+	rn         *renamepanel.Panel
+	ad         *adddirpanel.Panel
+	vw         *viewerpanel.Panel
+	csp        *codesearchpanel.Panel
+	quota      quotaState
+	prov       *providerpanel.Panel
+	acct       *accountspanel.Panel
+	cfg        *configpanel.Panel
+	mdl        *modelpicker.Panel
+	sk         *skillsui.Panel
+	perm       *permissionspanel.Panel
+	hk         *hookspanel.Panel
+	tp         *taskspanel.Panel
+	ef         *effortpanel.Panel
+	proj       *projectspanel.Panel
+	ctxp       *contextpanel.Panel
+	hist       *historypanel.Panel
+	term       *terminalpanel.Panel
 }
 
 type quotaState struct {
@@ -2844,6 +2903,12 @@ func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 		m.overlays.panel.hist = m.newHistoryPanel()
 	case panelregistry.Terminal:
 		m.overlays.panel.term = m.terminalPanel()
+	case panelregistry.Logs:
+		m.overlays.panel.logsFollow = true
+		m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
+		if m.overlays.panel.vw != nil {
+			m.overlays.panel.vw.Sync(m.overlays.panel.window)
+		}
 	}
 }
 
@@ -3335,6 +3400,14 @@ func (m *RootModel) PanelChangelogLines() []string {
 
 func (m *RootModel) ChangelogViewerSpec() tuiviewer.Spec {
 	return m.changelogViewerSpec()
+}
+
+func (m *RootModel) PanelLogsLines() []string {
+	return m.panelLogsLines()
+}
+
+func (m *RootModel) LogsViewerSpec() tuiviewer.Spec {
+	return m.logsViewerSpec()
 }
 
 func (m *RootModel) buildPanelRegistry() *panelregistry.Registry {

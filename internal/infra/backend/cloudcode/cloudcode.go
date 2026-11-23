@@ -42,6 +42,7 @@ import (
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
@@ -172,6 +173,7 @@ func (c *CloudCodeClient) Stream(ctx context.Context, req backend.StreamRequest)
 	}
 	resp, err := c.openWithRetry(streamCtx, turn)
 	if err != nil {
+		clilog.Logf("cloudcode", "stream open failed model=%s endpoint=%s err=%v", model, c.cfg.Endpoint, err)
 		if cancel != nil {
 			cancel()
 		}

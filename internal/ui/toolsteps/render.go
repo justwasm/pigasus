@@ -1,8 +1,11 @@
 package toolsteps
 
 import (
+	"container/list"
 	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -386,15 +389,96 @@ func stepDetailText(s Step) string {
 	return tuitools.StepDetailText(s.Name, s.Detail, s.Kind == KindThought)
 }
 
+const (
+	maxDetailCacheEntries = 512
+	maxDetailCacheBytes   = 32768
+)
+
+type detailCacheKey struct {
+	name   string
+	detail string
+	kind   Kind
+	width  int
+	scheme string
+}
+
+type detailCacheEntry struct {
+	key   detailCacheKey
+	lines []string
+}
+
+type detailRowsLRU struct {
+	mu    sync.Mutex
+	items map[detailCacheKey]*list.Element
+	order *list.List
+}
+
+var globalDetailCache = &detailRowsLRU{
+	items: make(map[detailCacheKey]*list.Element),
+	order: list.New(),
+}
+
+func (c *detailRowsLRU) get(key detailCacheKey) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	el, ok := c.items[key]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(el)
+	return slices.Clone(el.Value.(*detailCacheEntry).lines), true
+}
+
+func (c *detailRowsLRU) put(key detailCacheKey, lines []string) {
+	if len(key.detail) > maxDetailCacheBytes {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.items[key]; ok {
+		c.order.MoveToFront(el)
+		el.Value.(*detailCacheEntry).lines = slices.Clone(lines)
+		return
+	}
+	if c.order.Len() >= maxDetailCacheEntries {
+		if back := c.order.Back(); back != nil {
+			c.order.Remove(back)
+			delete(c.items, back.Value.(*detailCacheEntry).key)
+		}
+	}
+	el := c.order.PushFront(&detailCacheEntry{key: key, lines: slices.Clone(lines)})
+	c.items[key] = el
+}
+
 func stepDetailLines(s Step, width int) []string {
 	if s.Diff != nil {
 		return s.Diff.Lines(width)
 	}
+	if strings.TrimSpace(s.Detail) == "" {
+		return nil
+	}
+	wrapWidth := tuitools.DetailWrapWidth(width)
+	scheme, _ := palette.CurrentScheme()
+	key := detailCacheKey{
+		name:   s.Name,
+		detail: s.Detail,
+		kind:   s.Kind,
+		width:  wrapWidth,
+		scheme: scheme,
+	}
+	if cached, ok := globalDetailCache.get(key); ok {
+		return cached
+	}
+	out := computeStepDetailLines(s, wrapWidth)
+	globalDetailCache.put(key, out)
+	return out
+}
+
+func computeStepDetailLines(s Step, wrapWidth int) []string {
 	detail := strings.TrimRight(tuitools.NormalizeDetailNewlines(stepDetailText(s)), "\n")
 	if strings.TrimSpace(detail) == "" {
 		return nil
 	}
-	wrapWidth := tuitools.DetailWrapWidth(width)
 	diffMode := tuitools.LooksLikeDiff(detail)
 	// Machine output keeps its own bytes: command stdout, grep hits and
 	// directory listings are drawn preformatted, so a Go pointer

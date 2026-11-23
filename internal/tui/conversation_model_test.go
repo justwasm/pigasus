@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,5 +131,12 @@ func TestConversationModel_ModelRetryStatus(t *testing.T) {
 	c.EndStream()
 	if status, ok := c.ModelRetryStatus(); ok || status != "" {
 		t.Errorf("expected EndStream to clear retry status, got %q (ok=%v)", status, ok)
+	}
+
+	// With reason attached, reason and /logs hint are surfaced.
+	c.SetModelRetryWithReason(2, 10, time.Now().Add(8*time.Second), "HTTP 503: MODEL_CAPACITY_EXHAUSTED")
+	status, ok = c.ModelRetryStatus()
+	if !ok || !strings.Contains(status, "HTTP 503: MODEL_CAPACITY_EXHAUSTED") || !strings.Contains(status, "(/logs)") {
+		t.Errorf("expected retry reason and /logs hint, got %q (ok=%v)", status, ok)
 	}
 }

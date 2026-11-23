@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/branding"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	workspacetrust "github.com/justwasm/pigasus/internal/core/policy/trust"
 	"github.com/justwasm/pigasus/internal/core/settings"
@@ -158,6 +160,8 @@ type headerCacheKey struct {
 	model        string
 	tier         string
 	cwd          string
+	remoteAgent  bool
+	colorScheme  string
 	agentWarning string
 	modelWarning string
 	fallbackFrom string
@@ -618,9 +622,15 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	// without going through runRoot, so the browser's policy is read
 	// from the flag set here too.
 	applySessionFlags(fs)
+	if explicitLog := strings.TrimSpace(cliflags.StringValue(fs, "log-file")); explicitLog != "" {
+		clilog.InitWithPath(explicitLog)
+	} else if p := clilog.Init(); p != "" {
+		log.SetOutput(clilog.Writer())
+	}
 	if !isTerminalInteractive(os.Stdin) {
 		return renderTUIWithFlags(w, fs)
 	}
+	clilog.Logf("tui", "interactive session starting")
 	return termguard.Run(func() error {
 		canonicalCwd, shouldExit, err := checkWorkspaceTrustGate(w, fs)
 		if err != nil || shouldExit {

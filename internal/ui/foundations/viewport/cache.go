@@ -26,6 +26,7 @@ type WrapSlot struct {
 
 	ScratchRows   []string
 	ScratchCounts []int
+	ScratchSpans  []WrapSpan
 }
 
 // Rebuild re-wraps resp at width, reusing unchanged entries.
@@ -39,7 +40,12 @@ func (s *WrapSlot) Rebuild(resp []string, width int) bool {
 
 	rows := s.ScratchRows[:0]
 	counts := s.ScratchCounts[:0]
-	spans := make([]WrapSpan, len(resp))
+	spans := s.ScratchSpans
+	if cap(spans) < len(resp) {
+		spans = make([]WrapSpan, len(resp))
+	} else {
+		spans = spans[:len(resp)]
+	}
 
 	pLen := 0
 	sLen := 0
@@ -88,7 +94,7 @@ func (s *WrapSlot) Rebuild(resp []string, width int) bool {
 		}
 	}
 
-	s.ScratchRows, s.ScratchCounts = oldRows, oldCounts
+	s.ScratchRows, s.ScratchCounts, s.ScratchSpans = oldRows, oldCounts, oldSpans
 	s.Rows, s.Counts = rows, counts
 	s.Spans = spans
 	s.Src = append(s.Src[:0], resp...)

@@ -57,6 +57,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/effortpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/hostactions"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
@@ -382,6 +383,15 @@ func (m *RootModel) ResumeConversationByID(target string) error {
 		ID:   id,
 		Path: path,
 	})
+	return nil
+}
+
+// ShowLogs opens the full-viewport, live-updating /logs viewer panel without
+// appending anything to the conversation transcript.
+func (m *RootModel) ShowLogs(args string) tea.Cmd {
+	if m.openSlashPanel("logs") {
+		return logspanel.Tick()
+	}
 	return nil
 }
 

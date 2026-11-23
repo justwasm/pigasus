@@ -38,8 +38,11 @@ type ThinkerCancelHandler interface {
 
 // LiveTurnRecord stores a recent user or model turn for context rehydration across reconnections.
 type LiveTurnRecord struct {
-	Role    string // "User", "Agent", or "User (Text)"
-	Content string
+	Role            string // "User", "Agent", or "User (Text)"
+	Content         string
+	Translation     string `json:"translation,omitempty"`
+	AudioID         string `json:"audio_id,omitempty"`
+	AudioSampleRate int    `json:"audio_sample_rate,omitempty"`
 }
 
 // ReconnectConfig configures automatic reconnection upon network disruptions.

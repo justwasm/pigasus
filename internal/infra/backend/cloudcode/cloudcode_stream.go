@@ -10,6 +10,7 @@ import (
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
@@ -43,11 +44,16 @@ func (c *CloudCodeClient) openWithRetry(ctx context.Context, turn geminicode.Tur
 func (c *CloudCodeClient) open(ctx context.Context, turn geminicode.Turn) (*http.Response, error) {
 	resp, err := c.cc.Open(ctx, turn)
 	if err != nil {
+		clilog.Logf("cloudcode", "open failed model=%s endpoint=%s err=%v", turn.Model, c.cfg.Endpoint, err)
 		if isSandboxFailoverEligible(c.cfg.Endpoint, err) {
 			sandbox := endpoints.Current().CloudCodeSandbox
-			if sResp, sErr := c.cc.OpenAt(ctx, turn, sandbox); sErr == nil {
+			clilog.Logf("cloudcode", "trying sandbox mirror model=%s sandbox=%s", turn.Model, sandbox)
+			sResp, sErr := c.cc.OpenAt(ctx, turn, sandbox)
+			if sErr == nil {
+				clilog.Logf("cloudcode", "sandbox mirror succeeded model=%s sandbox=%s", turn.Model, sandbox)
 				return sResp, nil
 			}
+			clilog.Logf("cloudcode", "sandbox mirror failed model=%s sandbox=%s err=%v", turn.Model, sandbox, sErr)
 		}
 		return nil, toBackendError(err, c.cfg.Endpoint)
 	}

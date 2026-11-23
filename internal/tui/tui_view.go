@@ -96,7 +96,7 @@ func (m *RootModel) isFullViewportPanel() bool {
 	if kind == panelregistry.None {
 		return false
 	}
-	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff || kind == panelregistry.Terminal {
+	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff || kind == panelregistry.Terminal || kind == panelregistry.Logs {
 		return true
 	}
 	if kind == panelregistry.Tasks && m.overlays.panel.tp != nil && m.overlays.panel.tp.Detail() {
@@ -337,7 +337,7 @@ func (m *RootModel) View() tea.View {
 	}
 	transcript = m.selectionPass(transcript)
 	body, cursorY := m.viewBody(transcript)
-	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog {
+	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog && m.overlays.panel.kind != panelregistry.Logs {
 		body = tuilib.FitLines(body, m.viewport.width)
 	}
 	body, cursorY = m.clipViewBody(body, cursorY)
@@ -549,7 +549,7 @@ func (m *RootModel) renderBodyOverlays(b *strings.Builder) {
 }
 
 func (m *RootModel) renderBodyStatusLine(b *strings.Builder) {
-	if m.statusLine.visible != "off" && !(m.overlays.panel.kind == panelregistry.Changelog && m.viewport.height > 0) {
+	if m.statusLine.visible != "off" && !((m.overlays.panel.kind == panelregistry.Changelog || m.overlays.panel.kind == panelregistry.Logs) && m.viewport.height > 0) {
 		if rows := m.askQuestion.panel.AlertRows(); len(rows) > 0 {
 			for _, row := range rows {
 				b.WriteString(row + "\n")
@@ -1033,6 +1033,8 @@ func (m *RootModel) currentHeaderKey(width int) headerCacheKey {
 		model:        m.session.model,
 		tier:         m.session.tier,
 		cwd:          m.session.cwd,
+		remoteAgent:  m.session.remoteAgent,
+		colorScheme:  m.viewport.colorScheme,
 		agentWarning: m.session.agentWarning,
 		modelWarning: m.session.modelWarning,
 		fallbackFrom: m.session.fallbackFrom,
@@ -1042,7 +1044,7 @@ func (m *RootModel) currentHeaderKey(width int) headerCacheKey {
 
 func (m *RootModel) scrollHeaderRows(width int) []string {
 	key := m.currentHeaderKey(width)
-	if m.viewport.cachedHeaderKey == key && len(m.viewport.cachedHeaderRows) > 0 && !m.viewport.rowsCacheDirty {
+	if m.viewport.cachedHeaderKey == key && len(m.viewport.cachedHeaderRows) > 0 {
 		return m.viewport.cachedHeaderRows
 	}
 	var b strings.Builder

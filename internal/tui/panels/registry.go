@@ -21,6 +21,8 @@ type RegistryHost interface {
 	UsageViewerSpec() tuiviewer.Spec
 	PanelChangelogLines() []string
 	ChangelogViewerSpec() tuiviewer.Spec
+	PanelLogsLines() []string
+	LogsViewerSpec() tuiviewer.Spec
 }
 
 // StandardPanel is the common interface implemented by interactive panels.
@@ -291,6 +293,15 @@ var PanelSpecs = []PanelSpec{
 			return panelregistry.FuncHandler{
 				OnLines:      h.PanelChangelogLines,
 				OnViewerSpec: func() (tuiviewer.Spec, bool) { return h.ChangelogViewerSpec(), true },
+			}
+		},
+	},
+	{
+		Kind: panelregistry.Logs,
+		Handler: func(h RegistryHost) panelregistry.Handler {
+			return panelregistry.FuncHandler{
+				OnLines:      h.PanelLogsLines,
+				OnViewerSpec: func() (tuiviewer.Spec, bool) { return h.LogsViewerSpec(), true },
 			}
 		},
 	},

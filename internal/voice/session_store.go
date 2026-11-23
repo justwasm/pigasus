@@ -20,6 +20,7 @@ import (
 var (
 	sessionDirOverride string
 	sessionDirMu       sync.RWMutex
+	sessionFileMu      sync.Mutex
 )
 
 // SetLiveSessionDirOverride sets a temporary directory override for session storage (useful in tests).
@@ -114,8 +115,11 @@ func SaveLiveSession(data *LiveSessionData) error {
 	if data == nil {
 		return errors.New("cannot save nil session data")
 	}
-	if data.ID == "" {
+	data.ID = strings.TrimSpace(data.ID)
+	if data.ID == "" || data.ID == "." || data.ID == ".." {
 		data.ID = GenerateLiveSessionID()
+	} else {
+		data.ID = filepath.Base(data.ID)
 	}
 	if data.CreatedAt.IsZero() {
 		data.CreatedAt = time.Now()
@@ -130,22 +134,39 @@ func SaveLiveSession(data *LiveSessionData) error {
 		return fmt.Errorf("failed to create session directory %s: %w", dir, err)
 	}
 
-	targetPath := filepath.Join(dir, data.ID+".json")
-	tmpPath := targetPath + ".tmp"
-
 	raw, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session json: %w", err)
 	}
 
-	if err := os.WriteFile(tmpPath, raw, 0644); err != nil {
+	sessionFileMu.Lock()
+	defer sessionFileMu.Unlock()
+
+	targetPath := filepath.Join(dir, data.ID+".json")
+	tmpFile, err := os.CreateTemp(dir, data.ID+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp session file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	cleanupTmp := true
+	defer func() {
+		if cleanupTmp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmpFile.Write(raw); err != nil {
+		_ = tmpFile.Close()
 		return fmt.Errorf("failed to write session file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp session file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, targetPath); err != nil {
-		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to commit session file: %w", err)
 	}
+	cleanupTmp = false
 	return nil
 }
 

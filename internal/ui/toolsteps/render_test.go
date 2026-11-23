@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -1206,4 +1207,22 @@ func TestRenderBlock_CollapseExpandHintWrapping(t *testing.T) {
 			t.Errorf("expected last line to contain hint, got: %q", lastLine)
 		}
 	})
+}
+
+func TestStepDetailLines_ZeroWidthRespectsCurrentWidth(t *testing.T) {
+	prev := mdrender.CurrentWidth()
+	t.Cleanup(func() { mdrender.SetCurrentWidth(prev) })
+
+	step := Step{
+		Kind:   KindTool,
+		Name:   "run_command",
+		Detail: strings.Repeat("word ", 20),
+	}
+	mdrender.SetCurrentWidth(40)
+	narrow := stepDetailLines(step, 0)
+	mdrender.SetCurrentWidth(120)
+	wide := stepDetailLines(step, 0)
+	if len(narrow) <= len(wide) {
+		t.Fatalf("expected width=0 cache to track mdrender.CurrentWidth: narrow=%d lines, wide=%d lines", len(narrow), len(wide))
+	}
 }

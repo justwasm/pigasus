@@ -63,6 +63,7 @@ import (
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
@@ -328,6 +329,7 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 					delay = retry.MaxConnectionRetryInterval
 				}
 			}
+			clilog.Logf("gemini", "endpoint=%s attempt=%d/%d retry_in=%s reason=%s", c.baseURL, attempt+1, maxAttempts, delay.Round(time.Millisecond), apierror.FormatRetryReason(lastErr))
 			if notify != nil {
 				notify(backend.RetryProgress{
 					Attempt:     attempt + 1,
@@ -349,7 +351,7 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 					Attempt:     attempt + 1,
 					MaxAttempts: maxAttempts,
 					RetryAt:     time.Time{},
-					Err:         nil,
+					Err:         lastErr,
 				})
 			}
 		}
@@ -361,11 +363,13 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 			return nil
 		}
 		if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) || (!retry.IsConnectionDropped(err) && !apierror.IsRetryableStatusErr(err)) {
+			clilog.Logf("gemini", "endpoint=%s attempt=%d/%d abort err=%v", c.baseURL, attempt+1, maxAttempts, err)
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
 			return err
 		}
+		clilog.Logf("gemini", "endpoint=%s attempt=%d/%d failed (retryable) err=%v", c.baseURL, attempt+1, maxAttempts, err)
 		lastErr = err
 	}
 	if notify != nil {
@@ -374,6 +378,7 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 	if lastErr == nil {
 		lastErr = &retry.ConnectionDroppedError{URL: c.baseURL, Err: fmt.Errorf("max retries exceeded")}
 	}
+	clilog.Logf("gemini", "endpoint=%s exhausted attempts=%d err=%v", c.baseURL, maxAttempts, lastErr)
 	return lastErr
 }
 

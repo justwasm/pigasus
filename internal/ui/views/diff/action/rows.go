@@ -99,9 +99,7 @@ func (s *RowStyler) Style(line string) string {
 	}
 	styled := text
 	if s.langFile != "" {
-		if tokens := diffsyntax.TokenizeLine(s.langFile, " "+text); len(tokens) > 1 {
-			styled = diffsyntax.RenderInlineTokenStream(tokens[1:])
-		}
+		styled = diffsyntax.HighlightCodeLine(s.langFile, text)
 	}
 	return diffrow.RenderStyled(s.layout, s.style, kind, num, text, styled)
 }

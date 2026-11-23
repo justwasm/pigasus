@@ -46,6 +46,9 @@ var commandPanels = map[string]Kind{
 	"pool": Accounts,
 	// /terminal opens the interactive virtual terminal panel.
 	"terminal": Terminal,
+	// /logs opens the live-updating session log viewer panel.
+	"logs": Logs,
+	"log":  Logs,
 }
 
 // CommandPanel returns the panel a slash command opens.

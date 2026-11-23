@@ -13,6 +13,7 @@ import (
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/clilog"
 	"github.com/justwasm/pigasus/internal/features/auth/eligibility"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
@@ -443,6 +444,7 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 // model until it is verified, and the verification URL is what the user
 // needs. Every other failure is the turn's error text.
 func emitError(err error, emit func(agentlink.Frame) bool) {
+	clilog.Logf("agentturn", "turn error: %v", err)
 	if ee := eligibility.AsError(err); ee != nil {
 		emit(agentlink.Frame{Kind: agentlink.KindNotice, Notice: &agentlink.Notice{
 			Kind: agentlink.NoticeEligibility,

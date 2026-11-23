@@ -406,7 +406,7 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			if msg.retryAtUnixMS > 0 {
 				retryAt = time.UnixMilli(msg.retryAtUnixMS)
 			}
-			m.conversation.SetModelRetry(msg.attempt, msg.maxAttempts, retryAt)
+			m.conversation.SetModelRetryWithReason(msg.attempt, msg.maxAttempts, retryAt, msg.reason)
 		}
 		m.viewport.rowsCacheDirty = true
 		m.invalidateViewCache()
