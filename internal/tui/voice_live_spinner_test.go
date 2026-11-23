@@ -450,13 +450,15 @@ func TestVoiceLive_ProgramSpinnerContinuousAnimation(t *testing.T) {
 	m.audio.Surface.Start("/voice live")
 	m.audio.Surface.HandleConnectDone(voiceviews.ConnectDoneMsg{})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	prog := tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(strings.NewReader("")), tea.WithContext(ctx))
 	m.turn.prog = prog
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_, _ = prog.Run()
 	}()
 
@@ -523,7 +525,9 @@ func TestVoiceLive_ProgramSpinnerContinuousAnimation(t *testing.T) {
 
 	// Turn finishes
 	prog.Send(voiceAgentDoneMsg{text: "I found the results in the codebase"})
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
+	prog.Quit()
+	<-done
 
 	if m.conversation.streaming {
 		t.Fatalf("expected streaming=false after voiceAgentDoneMsg, got true")

@@ -3065,10 +3065,6 @@ func (m *RootModel) terminalPanel() *terminalpanel.Panel {
 	return m.overlays.panel.term
 }
 
-func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
-	return m.newTerminalPanelForSession(m.remote.terminalID)
-}
-
 func (m *RootModel) newTerminalPanelForSession(sessionID string) *terminalpanel.Panel {
 	rows, cols := m.terminalInnerDimensions()
 	resolveID := func() string {
