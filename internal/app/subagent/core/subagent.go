@@ -18,6 +18,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/infra/daemon"
+	"github.com/justwasm/pigasus/procgroup"
 )
 
 // AGY 1.3.1 changelog line:
@@ -212,9 +213,7 @@ func (s *Subagent) Wait(ctx context.Context) error {
 		s.setState("done")
 		return nil
 	case <-ctx.Done():
-		if s.Cmd.Process != nil {
-			s.Cmd.Process.Kill()
-		}
+		_ = procgroup.Kill(s.Cmd)
 		s.setState("killed")
 		return ctx.Err()
 	}
@@ -228,10 +227,10 @@ func (s *Subagent) Kill() error {
 	if s.Cmd == nil || s.Cmd.Process == nil {
 		return nil
 	}
-	if err := s.Cmd.Process.Kill(); err != nil {
-		return err
-	}
-	return nil
+	// Kill the process group, not just the leader: the subagent may
+	// have spawned children of its own, and the reference's kill
+	// takes the descendants with it (see kill.go).
+	return procgroup.Kill(s.Cmd)
 }
 
 // Stop terminates the running process and moves the Subagent to "stopped" state,
@@ -241,7 +240,7 @@ func (s *Subagent) Stop() error {
 	if s.Cmd == nil || s.Cmd.Process == nil {
 		return nil
 	}
-	return s.Cmd.Process.Kill()
+	return procgroup.Kill(s.Cmd)
 }
 
 // Resume restarts a stopped Subagent with its original command arguments.
@@ -256,6 +255,9 @@ func (s *Subagent) Resume() error {
 			args = nil
 		}
 		newCmd := exec.Command(path, args...)
+		// Resume replaces the command outright, so the fresh one needs
+		// the same process-group isolation the constructor gives it.
+		procgroup.Set(newCmd)
 		inR, inW, _ := os.Pipe()
 		if inR != nil {
 			newCmd.Stdin = inR
@@ -460,6 +462,9 @@ var counter uint64
 func NewSubagent(name string, args ...string) *Subagent {
 	counter++
 	cmd := exec.Command(name, args...)
+	// Isolate the child before Start so daemon shutdown and explicit
+	// cancellation can signal its descendants without hitting the parent.
+	procgroup.Set(cmd)
 	inR, inW, err := os.Pipe()
 	if err != nil {
 		inR, inW = nil, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/justwasm/pigasus/browsercdp"
 	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/artifacts"
 	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
@@ -182,9 +183,10 @@ func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if mod, cmd, handled := m.updateLogin(msg); handled {
 		return mod, cmd
 	}
-	if !tuiviewport.IsScrollMsg(msg) {
-		if !preservesTranscriptRows(msg) {
-			m.viewport.rowsCacheDirty = true
+	if !tuiviewport.IsScrollMsg(msg) && !isTasksRefreshMsg(msg) {
+		if m.composerOnlyMsg(msg) {
+			m.invalidateFrameLayout()
+		} else if !preservesTranscriptRows(msg) {
 			m.invalidateViewCache()
 		} else if !m.isIdleMouseMotion(msg) {
 			m.viewport.viewCacheValid = false
@@ -212,11 +214,11 @@ func (m *RootModel) currentVerbosity() toolsteps.Verbosity {
 	if m == nil {
 		return toolsteps.VerbosityMedium
 	}
-	if m.IsKnowledgeWork() && m.display.verbosity == "" && settings.String("verbosity") == "" {
+	if m.IsKnowledgeWork() && m.display.verbosity == "" && settings.CachedSnapshot().String("verbosity") == "" {
 		return toolsteps.VerbosityLow
 	}
 	if m.display.verbosity == "" {
-		v := settings.String("verbosity")
+		v := settings.CachedSnapshot().String("verbosity")
 		if v == "" {
 			return toolsteps.VerbosityMedium
 		}
@@ -537,8 +539,12 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 	sessionPolicy := printmode.PrintModePolicy(fs)
 	sessionSandbox := printmode.PrintModeSandbox(fs, workspace, m.session.conversationID)
 	m.tools.sandbox = sessionSandbox
+	// The conversation's artifact directory is its own write root, and the
+	// write tools record a sidecar for artifacts. See artifacts.InstallWriteRoot.
+	artifacts.InstallWriteRoot(m.session.conversationID)
 	decls := toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, sessionSandbox.Enabled)
 	decls = m.registerTerminalTool(catalog, decls)
+	decls = m.registerUpdateStepsTool(catalog, decls)
 	m.enableTools(decls, &permissionRunner{
 		inner:   &toolrunner.RegistryRunner{Reg: catalog},
 		policy:  &sessionPolicy,
@@ -611,6 +617,11 @@ func RunLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	// their default value. The error is advisory — a settings file that
 	// cannot be normalised must not keep the CLI from starting.
 	_ = settings.NormalizeOnStartup()
+	sc := settings.String("colorScheme")
+	if sc == "" {
+		sc = "terminal"
+	}
+	palette.SetScheme(sc)
 	_ = cli.RunPluginCleanupOnStartup(confhome.Antigravity())
 	_, _ = builtinskills.Install(confhome.Antigravity())
 	_, _ = pigasusskills.Install(configdir.Dir())
@@ -668,7 +679,7 @@ func setupTUIRemoteControl(m *RootModel, fs *flag.FlagSet) {
 	}
 	m.session.remoteControlDesktop = cliflags.BoolValue(fs, "desktop")
 	if cliflags.BoolValue(fs, "remote-control") {
-		convID := cliflags.StringValue(fs, "conversation")
+		convID := cliflags.ResolveStringAlias(fs, "conversation", "resume", "r")
 		if convID == "" && cliflags.ResolveBoolAlias(fs, "continue", "c") {
 			sel := resolveConversationSelection(fs, io.Discard)
 			convID = sel.ID
@@ -704,6 +715,15 @@ func runTUIProgram(m *RootModel, fs *flag.FlagSet, altScreen bool, canonicalCwd 
 	// nothing of that size to give back.
 	cancelMemTrim := memtrim.After(memtrim.Delay)
 	defer cancelMemTrim()
+	// Composer saves run here, off the Update goroutine: the interactive
+	// session is the only place the write is on the user's keystroke path.
+	// Flushing on the way out keeps quitting durable.
+	m.session.writer = newSessionWriter()
+	defer func() {
+		if w := m.session.writer; w != nil {
+			w.Close()
+		}
+	}()
 	if m.display.perf != nil && m.display.perf.Enabled() {
 		stopPerfSig := m.display.perf.DumpOnSignal(context.Background(), filepath.Join(confhome.Antigravity(), "perf"))
 		defer stopPerfSig()

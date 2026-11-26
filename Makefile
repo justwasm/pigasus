@@ -1,5 +1,5 @@
-.PHONY: build test quick arch align wirealign race canary parity-fuzz verify help \
-        fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
+.PHONY: build test quick arch align wirealign race canary parity-fuzz hygiene scenarios verify help \
+        fetch-upstream fetch-changelog extract-agy extract-ls extract-localharness extract-all check-reproducibility \
         drift-check sync-official-docs sync-docs official-docs
 
 BIN_DIR ?= ./bin
@@ -43,12 +43,21 @@ canary:
 parity-fuzz:
 	python3 scripts/re/parity_fuzz.py
 
+hygiene:
+	./scripts/verify.sh hygiene
+
+scenarios:
+	./scripts/verify.sh scenarios
+
 verify:
 	./scripts/verify.sh all
 
 # Reverse-engineering extraction SOP targets
 fetch-upstream:
 	python3 scripts/re/fetch_binaries.py --target all
+
+fetch-changelog:
+	python3 scripts/re/fetch_changelog.py
 
 extract-agy:
 	python3 scripts/re/extract_agy.py
@@ -84,11 +93,14 @@ help:
 	@echo "  make align                - Run tuialign scenarios (skips the live half without agy/tmux)"
 	@echo "  make wirealign            - Run wirealign protocol test suite"
 	@echo "  make race                 - Run Go race detector on goroutine-owning packages"
+	@echo "  make hygiene              - Run repo-wide go vet, oversized file check, and AST hygiene analyzer"
+	@echo "  make scenarios            - Run isolated module and Storybook interaction scenarios"
 	@echo "  make verify               - Full verification suite via scripts/verify.sh"
 	@echo "  make sync-official-docs   - Crawl and sync latest official markdown docs from gweb-jetski"
 	@echo ""
 	@echo "Reverse-engineering extraction SOP targets:"
 	@echo "  make fetch-upstream       - Fetch reference binaries from official distribution endpoints"
+	@echo "  make fetch-changelog      - Fetch latest upstream CHANGELOG section into internal/cli/testdata/"
 	@echo "  make extract-agy          - Extract seeds, embed-fs, web assets & protos from agy CLI"
 	@echo "  make extract-ls           - Extract seeds, embed-fs, protoset & JS from Antigravity.app"
 	@echo "  make extract-localharness - Extract seeds & protos from google-antigravity wheel"

@@ -212,20 +212,29 @@ func Assess(commandLine string) Assessment {
 // EvaluateForAutoMode combines AST assessment and `gh` multicall classification
 // to decide whether a command can be auto-allowed in Auto mode.
 //
-// Returns:
-//   - allow=true, ask=false for SafeReadOnly commands
-//   - allow=false, ask=true for NeedsReview / NeedsExactMatch commands
-//   - allow=false, ask=false for Dangerous commands
+// In Auto mode:
+//   - Safe and routine development commands (build, test, formatting, git commits/branches,
+//     file modifications and redirects inside the workspace) run without asking (allow=true, ask=false).
+//   - Dangerous commands (destructive filesystem operations like `rm -rf /`, `mkfs`, or privilege
+//     escalation like `sudo`) are denied outright (allow=false, ask=false).
+//   - Remote mutating operations (e.g. `gh pr merge`, `gh pr checkout`) and unparseable shell syntax
+//     prompt for approval (allow=false, ask=true).
 func EvaluateForAutoMode(commandLine string) (allow bool, ask bool, reason string) {
 	a := Assess(commandLine)
-	switch a.Verdict {
-	case SafeReadOnly:
-		return true, false, a.Reason
-	case Dangerous:
+	if a.Verdict == Dangerous {
 		return false, false, a.Reason
-	default:
+	}
+	if a.ParseError != nil || a.Verdict == NeedsExactMatch {
 		return false, true, a.Reason
 	}
+	// Check for non-read-only `gh` multicalls that mutate remote repositories
+	for _, gh := range a.GHAssessments {
+		if gh.Action != GHReadOnly {
+			return false, true, gh.Reason
+		}
+	}
+	// Routine development commands proceed without prompting in Auto mode.
+	return true, false, ""
 }
 
 func isUnsafeOutputRedirect(r *syntax.Redirect) bool {

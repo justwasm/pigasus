@@ -16,28 +16,21 @@ func TestPermissionPrompt_RenderApprovalBox(t *testing.T) {
 	m := New(req, WithWidth(62))
 	plain := m.RenderPlain(62)
 
-	// Check required banner elements from specification
+	// Check required elements matching ToolConfirmationModel
 	expectedSubstrings := []string{
-		"┌─ Permission Required ──────────────────────────────────────┐",
-		"│ Tool: run_command                                          │",
-		"│ Command: rm -rf dist                                       │",
-		"│ [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback │",
-		"└────────────────────────────────────────────────────────────┘",
+		"Command",
+		"──────────────────────────────────────────────────────────────",
+		"Requesting permission for:",
+		"rm -rf dist",
+		"Run this command?",
+		"> 1. Yes, run command",
+		"4. No, cancel",
+		"↑/↓ Navigate · tab Amend · ctrl+g edit/expand command",
 	}
 
 	for _, sub := range expectedSubstrings {
 		if !strings.Contains(plain, sub) {
 			t.Errorf("expected rendered box to contain %q, but got:\n%s", sub, plain)
-		}
-	}
-
-	// Verify consistent width across all lines
-	lines := m.RenderPlainLines(62)
-	for i, l := range lines {
-		// Each line should have length 62 (measured in runes/characters)
-		runes := []rune(l)
-		if len(runes) != 62 {
-			t.Errorf("line %d: length in runes = %d, want 62 (line: %q)", i, len(runes), l)
 		}
 	}
 }
@@ -222,16 +215,22 @@ func TestPermissionPrompt_ArrowNavigationAndEnter(t *testing.T) {
 		t.Fatalf("initial option = %v, want OptionApproveOnce", m.SelectedOption())
 	}
 
-	// Move right -> OptionAlwaysAllow
-	m.HandleKey(tea.Key{Code: tea.KeyRight})
+	// Move down -> OptionAlwaysAllow (in this conversation)
+	m.HandleKey(tea.Key{Code: tea.KeyDown})
 	if m.SelectedOption() != OptionAlwaysAllow {
-		t.Errorf("after Right: selected = %v, want OptionAlwaysAllow", m.SelectedOption())
+		t.Errorf("after Down 1: selected = %v, want OptionAlwaysAllow", m.SelectedOption())
 	}
 
-	// Move right -> OptionDeny
-	m.HandleKey(tea.Key{Code: tea.KeyRight})
+	// Move down to persist option
+	m.HandleKey(tea.Key{Code: tea.KeyDown})
+	if m.SelectedOption() != OptionAlwaysAllow {
+		t.Errorf("after Down 2: selected = %v, want OptionAlwaysAllow", m.SelectedOption())
+	}
+
+	// Move down to cancel / deny
+	m.HandleKey(tea.Key{Code: tea.KeyDown})
 	if m.SelectedOption() != OptionDeny {
-		t.Errorf("after Right: selected = %v, want OptionDeny", m.SelectedOption())
+		t.Errorf("after Down 3: selected = %v, want OptionDeny", m.SelectedOption())
 	}
 
 	// Press Enter on Deny
@@ -279,11 +278,11 @@ func TestPermissionPrompt_FileEditAndCreate(t *testing.T) {
 	if !strings.Contains(plainEdit, "Accept this file edit?") {
 		t.Errorf("expected prompt to contain 'Accept this file edit?', got:\n%s", plainEdit)
 	}
-	if !strings.Contains(plainEdit, "[1] Yes, accept this change") {
-		t.Errorf("expected option '[1] Yes, accept this change', got:\n%s", plainEdit)
+	if !strings.Contains(plainEdit, "1. Yes, accept this change") {
+		t.Errorf("expected option '1. Yes, accept this change', got:\n%s", plainEdit)
 	}
-	if !strings.Contains(plainEdit, "[2] No, reject this change") {
-		t.Errorf("expected option '[2] No, reject this change', got:\n%s", plainEdit)
+	if !strings.Contains(plainEdit, "2. No, reject this change") {
+		t.Errorf("expected option '2. No, reject this change', got:\n%s", plainEdit)
 	}
 
 	// Esc does not dismiss a file edit
@@ -315,7 +314,7 @@ func TestPermissionPrompt_FileEditAndCreate(t *testing.T) {
 	if !strings.Contains(plainCreate, "Reason: outside workspace") {
 		t.Errorf("expected 'Reason: outside workspace', got:\n%s", plainCreate)
 	}
-	if !strings.Contains(plainCreate, "[a] Yes, and always allow non-workspace access") {
+	if !strings.Contains(plainCreate, "Yes, and always allow non-workspace access") {
 		t.Errorf("expected non-workspace option, got:\n%s", plainCreate)
 	}
 
@@ -356,8 +355,11 @@ func TestPermissionPrompt_StyledRender(t *testing.T) {
 	}
 
 	rendered := m.Render(70)
-	if !strings.Contains(rendered, "run_command") {
-		t.Errorf("expected rendered text to contain tool name")
+	if !strings.Contains(rendered, "git commit") {
+		t.Errorf("expected rendered text to contain command")
+	}
+	if !strings.Contains(rendered, "Run this command?") {
+		t.Errorf("expected rendered text to contain question")
 	}
 }
 
@@ -370,7 +372,7 @@ func TestPermissionPrompt_ArgsMapFallback(t *testing.T) {
 	}
 	m := New(req)
 	plain := m.RenderPlain(62)
-	if !strings.Contains(plain, "Command: ls -la /tmp") {
+	if !strings.Contains(plain, "ls -la /tmp") {
 		t.Errorf("expected CommandLine from Args map to be rendered as Command, got:\n%s", plain)
 	}
 }
@@ -390,5 +392,69 @@ func TestPermissionPrompt_ReopenModel(t *testing.T) {
 	plain := m.RenderPlain(62)
 	if !strings.Contains(plain, "Tool: write_file") || !strings.Contains(plain, "Path: /tmp/foo.txt") {
 		t.Errorf("reopened view did not reflect new request:\n%s", plain)
+	}
+}
+
+func TestPermissionPrompt_AmendMode(t *testing.T) {
+	m := New(Request{Tool: "run_command", Command: "make build"})
+
+	// Tab enters amend mode
+	_, handled := m.HandleKey(tea.Key{Code: tea.KeyTab})
+	if !handled || !m.IsAmendMode() {
+		t.Fatalf("expected Tab to enter amend mode")
+	}
+	if m.AmendText() != "make build" {
+		t.Fatalf("amendText = %q, want 'make build'", m.AmendText())
+	}
+
+	// Render in amend mode shows amend prompt
+	plain := m.RenderPlain(70)
+	if !strings.Contains(plain, "Amend command (Esc to cancel, Enter to submit):") {
+		t.Errorf("expected amend prompt header, got:\n%s", plain)
+	}
+
+	// Type extra args
+	for _, ch := range " -j4" {
+		m.HandleKey(tea.Key{Code: ch, Text: string(ch)})
+	}
+	if m.AmendText() != "make build -j4" {
+		t.Errorf("amendText = %q, want 'make build -j4'", m.AmendText())
+	}
+
+	// Press Enter to submit amended command
+	res, handled := m.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || res.Decision != DecisionApproveOnce {
+		t.Fatalf("expected Enter to approve once, got %v", res.Decision)
+	}
+	if res.AmendedCommand != "make build -j4" {
+		t.Errorf("res.AmendedCommand = %q, want 'make build -j4'", res.AmendedCommand)
+	}
+}
+
+func TestPermissionPrompt_CtrlG_And_FullDiff(t *testing.T) {
+	mCmd := New(Request{Tool: "run_command", Command: "echo hello"})
+	if mCmd.IsExpandedView() {
+		t.Fatalf("expected initially not expanded")
+	}
+
+	// Ctrl+G toggles expanded view
+	mCmd.HandleKey(tea.Key{Code: 'g', Mod: tea.ModCtrl})
+	if !mCmd.IsExpandedView() {
+		t.Errorf("expected Ctrl+G to expand command view")
+	}
+	mCmd.HandleKey(tea.Key{Code: 'g', Mod: tea.ModCtrl})
+	if mCmd.IsExpandedView() {
+		t.Errorf("expected Ctrl+G again to collapse command view")
+	}
+
+	// 'f' toggles full diff on file edit
+	mEdit := New(Request{Kind: KindFileEdit, Path: "file.go"})
+	mEdit.HandleKey(tea.Key{Code: 'f', Text: "f"})
+	if !mEdit.IsExpandedView() {
+		t.Errorf("expected 'f' to toggle full diff on file edit")
+	}
+	mEdit.HandleKey(tea.Key{Code: 'f', Text: "f"})
+	if mEdit.IsExpandedView() {
+		t.Errorf("expected 'f' again to collapse full diff")
 	}
 }

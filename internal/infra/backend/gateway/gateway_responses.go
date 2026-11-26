@@ -303,7 +303,11 @@ type responsesSSEItem struct {
 }
 
 type responsesSSEResponse struct {
-	ID    string           `json:"id,omitempty"`
+	ID                string `json:"id,omitempty"`
+	Status            string `json:"status,omitempty"`
+	IncompleteDetails *struct {
+		Reason string `json:"reason,omitempty"`
+	} `json:"incomplete_details,omitempty"`
 	Error *sseErrorPayload `json:"error,omitempty"`
 	Usage *struct {
 		InputTokens  int `json:"input_tokens"`
@@ -321,7 +325,7 @@ func (c *GatewayClient) readResponsesBody(ctx context.Context, resp *http.Respon
 	})
 	if scanErr != nil {
 		if !retry.IsConnectionDropped(scanErr) {
-			out <- backend.StreamChunk{Error: scanErr, Done: true}
+			out <- backend.StreamChunk{Error: scanErr, Done: true, Meta: meta}
 		}
 		return scanErr
 	}
@@ -429,13 +433,20 @@ func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string,
 				tracker.setArgs(id, ev.Item.Arguments)
 			}
 		}
-	case "response.completed", "response.done":
+	case "response.incomplete", "response.completed", "response.done":
 		if ev.Response != nil && ev.Response.Usage != nil {
 			*meta = &backend.ChunkMeta{
 				PromptTokens:     ev.Response.Usage.InputTokens,
 				CompletionTokens: ev.Response.Usage.OutputTokens,
 				TotalTokens:      ev.Response.Usage.TotalTokens,
 			}
+		}
+		if ev.Type == "response.incomplete" || (ev.Response != nil && ev.Response.Status == "incomplete") {
+			reason := "incomplete"
+			if ev.Response != nil && ev.Response.IncompleteDetails != nil && ev.Response.IncompleteDetails.Reason != "" {
+				reason = ev.Response.IncompleteDetails.Reason
+			}
+			return true, gatewayTerminationError(GatewayProtocolResponses, reason)
 		}
 		if !tracker.emit(ctx, out) {
 			return true, nil

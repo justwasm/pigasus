@@ -323,8 +323,10 @@ func standardFlagsTail() []FlagSpec {
 		{Name: "project", Type: "string", Usage: "Project ID or project name for the current CLI session"},
 		{Name: "prompt", Type: "string", Usage: "Alias for --print"},
 		{Name: "prompt-interactive", Type: "string", Usage: "Run an initial prompt interactively and continue the session"},
+		{Name: "r", Type: "string", Usage: "Short alias for --conversation"},
 		{Name: "remote-agent", Type: "bool", Usage: "Run this session's conversations using remote agents; --project then names a remote project by ID or name, otherwise they open in this machine's default remote project"},
 		{Name: "remote-control", Type: "bool", Usage: "Create a remote connection for the CLI session on start up"},
+		{Name: "resume", Type: "string", Usage: "Alias for --conversation"},
 		{Name: "sandbox", Type: "bool", Usage: "Run in a sandbox with terminal restrictions enabled"},
 		{Name: "settings", Type: "string", Usage: "Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path"},
 		// Hidden: the reference's local-Chrome CDP control, the last of
@@ -734,6 +736,10 @@ func MicServeSubcommand() SubcommandSpec {
 
 func LiveChatSubcommand() SubcommandSpec {
 	return cliflags.LiveChatSubcommand()
+}
+
+func TerminalSubcommand() SubcommandSpec {
+	return cliflags.TerminalSubcommand()
 }
 
 func RCSubcommands() []SubcommandSpec {

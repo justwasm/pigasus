@@ -388,3 +388,47 @@ func ConfigureWorkflow(reg *tools.Registry, fn func(*workflow.RunWorkflow)) {
 		fn(wf)
 	}
 }
+
+func unwrapTool(t tools.Tool) tools.Tool {
+	for t != nil {
+		switch w := t.(type) {
+		case *describedTool:
+			t = w.Tool
+		case *aliasTool:
+			t = w.inner
+		default:
+			if u, ok := t.(interface{ Unwrap() tools.Tool }); ok {
+				t = u.Unwrap()
+				continue
+			}
+			return t
+		}
+	}
+	return nil
+}
+
+// ConfigureConversation binds conversation-scoped tools (run_command, schedule,
+// run_workflow) in reg to convID.
+func ConfigureConversation(reg *tools.Registry, convID string) {
+	if reg == nil || convID == "" {
+		return
+	}
+	if t, ok := reg.Get("run_command"); ok {
+		if rc, ok := unwrapTool(t).(*shell.RunCommand); ok {
+			rc.ConversationID = convID
+		}
+	}
+	if t, ok := reg.Get("schedule"); ok {
+		if st, ok := unwrapTool(t).(*tasks.ScheduleTool); ok {
+			st.ConversationID = convID
+		}
+	}
+	if t, ok := reg.Get("generate_image"); ok {
+		if gi, ok := unwrapTool(t).(*web.GenerateImage); ok {
+			gi.ConversationID = convID
+		}
+	}
+	ConfigureWorkflow(reg, func(wf *workflow.RunWorkflow) {
+		wf.ConversationID = convID
+	})
+}

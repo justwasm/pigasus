@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "source_revision": "7d289e12",
+  "packages": {
+    "internal/tui": {
+      "max_loc": 25619,
+      "max_files": 85,
+      "report_only": true,
+      "receivers": {
+        "RootModel": 804
+      }
+    },
+    "internal/remotecontrol": {
+      "max_loc": 21605,
+      "max_files": 78,
+      "report_only": true,
+      "receivers": {
+        "Dispatcher": 247
+      }
+    },
+    "internal/cli": {
+      "max_loc": 9544,
+      "max_files": 14,
+      "report_only": true
+    },
+    "internal/infra/agyproxy": {
+      "max_loc": 7513,
+      "max_files": 21,
+      "report_only": true
+    },
+    "internal/infra/agyproxy/codec": {
+      "max_loc": 1200,
+      "max_files": 8
+    },
+    "internal/ui/slashcomplete": {
+      "max_loc": 300,
+      "max_files": 4
+    },
+    "internal/ui/voicebridge": {
+      "max_loc": 1200,
+      "max_files": 8
+    },
+    "internal/ui/vimbridge": {
+      "max_loc": 1200,
+      "max_files": 8
+    },
+    "internal/ui/pastemedia": {
+      "max_loc": 600,
+      "max_files": 6
+    },
+    "internal/ui/editor/selection": {
+      "max_loc": 900,
+      "max_files": 8
+    },
+    "internal/remotecontrol/files": {
+      "max_loc": 2600,
+      "max_files": 14
+    },
+    "internal/features/plugins/validate": {
+      "max_loc": 2600,
+      "max_files": 12
+    }
+  }
+}

@@ -89,8 +89,10 @@ func TestParseAllFlags(t *testing.T) {
 		"project":                "string",
 		"prompt":                 "string", // cycle 101: string alias for --print
 		"prompt-interactive":     "string",
+		"r":                      "string", // 1.5.16: short alias for --conversation
 		"remote-agent":           "bool",
 		"remote-control":         "bool",
+		"resume":                 "string", // 1.5.16: alias for --conversation
 		"sandbox":                "bool",
 		"settings":               "string",
 		"use_local_chrome":       "bool",
@@ -132,7 +134,7 @@ func TestParseAllFlags(t *testing.T) {
 // add four more.
 func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 	p := NewParser(StandardFlags(), nil, "test", "test", "test")
-	if got, want := len(p.Root().Flags), 34; got != want {
+	if got, want := len(p.Root().Flags), 36; got != want {
 		t.Fatalf("JetskiCLI has %d flag descriptors, want %d (v1.3.5 --help count + hidden)", got, want)
 	}
 }
@@ -175,8 +177,10 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 		"project",
 		"prompt",
 		"prompt-interactive",
+		"r",
 		"remote-agent",
 		"remote-control",
+		"resume",
 		"sandbox",
 		"settings",
 	}

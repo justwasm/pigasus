@@ -135,6 +135,8 @@ type TurnConfig struct {
 type TurnRequest struct {
 	TurnConfig
 	Prompt string
+	// Images are captured with the prompt when the turn is submitted.
+	Images []ImagePart
 }
 
 // CheckpointProbe is the state the actor reports at a step boundary.

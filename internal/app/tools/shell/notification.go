@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -108,6 +109,7 @@ type TaskNotification struct {
 var (
 	taskNotifierMu sync.RWMutex
 	taskNotifier   func(TaskNotification)
+	convNotifiers  = map[string]func(TaskNotification){}
 )
 
 // SetTaskNotifier installs the hook the runtime uses to deliver task
@@ -125,6 +127,23 @@ func SetTaskNotifier(fn func(TaskNotification)) func(TaskNotification) {
 	return prev
 }
 
+// RegisterConversationNotifier installs a per-conversation task notification
+// listener for tasks whose TaskID starts with "<convID>/". It returns an
+// unregister function.
+func RegisterConversationNotifier(convID string, fn func(TaskNotification)) func() {
+	if convID == "" || fn == nil {
+		return func() {}
+	}
+	taskNotifierMu.Lock()
+	convNotifiers[convID] = fn
+	taskNotifierMu.Unlock()
+	return func() {
+		taskNotifierMu.Lock()
+		delete(convNotifiers, convID)
+		taskNotifierMu.Unlock()
+	}
+}
+
 // notifyTask hands a notification to the installed hook, if any.
 // NotifyTask delivers one task notification to the installed notifier.
 //
@@ -139,13 +158,19 @@ func NotifyTask(n TaskNotification) {
 func notifyTask(n TaskNotification) {
 	checkTimerEarlyCancellation(n)
 
+	var convFn func(TaskNotification)
 	taskNotifierMu.RLock()
 	fn := taskNotifier
-	taskNotifierMu.RUnlock()
-	if fn == nil {
-		return
+	if idx := strings.IndexByte(n.TaskID, '/'); idx > 0 {
+		convFn = convNotifiers[n.TaskID[:idx]]
 	}
-	fn(n)
+	taskNotifierMu.RUnlock()
+	if convFn != nil {
+		convFn(n)
+	}
+	if fn != nil {
+		fn(n)
+	}
 }
 
 // armNotificationTimeout starts the reference's "the command is still

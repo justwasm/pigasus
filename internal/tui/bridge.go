@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -286,7 +285,7 @@ func (b *EngineBridge) runTurnOn(turnCtx context.Context, model string, msgs []b
 	if c.meta != nil {
 		reasoningTokens = c.meta.ReasoningTokens
 	}
-	c.steps = toolsteps.AppendThoughtStep(c.steps, c.reasoning.String(), time.Since(c.thoughtStart), reasoningTokens)
+	c.steps = toolsteps.AppendThoughtStep(c.steps, c.reasoning.String(), c.thinkingDuration(), reasoningTokens)
 
 	out := c.reply.String()
 	if out == "" && len(c.steps) == 0 && c.err == nil {

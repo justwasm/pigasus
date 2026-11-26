@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.5.13:\n\u00b7 Added Gemini 4 Neon (Low, Medium, High, and XHigh) to `/model` and `--model` when you sign in with Application Default Credentials (`AGY_ADC_AUTH`), and added support for Gemini 4 Neon through an enterprise model gateway."
+	const want = "1.5.14:\n\u00b7 Added `/thinking` (`/thinking [on|off]`, saved as `\"showThinking\"` in `settings.json` and off by default) to stream the model's full thinking live in the transcript while it thinks and keep finished thoughts expanded without pressing `Ctrl+O`."
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

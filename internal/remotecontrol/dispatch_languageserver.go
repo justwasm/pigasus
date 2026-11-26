@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 	"github.com/justwasm/pigasus/internal/remotecontrol/mendel"
 	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
@@ -63,6 +64,11 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	}
 	// The additional LanguageServerService table (VCS, Search, MCP Apps, Sidecars, Browser, Telemetry).
 	if r, e, ok := d.routeLanguageServerAdditionalMethods(ctx, method, params); ok {
+		return r, e, true
+	}
+	// The files domain owns the language-server file contract; the host keeps
+	// routing precedence and supplies the filesystem port.
+	if r, e, ok := files.LSRoute(files.LSSeams{FS: d.cfg.LanguageServerFS}, method, params); ok {
 		return r, e, true
 	}
 	switch method {
@@ -183,6 +189,8 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 		return d.handleLSCreateDebugBundle(params)
 	case "CreateWorktree", "createWorktree":
 		return d.handleLSCreateWorktree(params)
+	case "CloneGitHubRepo", "cloneGitHubRepo":
+		return d.handleLSCloneGitHubRepo(params)
 	case "DeleteWorktree", "deleteWorktree":
 		return d.handleLSDeleteWorktree(params)
 	case "CheckoutWorktree", "checkoutWorktree":
@@ -242,20 +250,6 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 		return d.handleLanguageServerReadProjects(ctx, params)
 	case "ReadProject", "readProject":
 		return d.handleLanguageServerReadProject(ctx, params)
-	case "StatUri", "statUri":
-		return d.handleLanguageServerStatUri(params)
-	case "ReadDir", "readDir":
-		if strings.Contains(string(params), `"uri"`) {
-			return d.handleLanguageServerReadDir(params)
-		}
-	case "ReadFile", "readFile":
-		if strings.Contains(string(params), `"uri"`) {
-			return d.handleLanguageServerReadFile(params)
-		}
-	case "WriteFile", "writeFile":
-		return d.handleLanguageServerWriteFile(params)
-	case "CreateDirectory", "createDirectory":
-		return d.handleLanguageServerCreateDirectory(params)
 	case "CreateTerminal", "createTerminal":
 		// The Web UI's terminal surface — the reference's own
 		// exa.language_server_pb messages. It is *not* the
@@ -475,148 +469,6 @@ func (d *Dispatcher) handleLanguageServerReadProjects(ctx context.Context, param
 		"projects":    projects,
 		"notFoundIds": notFound,
 	}, nil, true
-}
-
-func parseURIPath(rawURI string) string {
-	if strings.HasPrefix(rawURI, "file://") {
-		u, err := url.Parse(rawURI)
-		if err == nil && u.Path != "" {
-			return u.Path
-		}
-		return strings.TrimPrefix(rawURI, "file://")
-	}
-	return rawURI
-}
-
-func (d *Dispatcher) handleLanguageServerStatUri(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
-	var req struct {
-		URI string `json:"uri"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
-	}
-	p := parseURIPath(req.URI)
-	fi, err := os.Stat(p)
-	if err != nil {
-		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
-	}
-	// The reference's own answer is
-	// {"fileType":"FILE_TYPE_FILE","modTime":"2026-10-26T13:47:00.907136440Z",
-	//  "normalizedUri":"file:///…","size":"9293"}: the enum is spelled
-	// by its name, the timestamp is a proto-JSON string, and the int64
-	// is a string. See ls_files.go.
-	return map[string]any{
-		"fileType":      lsFileTypeName(fi),
-		"modTime":       lsTimestamp(fi.ModTime()),
-		"normalizedUri": lsNormalizedURI(p),
-		"size":          lsSize(fi.Size()),
-	}, nil, true
-}
-
-func (d *Dispatcher) handleLanguageServerReadDir(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
-	var req struct {
-		URI string `json:"uri"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
-	}
-	p := parseURIPath(req.URI)
-	entries, err := os.ReadDir(p)
-	if err != nil {
-		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
-	}
-	resEntries := make([]map[string]any, 0, len(entries))
-	for _, e := range entries {
-		childPath := filepath.Join(p, e.Name())
-		fileType := fileTypeFile
-		if e.IsDir() {
-			fileType = fileTypeDirectory
-		}
-		resEntries = append(resEntries, map[string]any{
-			"uri":      lsNormalizedURI(childPath),
-			"fileType": fileType,
-		})
-	}
-	if len(resEntries) == 0 {
-		// proto-JSON omits an empty repeated field: the reference
-		// answers an empty directory with {}.
-		return map[string]any{}, nil, true
-	}
-	return map[string]any{
-		"entries": resEntries,
-	}, nil, true
-}
-
-func (d *Dispatcher) handleLanguageServerReadFile(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
-	var req struct {
-		URI string `json:"uri"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
-	}
-	p := parseURIPath(req.URI)
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
-	}
-	// `content` is a `bytes` field, and proto-JSON spells a bytes
-	// field as base64. The raw text is not a legal answer: the Web
-	// UI's decoder refuses it with "Cannot decode field
-	// exa.language_server_pb.ReadFileResponse.content from JSON:
-	// invalid base64 string", and the file never opens.
-	answer := map[string]any{
-		"content": lsEncodeBytes(data),
-	}
-	// `language` is exa.codeium_common_pb.Language, spelled by its
-	// name. The reference reports one for the files it knows and none
-	// at all for the files it does not.
-	if lang := lsLanguageName(p); lang != "" {
-		answer["language"] = lang
-	}
-	return answer, nil, true
-}
-
-func (d *Dispatcher) handleLanguageServerWriteFile(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
-	var req struct {
-		URI     string `json:"uri"`
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
-	}
-	p := parseURIPath(req.URI)
-	// `content` is a `bytes` field on the request side too: the Web UI
-	// sends it base64-encoded, and the reference refuses anything else
-	// ("invalid value for bytes field content"). See ls_files.go.
-	content, err := lsDecodeBytes(req.Content)
-	if err != nil {
-		return nil, &rpc.ErrorBody{
-			Code:    -32602,
-			Message: "content is not base64",
-			Data:    err.Error(),
-		}, true
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return nil, &rpc.ErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
-	}
-	if err := os.WriteFile(p, content, 0o644); err != nil {
-		return nil, &rpc.ErrorBody{Code: -32603, Message: "WriteFile failed", Data: err.Error()}, true
-	}
-	return map[string]any{}, nil, true
-}
-
-func (d *Dispatcher) handleLanguageServerCreateDirectory(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
-	var req struct {
-		URI string `json:"uri"`
-	}
-	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
-	}
-	p := parseURIPath(req.URI)
-	if err := os.MkdirAll(p, 0o755); err != nil {
-		return nil, &rpc.ErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
-	}
-	return map[string]any{}, nil, true
 }
 
 func (d *Dispatcher) handleLSOpenUrl(params json.RawMessage) (any, *rpc.ErrorBody, bool) {

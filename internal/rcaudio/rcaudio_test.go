@@ -143,3 +143,41 @@ func TestTheSessionIDLooksLikeTheReferences(t *testing.T) {
 		t.Fatalf("the id is not JSON-clean: %v", err)
 	}
 }
+
+// TestOutOfOrderChunksReorderedAndFlushedOnEnd verifies that out-of-order
+// chunks are reordered by sequenceNumber and any remaining buffered chunks
+// after a gap are flushed immediately on End() without stalling.
+func TestOutOfOrderChunksReorderedAndFlushedOnEnd(t *testing.T) {
+	transcriber := &cannedTranscriber{text: "reordered"}
+	registry := NewRegistry(transcriber)
+	session := registry.Start("audio/pcm;rate=16000")
+
+	// Send seq 2, then seq 0, then seq 1 (contiguous 0..2), then seq 4 (gap at 3).
+	session.AppendChunk(2, []byte("C"))
+	session.AppendChunk(0, []byte("A"))
+	session.AppendChunk(1, []byte("B"))
+	session.AppendChunk(4, []byte("E"))
+	// Duplicate seq 1 should be ignored.
+	session.AppendChunk(1, []byte("X"))
+	session.End()
+
+	var frames []Frame
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case frame, ok := <-session.Frames():
+			if !ok {
+				if string(transcriber.seen) != "ABCE" {
+					t.Fatalf("transcriber saw %q, want %q", transcriber.seen, "ABCE")
+				}
+				if len(frames) != 3 || frames[1].Text != "reordered" || frames[2].Kind != FrameComplete {
+					t.Fatalf("unexpected frames: %+v", frames)
+				}
+				return
+			}
+			frames = append(frames, frame)
+		case <-deadline:
+			t.Fatal("End() stalled after out-of-order chunks")
+		}
+	}
+}

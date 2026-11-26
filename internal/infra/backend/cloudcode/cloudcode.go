@@ -199,6 +199,8 @@ func (c *CloudCodeClient) turn(req backend.StreamRequest, model string) geminico
 		Temperature:     req.Temperature,
 		MaxOutputTokens: c.cfg.MaxOutputTokens,
 		ThinkingBudget:  c.cfg.ThinkingBudget,
+		ThinkingLevel:   strings.TrimSpace(req.ReasoningEffort),
+		ExecutionModel:  strings.TrimSpace(req.ExecutionModel),
 		SessionID:       strconv.FormatInt(c.sessionID, 10),
 		// The request id is minted once, so a retry of a dropped connection
 		// re-sends the same body.

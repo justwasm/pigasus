@@ -11,6 +11,8 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
+	"github.com/justwasm/pigasus/internal/app/tools/filesystem"
+	"github.com/justwasm/pigasus/internal/app/tools/web"
 )
 
 // invokeTool is the full LLM-driven delegation tool.
@@ -202,6 +204,18 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 			inv.Role = builtinsubagent.RoleDeepInvestigatorImprovementWorker
 		}
 		return inv, false, actor.ToolResult{}, nil
+	case string(builtinsubagent.KindImageGenerator):
+		if t.deps.Provider != nil && t.deps.ImageGenerator != nil {
+			inv := t.invocation(args, Grant{}, imageGeneratorToolSet(t.deps))
+			if inv.Worktree == "" {
+				inv.Worktree = t.deps.CWD
+			}
+			inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.ImageGeneratorInstructions)
+			if inv.Role == "" {
+				inv.Role = "Image Generator"
+			}
+			return inv, false, actor.ToolResult{}, nil
+		}
 	}
 	if twRole, ok := builtinsubagent.LookupTeamworkRole(typeName); ok {
 		grant := Grant{
@@ -349,6 +363,8 @@ func (t *invokeTool) isActorSubagentType(name string) bool {
 		string(builtinsubagent.KindDeepInvestigatorWorkerL0),
 		string(builtinsubagent.KindDeepInvestigatorImprovementWorker):
 		return true
+	case string(builtinsubagent.KindImageGenerator):
+		return t.deps.Provider != nil && t.deps.ImageGenerator != nil
 	}
 	if _, ok := builtinsubagent.LookupTeamworkRole(name); ok {
 		return true
@@ -359,6 +375,20 @@ func (t *invokeTool) isActorSubagentType(name string) bool {
 		}
 	}
 	return false
+}
+
+func imageGeneratorToolSet(deps Deps) []actor.Tool {
+	return []actor.Tool{
+		adaptSubagentTool(&web.GenerateImage{
+			Workspace:      deps.CWD,
+			ConversationID: deps.ConversationID,
+			Provider:       deps.ImageGenerator,
+		}),
+		adaptSubagentTool(&filesystem.ViewFile{
+			Workspace: deps.CWD,
+		}),
+		&sendMessageTool{registry: deps.Registry, owner: deps.ConversationID},
+	}
 }
 
 // Execute launches the delegation and returns the reference's

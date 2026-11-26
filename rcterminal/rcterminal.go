@@ -177,6 +177,8 @@ type CreateRequest struct {
 	// nothing. Empty means the registry's fallback — the user's home
 	// directory, never the server's working directory.
 	Workspace string
+	// Env specifies additional KEY=VALUE environment variables for the spawned shell.
+	Env []string
 }
 
 // Registry owns the live terminals.
@@ -241,7 +243,7 @@ func (r *Registry) Create(req CreateRequest) (*Info, error) {
 		dir = homeDir()
 	}
 	_ = os.MkdirAll(dir, 0o755)
-	session, err := spawn(dir)
+	session, err := spawn(dir, req.Env)
 	if err != nil {
 		return nil, err
 	}

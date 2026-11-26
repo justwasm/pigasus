@@ -45,6 +45,20 @@ func (a *AskQuestionModel) Active() bool {
 	return a != nil && a.model != nil && a.model.Active()
 }
 
+// WriteInActive reports whether the turn-level ask_question write-in textarea is focused.
+func (a *AskQuestionModel) WriteInActive() bool {
+	return a != nil && a.model != nil && a.model.WriteInActive()
+}
+
+// Cursor returns the hardware cursor position relative to View() when the
+// turn-level ask_question write-in textarea is active, or nil otherwise.
+func (a *AskQuestionModel) Cursor() *tea.Cursor {
+	if a == nil || a.model == nil {
+		return nil
+	}
+	return a.model.Cursor()
+}
+
 // View returns the rendered ask_question view for the input area.
 func (a *AskQuestionModel) View() string {
 	if a == nil || a.model == nil {

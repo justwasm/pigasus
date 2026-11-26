@@ -218,7 +218,29 @@ func updateConversationsFTS(sdb *sql.DB, id, title, workspace string, steps []St
 // repairRecentFTSHeaders repairs missing or zero-timestamp chunk_index = -1 rows
 // in conversations_fts for recent conversations, ensuring historical pigasus sessions
 // show up in agy /resume in correct chronological order.
+//
+// The scan is a diff, not a probe. It used to read the 100 newest summary
+// rows and then ask the FTS table about each one, which is 100 + 100
+// statements on every save even when nothing was broken. Reading the
+// headers once and diffing in memory makes a healthy store cost two
+// queries and no writes.
 func repairRecentFTSHeaders(sdb *sql.DB) {
+	// The headers that already exist, in one read.
+	have := map[string]bool{}
+	if rows, err := sdb.Query(`SELECT conversation_id FROM conversations_fts
+		WHERE chunk_index = -1
+		  AND last_modified_time IS NOT NULL
+		  AND last_modified_time != ''
+		  AND last_modified_time != '0'`); err == nil {
+		for rows.Next() {
+			var id string
+			if rows.Scan(&id) == nil {
+				have[id] = true
+			}
+		}
+		rows.Close()
+	}
+
 	rows, err := sdb.Query(`
 		SELECT conversation_id, title, workspace_uris, step_count, last_modified_time
 		FROM conversation_summaries
@@ -239,39 +261,41 @@ func repairRecentFTSHeaders(sdb *sql.DB) {
 	for rows.Next() {
 		var it item
 		if err := rows.Scan(&it.id, &it.title, &it.uris, &it.stepCount, &it.lmt); err == nil {
-			items = append(items, it)
+			if !have[it.id] {
+				items = append(items, it)
+			}
 		}
+	}
+	rows.Close()
+	if len(items) == 0 {
+		return
 	}
 
 	for _, it := range items {
-		var ftsLMT string
-		err := sdb.QueryRow(`SELECT last_modified_time FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, it.id).Scan(&ftsLMT)
-		if err == sql.ErrNoRows || ftsLMT == "" || ftsLMT == "0" {
-			t := parseSummaryTime(it.lmt)
-			if t.IsZero() || t.Year() <= 1 {
-				convPath := filepath.Join(StoreDir(), "conversations", it.id+".db")
-				if fi, err := os.Stat(convPath); err == nil {
-					t = fi.ModTime()
-				}
+		t := parseSummaryTime(it.lmt)
+		if t.IsZero() || t.Year() <= 1 {
+			convPath := filepath.Join(StoreDir(), "conversations", it.id+".db")
+			if fi, err := os.Stat(convPath); err == nil {
+				t = fi.ModTime()
 			}
-			var nanoStr string
-			if t.IsZero() || t.Year() <= 1 {
-				nanoStr = fmt.Sprintf("%d", time.Now().UnixNano())
-			} else {
-				nanoStr = fmt.Sprintf("%d", t.UnixNano())
-			}
-			ws := ""
-			if uris := parseWorkspaceURIs(it.uris); len(uris) > 0 {
-				ws = projectFromURIs(uris[0])
-			}
-			_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, it.id)
-			_, _ = sdb.Exec(`INSERT INTO conversations_fts (
-				conversation_id, chunk_index, chunk_first_step, chunk_last_step,
-				last_modified_time, step_count, last_step_created_at, archived,
-				user_step_byte_offsets, agent_step_byte_offsets,
-				title, workspace, project, user_body, agent_body
-			) VALUES (?, -1, 0, 0, ?, ?, ?, 0, '', '', ?, ?, 'CLI Project', '', '')`,
-				it.id, nanoStr, it.stepCount, nanoStr, it.title, ws)
 		}
+		var nanoStr string
+		if t.IsZero() || t.Year() <= 1 {
+			nanoStr = fmt.Sprintf("%d", time.Now().UnixNano())
+		} else {
+			nanoStr = fmt.Sprintf("%d", t.UnixNano())
+		}
+		ws := ""
+		if uris := parseWorkspaceURIs(it.uris); len(uris) > 0 {
+			ws = projectFromURIs(uris[0])
+		}
+		_, _ = sdb.Exec(`DELETE FROM conversations_fts WHERE conversation_id = ? AND chunk_index = -1`, it.id)
+		_, _ = sdb.Exec(`INSERT INTO conversations_fts (
+			conversation_id, chunk_index, chunk_first_step, chunk_last_step,
+			last_modified_time, step_count, last_step_created_at, archived,
+			user_step_byte_offsets, agent_step_byte_offsets,
+			title, workspace, project, user_body, agent_body
+		) VALUES (?, -1, 0, 0, ?, ?, ?, 0, '', '', ?, ?, 'CLI Project', '', '')`,
+			it.id, nanoStr, it.stepCount, nanoStr, it.title, ws)
 	}
 }

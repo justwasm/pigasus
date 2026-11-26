@@ -118,7 +118,14 @@ type Pipeline[Req any] struct {
 	MaxRetries int
 }
 
-// Run executes the streaming pipeline with automatic mid-turn retry on connection drops.
+// Run executes the streaming pipeline with automatic mid-turn retry on
+// connection drops and on transient model-capacity failures.
+//
+// Every chunk reaches the caller through an attemptTap (see pipeline_resume.go),
+// which remembers the assistant text already delivered for this turn and
+// swallows the prefix a retry re-produces. A retried stream therefore resumes
+// where the caller left off instead of replaying or discarding the progress of
+// the attempt that failed (AGY 1.5.17).
 func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req Req, out chan<- backend.StreamChunk) {
 	resp := initialResp
 	defer func() {
@@ -139,15 +146,43 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 	}
 	maxAttempts := maxRetries + 1
 	notify := backend.RetryNotifierFromContext(ctx)
+	tap := newAttemptTap(out)
 
 	for attempt := 0; ; attempt++ {
-		err := p.ReadBody(ctx, resp, out)
-		if err == nil || !retry.IsConnectionDropped(err) || apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) {
+		tap.arm()
+
+		// A failed reopen leaves resp nil (see the `resp = nil` path below).
+		// ReadBody cannot scan a body that does not exist, and a nil response
+		// is exactly the condition the retry budget exists to absorb, so turn
+		// it into a connection drop instead of handing nil to the reader.
+		var err error
+		if resp == nil {
+			err = &retry.ConnectionDroppedError{
+				URL: p.EndpointURL,
+				Err: errors.New("no response from reopen"),
+			}
+		} else {
+			err = p.readThrough(ctx, resp, tap)
+		}
+
+		// A 503 / MODEL_CAPACITY_EXHAUSTED mid-stream is the 1.5.17 case: the
+		// answer is not wrong, the model just cannot continue right now, so
+		// the request is re-issued and the replayed prefix is swallowed.
+		retryable := err != nil &&
+			(retry.IsConnectionDropped(err) || isModelCapacityErr(err)) &&
+			!apierror.IsQuotaReachedErr(err) && !apierror.IsAuthFailureErr(err)
+
+		if !retryable {
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
-			if err != nil && retry.IsConnectionDropped(err) && (apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err)) {
-				out <- backend.StreamChunk{Error: err, Done: true}
+			// Flush whatever the attempt produced and the caller has not seen.
+			// A reader that already reported the failure itself (cloudcode's
+			// finishScan, the gateway's SSE readers) must not have that report
+			// duplicated here.
+			wroteTerminal := tap.finish(ctx)
+			if !wroteTerminal && err != nil && retry.IsConnectionDropped(err) {
+				_ = tap.write(ctx, backend.StreamChunk{Error: err, Done: true})
 			}
 			return
 		}
@@ -155,15 +190,23 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
-			out <- backend.StreamChunk{Error: err, Done: true}
+			// The retry budget is spent. The caller has to learn the stream
+			// ended short, whichever attempt produced the report.
+			wroteTerminal := tap.finish(ctx)
+			if !wroteTerminal {
+				_ = tap.write(ctx, backend.StreamChunk{Error: err, Done: true})
+			}
 			return
 		}
+		// The next attempt re-produces the answer from the first token, so
+		// nothing this one queued but did not deliver is needed.
+		tap.discard()
 		if resp != nil {
 			_ = resp.Body.Close()
 		}
 
 		delay := retry.NextConnectionRetryDelay(attempt)
-		clilog.Logf("streampipe", "endpoint=%s mid_stream attempt=%d/%d retry_in=%s err=%v", p.EndpointURL, attempt+2, maxAttempts, delay.Round(time.Millisecond), err)
+		clilog.Logf("streampipe", "endpoint=%s mid_stream attempt=%d/%d resumed_after=%d retry_in=%s err=%v", p.EndpointURL, attempt+2, maxAttempts, len(tap.delivered), delay.Round(time.Millisecond), err)
 		if notify != nil {
 			notify(backend.RetryProgress{
 				Attempt:     attempt + 2,
@@ -177,7 +220,7 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+			_ = tap.write(ctx, backend.StreamChunk{Error: ctx.Err(), Done: true})
 			return
 		case <-time.After(delay):
 		}
@@ -193,8 +236,9 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 		newResp, openErr := p.Open(ctx, req)
 		if openErr != nil {
 			clilog.Logf("streampipe", "endpoint=%s mid_stream reopen failed err=%v", p.EndpointURL, openErr)
-			if apierror.IsQuotaReachedErr(openErr) || apierror.IsAuthFailureErr(openErr) || !retry.IsConnectionDropped(openErr) {
-				out <- backend.StreamChunk{Error: openErr, Done: true}
+			if apierror.IsQuotaReachedErr(openErr) || apierror.IsAuthFailureErr(openErr) ||
+				(!retry.IsConnectionDropped(openErr) && !isModelCapacityErr(openErr)) {
+				_ = tap.write(ctx, backend.StreamChunk{Error: openErr, Done: true})
 				return
 			}
 			resp = nil

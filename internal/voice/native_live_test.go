@@ -1114,4 +1114,105 @@ func TestGeminiLiveFunctionDeclarations(t *testing.T) {
 			t.Fatalf("expected Gemini Live declaration %q, got %v", want, names)
 		}
 	}
+	for _, unwanted := range []string{"search_web", "fetch_url", "run_command", "read_file"} {
+		if names[unwanted] {
+			t.Fatalf("default Gemini Live declarations should not include %q", unwanted)
+		}
+	}
+
+	directDecls := geminiLiveFunctionDeclarationsForConfig(LiveSessionConfig{DirectTools: true})
+	directNames := make(map[string]bool, len(directDecls))
+	for _, d := range directDecls {
+		directNames[d.Name] = true
+	}
+	for _, want := range []string{
+		"call_thinker_agent", "cancel_thinker_agent", "set_progress_updates", "hang_up",
+		"search_web", "fetch_url", "run_command", "read_file",
+	} {
+		if !directNames[want] {
+			t.Fatalf("expected DirectTools Gemini Live declaration %q, got %v", want, directNames)
+		}
+	}
+}
+
+func TestGeminiLiveToolSpecContract(t *testing.T) {
+	// 1. Validate single-source spec integrity.
+	specByName := make(map[string]LiveToolSpec, len(geminiLiveToolSpecs))
+	for _, spec := range geminiLiveToolSpecs {
+		if spec.Name == "" {
+			t.Fatal("geminiLiveToolSpecs contains entry with empty Name")
+		}
+		if spec.Declaration == nil {
+			t.Fatalf("spec %q has nil Declaration", spec.Name)
+		}
+		if spec.Name != spec.Declaration.Name {
+			t.Fatalf("spec Name %q != Declaration.Name %q", spec.Name, spec.Declaration.Name)
+		}
+		if strings.Contains(spec.PromptHint, "\n") {
+			t.Fatalf("spec %q PromptHint must be single-line, got %q", spec.Name, spec.PromptHint)
+		}
+		if _, dup := specByName[spec.Name]; dup {
+			t.Fatalf("duplicate tool spec %q", spec.Name)
+		}
+		specByName[spec.Name] = spec
+	}
+
+	// 2. GeminiLiveToolNames(false) matches geminiLiveFunctionDeclarations() (4 tools, no direct tools).
+	baseDecls := geminiLiveFunctionDeclarations()
+	baseNames := GeminiLiveToolNames(false)
+	if len(baseNames) != 4 {
+		t.Fatalf("expected 4 base tools, got %d: %v", len(baseNames), baseNames)
+	}
+	if len(baseNames) != len(baseDecls) {
+		t.Fatalf("GeminiLiveToolNames(false) len %d != geminiLiveFunctionDeclarations() len %d", len(baseNames), len(baseDecls))
+	}
+	for i, d := range baseDecls {
+		if baseNames[i] != d.Name {
+			t.Fatalf("base tool[%d] = %q, want %q", i, baseNames[i], d.Name)
+		}
+		if specByName[d.Name].DirectOnly {
+			t.Fatalf("base tool %q must not be DirectOnly", d.Name)
+		}
+	}
+
+	// 3. GeminiLiveToolNames(true) matches geminiLiveFunctionDeclarationsForConfig(DirectTools: true) with no duplicates.
+	directDecls := geminiLiveFunctionDeclarationsForConfig(LiveSessionConfig{DirectTools: true})
+	directNames := GeminiLiveToolNames(true)
+	if len(directNames) != len(directDecls) {
+		t.Fatalf("GeminiLiveToolNames(true) len %d != directDecls len %d", len(directNames), len(directDecls))
+	}
+	seen := make(map[string]bool, len(directNames))
+	for i, d := range directDecls {
+		if directNames[i] != d.Name {
+			t.Fatalf("direct tool[%d] = %q, want %q", i, directNames[i], d.Name)
+		}
+		if seen[d.Name] {
+			t.Fatalf("duplicate tool name %q in GeminiLiveToolNames(true)", d.Name)
+		}
+		seen[d.Name] = true
+	}
+
+	// 4. Every tool in GeminiLiveToolNames(true) with a PromptHint appears in DirectToolPromptLines().
+	promptLines := DirectToolPromptLines()
+	for _, name := range directNames {
+		spec := specByName[name]
+		if strings.TrimSpace(spec.PromptHint) == "" {
+			continue
+		}
+		wantLine := "   - '" + name + "': " + spec.PromptHint
+		if !strings.Contains(promptLines, wantLine) {
+			t.Fatalf("DirectToolPromptLines() missing line %q\ngot:\n%s", wantLine, promptLines)
+		}
+	}
+	for _, required := range []string{"search_web", "fetch_url", "run_command", "read_file", "call_thinker_agent"} {
+		if !seen[required] {
+			t.Fatalf("expected %q in GeminiLiveToolNames(true)", required)
+		}
+		if strings.TrimSpace(specByName[required].PromptHint) == "" {
+			t.Fatalf("expected non-empty PromptHint for %q", required)
+		}
+		if !strings.Contains(promptLines, "'"+required+"':") {
+			t.Fatalf("expected %q in DirectToolPromptLines(), got:\n%s", required, promptLines)
+		}
+	}
 }

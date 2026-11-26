@@ -71,6 +71,8 @@ type Step struct {
 	Detail string
 	// Err marks a step that failed.
 	Err bool
+	// Canceled marks a step that was canceled by the user (renders gray bullet).
+	Canceled bool
 	// Running marks the provisional row painted while the call executes
 	// ("Running (echo one)"). It is replaced in place when the call ends.
 	Running bool
@@ -259,8 +261,13 @@ func NewToolStep(name string, args json.RawMessage, result string, toolErr bool)
 		Args:    string(args),
 		Err:     toolErr,
 	}
-	if name == "run_command" {
-		if code, ok := tuitools.CommandExitCode(result); ok && code != 0 {
+	if name == "run_command" || name == "run_shell_command" {
+		if isCanceledCommandResult(result) {
+			s.Canceled = true
+			s.Err = false
+		} else if code, ok := tuitools.CommandExitCode(result); ok && code != 0 {
+			s.Err = true
+		} else if isTimedOutCommandResult(result) {
 			s.Err = true
 		}
 	}
@@ -276,4 +283,21 @@ func NewToolStep(name string, args json.RawMessage, result string, toolErr bool)
 		s.Diff = tuitools.EditDiffFor(args)
 	}
 	return s
+}
+
+func isCanceledCommandResult(result string) bool {
+	lower := strings.ToLower(result)
+	return strings.Contains(lower, "command canceled") ||
+		strings.Contains(lower, "command cancelled") ||
+		strings.Contains(lower, "was canceled") ||
+		strings.Contains(lower, "was cancelled") ||
+		strings.Contains(lower, "context canceled") ||
+		strings.TrimSpace(lower) == "canceled" ||
+		strings.TrimSpace(lower) == "cancelled"
+}
+
+func isTimedOutCommandResult(result string) bool {
+	lower := strings.ToLower(result)
+	return strings.Contains(lower, "timed out") ||
+		strings.Contains(lower, "deadline exceeded")
 }

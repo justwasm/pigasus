@@ -144,11 +144,16 @@ func (m *StandardBudgetManager) materializeHistory(
 	for ti, turn := range t.turns[:limit] {
 		keepTurnInput := boundary < 0 || ti > cpTurn || (ti == cpTurn && cpKeepInput)
 		shouldPruneTools := toolPruningTurns > 0 && (currentTurnIndex-ti) > toolPruningTurns
+		if turn.ColdStored && len(turn.Steps) == 0 && (boundary < 0 || turn.StartStep > boundary) && t.coldDir != "" {
+			if hydrated, err := t.loadColdTurnLocked(t.coldDir, ti); err == nil && hydrated != nil {
+				turn = hydrated
+			}
+		}
 
 		if len(turn.Steps) == 0 {
 			if turn.StartStep > boundary {
 				if keepTurnInput {
-					msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input})
+					msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input, Images: cloneImageParts(turn.InputImages)})
 				}
 				if turn.FinalOutput != "" {
 					msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})
@@ -163,12 +168,14 @@ func (m *StandardBudgetManager) materializeHistory(
 				continue
 			}
 			input := ""
+			var inputImages []ImagePart
 			if si == 0 && keepTurnInput && (boundary < 0 || turn.StartStep > boundary) {
 				input = turn.Input
+				inputImages = turn.InputImages
 			}
-			stepMsgs := m.materializeStepMessages(step, input, shouldPruneTools, maxPrunedBytes)
+			stepMsgs := m.materializeStepMessages(step, input, inputImages, shouldPruneTools, maxPrunedBytes)
 			for _, sm := range stepMsgs {
-				if sm.Role == RoleAssistant && (sm.Content != "" || len(sm.ToolCalls) > 0) {
+				if sm.Role == RoleAssistant && (sm.Content != "" || sm.Thought != "" || len(sm.Images) > 0 || len(sm.ToolCalls) > 0) {
 					hasStepAssistant = true
 				}
 			}
@@ -189,42 +196,21 @@ func (m *StandardBudgetManager) materializeHistory(
 func (m *StandardBudgetManager) materializeStepMessages(
 	step Step,
 	input string,
+	inputImages []ImagePart,
 	shouldPruneTools bool,
 	maxPrunedBytes int,
 ) []ConversationMessage {
-	var msgs []ConversationMessage
-	if input != "" {
-		msgs = append(msgs, ConversationMessage{
-			Role:    RoleUser,
-			Content: input,
-		})
-	}
-	if len(step.Steer) > 0 {
-		msgs = append(msgs, ConversationMessage{
-			Role:    RoleUser,
-			Content: "[Active Guidance]: " + strings.Join(step.Steer, "; "),
-		})
-	}
-	if step.Delta != "" || step.Thought != "" || len(step.ToolCalls) > 0 {
-		msgs = append(msgs, ConversationMessage{
-			Role:      RoleAssistant,
-			Content:   step.Delta,
-			Thought:   step.Thought,
-			ToolCalls: step.ToolCalls,
-		})
-		for _, res := range step.ToolResults {
-			content := res.Output
-			if res.Error != "" {
-				content = fmt.Sprintf("Error: %s", res.Error)
-			} else if shouldPruneTools && len(content) > maxPrunedBytes {
-				// Strategy C: Prune voluminous tool outputs from older turns
-				content = fmt.Sprintf("[Tool output pruned: %d characters omitted]", len(content))
+	msgs := stepConversationMessages(step, input, inputImages)
+	if shouldPruneTools {
+		for i := range msgs {
+			if msgs[i].Role != RoleTool {
+				continue
 			}
-			msgs = append(msgs, ConversationMessage{
-				Role:       RoleTool,
-				Content:    content,
-				ToolCallID: res.ToolCallID,
-			})
+			// Image payloads are pruned independently of text length or errors.
+			msgs[i].Images = nil
+			if !strings.HasPrefix(msgs[i].Content, "Error: ") && len(msgs[i].Content) > maxPrunedBytes {
+				msgs[i].Content = fmt.Sprintf("[Tool output pruned: %d characters omitted]", len(msgs[i].Content))
+			}
 		}
 	}
 	return msgs
@@ -251,6 +237,7 @@ func (m *StandardBudgetManager) materializeCurrentTurn(req ContextRequest) []Con
 		msgs = append(msgs, ConversationMessage{
 			Role:    RoleUser,
 			Content: input,
+			Images:  cloneImageParts(req.TurnRecord.InputImages),
 		})
 	}
 
@@ -258,31 +245,7 @@ func (m *StandardBudgetManager) materializeCurrentTurn(req ContextRequest) []Con
 		if hasCheckpoint && step.GlobalIndex <= from {
 			continue
 		}
-		if len(step.Steer) > 0 {
-			msgs = append(msgs, ConversationMessage{
-				Role:    RoleUser,
-				Content: "[Active Guidance]: " + strings.Join(step.Steer, "; "),
-			})
-		}
-		if step.Delta != "" || step.Thought != "" || len(step.ToolCalls) > 0 {
-			msgs = append(msgs, ConversationMessage{
-				Role:      RoleAssistant,
-				Content:   step.Delta,
-				Thought:   step.Thought,
-				ToolCalls: step.ToolCalls,
-			})
-			for _, res := range step.ToolResults {
-				content := res.Output
-				if res.Error != "" {
-					content = fmt.Sprintf("Error: %s", res.Error)
-				}
-				msgs = append(msgs, ConversationMessage{
-					Role:       RoleTool,
-					Content:    content,
-					ToolCallID: res.ToolCallID,
-				})
-			}
-		}
+		msgs = append(msgs, stepConversationMessages(step, "", nil)...)
 	}
 
 	if len(steer) > 0 && (includeInput || len(msgs) > 0) {

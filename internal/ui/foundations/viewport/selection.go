@@ -19,21 +19,14 @@ const (
 )
 
 // TextSelection tracks the active text selection across the transcript
-// viewport. The input area's own selection lives in InputSelection, which
-// the composer model owns.
+// viewport. The input area's selection is owned separately by
+// internal/ui/editor/selection.
 type TextSelection struct {
 	SelDragging bool
 	SelStartRow int
 	SelStartCol int
 	SelEndRow   int
 	SelEndCol   int
-}
-
-// InputSelection tracks the composer's mouse selection.
-type InputSelection struct {
-	InputSelDragging bool
-	InputSelStart    int
-	InputSelEnd      int
 }
 
 // ResetSelection clears the transcript viewport text selection.
@@ -43,21 +36,6 @@ func (s *TextSelection) ResetSelection() {
 	s.SelStartCol = 0
 	s.SelEndRow = 0
 	s.SelEndCol = 0
-}
-
-// ResetInputSelection clears the input textarea text selection.
-func (s *InputSelection) ResetInputSelection() {
-	s.InputSelDragging = false
-	s.InputSelStart = 0
-	s.InputSelEnd = 0
-}
-
-// InputSelectionRange returns normalized [start, end] byte offsets.
-func (s *InputSelection) InputSelectionRange() (start, end int) {
-	if s.InputSelStart <= s.InputSelEnd {
-		return s.InputSelStart, s.InputSelEnd
-	}
-	return s.InputSelEnd, s.InputSelStart
 }
 
 // SelectionRange returns the normalized range (start <= end by row,

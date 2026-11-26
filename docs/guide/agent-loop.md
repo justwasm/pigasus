@@ -91,41 +91,57 @@ turns leaves the child without the task it was given and without the id it
 has to answer on. The parent's task and id are the **oldest** messages of
 the conversation, so they are the first ones a summary drops.
 
-The clone keeps the parent's half itself:
+The clone keeps the parent's half itself, and it has exactly one shape:
 
 | piece | where | what it is |
 |---|---|---|
 | the record | `internal/app/subagenttools/parentcontext.go` — `ParentContext` | the parent's id, the task, and the parent's messages (oldest first, at most `MaxParentMessages` = 10) |
-| the rendering | `ParentContext.Summary()` | the task in the reference's own message envelope, the parent's id, and the ten most recent messages one line each |
-| the summary | `internal/app/subagenttools/compaction.go` — `SubagentSummary` | the parent's half followed by a digest of the subagent's own work (at most `MaxDigestLines` = 40 lines) |
-| the hook | `parentContextExtension` | answers PiG's `session_before_compact` with `extension.CompactionResult` |
+| the rendering | `ParentContext.Lines()` | the task and then the parent's messages, each one agent-message line |
+| the transport | `checkpoint.Snapshot.ParentMessages` | `launch.go` sets it before **every** turn, so a message delivered after an earlier checkpoint still reaches the next one |
+| the block | `compaction.ResumeBlock` → `ParentBlock` | renders `# Parent Agent Messages` in place of `# User Requests` |
 
-Two rules make the hook work:
+【一手】 agy 1.5.17 keeps the two halves strictly **apart** rather than
+composing them. The reference has a symmetric pair of helpers —
 
-- **The extension is loaded into the subagent's own session**, not into the
-  parent's — so the parent's half travels with the session and not with the
-  process (`createSubagentSession` in `internal/app/subagenttools/session.go`).
-  The extension is loaded from a factory through
-  `factoryload.LoadExtensionFromFactory`, under the name
-  `subagent-parent-context`.
-- **The `*extension.ExtensionRuntime` must be the shared one.** The same
-  rule as the built-in factories in
-  *The agent loop (cycle 183)*: an extension loaded into a runtime the
-  session's runner does not use never fires its handler. `loadParentContextExtension`
-  therefore takes the runtime the built-in extensions were loaded into.
+```
+utils.CaptureUserRequests       utils.CaptureParentMessages
+utils.FormatCheckpointUserRequests   utils.FormatCheckpointParentMessages
+```
+
+— feeding two parallel fields of `CortexStepCheckpoint`
+(`captured_user_requests = 30`, `captured_parent_messages = 31`), and
+`ResumeBlock` emits **one or the other**: `ParentMessages` replaces the
+`# User Requests` section. The child's own half is the model-written
+`session_summary`, never a Go-side digest of its tool results.
+
+So there is no combined "parent + my own work" document to build. An earlier
+`SubagentSummary` / `CompactionPreparation` pair in
+`internal/app/subagenttools` modelled exactly that combined shape; it had no
+callers and no counterpart in the reference, and was removed.
+
+**The cap bounds the messages only, never the task.** The task is the
+delegation itself, and it is the *oldest* thing the parent said — so a cap
+applied to the combined list would drop it first, which is precisely the
+defect agy 1.4.10 fixed. `Record` is the single place that enforces the cap,
+so the retained count and the retained lines cannot disagree.
 
 The parent's messages are recorded while the delegation is **waited on**
 (`internal/app/subagenttools/launch.go`): the parent context is built *before*
-the session is created, and every message the parent sends to the subagent
-is recorded as it arrives.
+the first turn, and every message the parent sends to the subagent is recorded
+as it arrives. System wakeup notifications are deliberately excluded
+(`From == "system"` keeps the `system` sender and is not recorded), so a
+chatty board cannot crowd out the coordinator's instructions.
 
-PiG asks the hook on **both** compaction paths — the manual `compact` and
-the automatic one — so the clone's hook covers `/compact` and the
-auto-compaction alike.
+PiG covers **both** compaction paths — the manual `/compact` and the automatic
+one — because both go through `checkpoint.Policy`, which reads
+`Snapshot.ParentMessages` from the same snapshot.
 
 【推测】 The reference's own summary is written by its model and its exact
-shape is not recoverable from the release note; the clone's summary is its
-own document carrying exactly the three things the note names.
+shape is not recoverable from the release note. The clone delegates the same
+half to `checkpoint.Policy`, whose `summarize` calls
+`compaction.ComputeSummaryAuto` on the child's own transcript — so the split
+matches the reference's, without a second Go-side document to drift out of
+sync.
 
 Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §4.
 

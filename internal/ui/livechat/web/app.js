@@ -1565,6 +1565,12 @@
       setAuthMode(e.target.value);
     });
 
+    if (elems.liveAuthSelect) {
+      elems.liveAuthSelect.addEventListener('change', (e) => {
+        setAuthMode(e.target.value);
+      });
+    }
+
     elems.btnClearChat.addEventListener('click', () => {
       elems.chatMessages.innerHTML = `
         <div class="chat-msg system">
@@ -3990,6 +3996,11 @@
           params.set('key', state.apiKey);
         } else if (state.authMode === 'proxy' && state.proxyURL) {
           params.set('proxy', state.proxyURL);
+        } else if (state.authMode === 'aggregate') {
+          // Transparently pass any locally configured fallback credentials to server aggregate pool
+          if (state.apiKey) params.set('key', state.apiKey);
+          if (state.oauthToken) params.set('token', state.oauthToken);
+          if (state.proxyURL) params.set('proxy', state.proxyURL);
         }
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         wsURL = `${protocol}//${window.location.host}/api/live-ws?${params.toString()}`;

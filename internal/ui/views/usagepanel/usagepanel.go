@@ -132,7 +132,9 @@ func Bar(pct float64, cells int) string {
 // The percentages are the clone's frozen mock values (100.00% / 0.00%);
 // REF's are live and move every run, so the *values* cannot be matched —
 // only the structure. The refresh durations are REF's captured values
-// (158h 18m / 64h 47m) frozen for the same reason. 【推测】(values only)
+// (158h 18m / 64h 47m) frozen for the same reason, rendered in the
+// 1.5.17 day form the countdown uses for anything 24 hours or longer.
+// 【推测】(values only)
 func Group(name, members string, pct, fillCells int, refreshColor, refresh string) []string {
 	return []string{
 		"\x1b[1m" + name + "\x1b[0m",
@@ -248,7 +250,7 @@ func ClaudeGroupRows() []string {
 		"\x1b[1mWeekly Limit Remaining\x1b[0m",
 		"    [" + palette.DimGrayOpen + strings.Repeat("░", 50) + "\x1b[39m]" +
 			palette.DimGrayOpen + " 0.00%" + palette.DimGrayClose,
-		"\x1b[31mRefreshes in 74h 29m\x1b[39m",
+		"\x1b[31mRefreshes in 3d 2h 29m\x1b[39m",
 		palette.DimGrayOpen + "  │Within each group, models share a weekly limit." + palette.DimGrayClose,
 		palette.DimGrayOpen + "  │Quota refreshes weekly and is consumed as you use" + palette.DimGrayClose,
 		palette.DimGrayOpen + "  │models in the group." + palette.DimGrayClose,

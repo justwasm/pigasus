@@ -10,9 +10,11 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,29 +25,35 @@ import (
 // deadline passes.
 func waitForOutput(t *testing.T, reg *Registry, terminalID, needle string, timeout time.Duration) string {
 	t.Helper()
+	var mu sync.Mutex
 	var out strings.Builder
 	done := make(chan error, 1)
 	go func() {
 		done <- reg.Stream(terminalID, func(frame Frame) error {
 			if frame.Kind == FrameOutput {
+				mu.Lock()
 				out.Write(frame.Output)
+				mu.Unlock()
 			}
 			return nil
 		})
 	}()
 	deadline := time.After(timeout)
 	for {
-		if strings.Contains(out.String(), needle) {
-			return out.String()
+		mu.Lock()
+		cur := out.String()
+		mu.Unlock()
+		if strings.Contains(cur, needle) {
+			return cur
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for %q in the terminal output; got %q", needle, out.String())
+			t.Fatalf("timed out waiting for %q in the terminal output; got %q", needle, cur)
 		case err := <-done:
 			if err != nil {
 				t.Fatalf("stream: %v", err)
 			}
-			t.Fatalf("the stream ended before %q appeared; got %q", needle, out.String())
+			t.Fatalf("the stream ended before %q appeared; got %q", needle, cur)
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
@@ -478,5 +486,255 @@ func TestRealPTY_MidtermANSIRenderAndResumeOffset(t *testing.T) {
 	}
 	if strings.Contains(resumed.String(), "GREEN_PTY") {
 		t.Fatalf("resumed stream replayed old output before offset %d: %q", lastOffset, resumed.String())
+	}
+}
+
+type blockingWriteDevice struct {
+	writeStarted chan struct{}
+	writeOnce    sync.Once
+	unblockWrite chan struct{}
+	readCh       chan []byte
+	closed       chan struct{}
+	closeOnce    sync.Once
+
+	mu      sync.Mutex
+	written bytes.Buffer
+}
+
+func newBlockingWriteDevice() *blockingWriteDevice {
+	return &blockingWriteDevice{
+		writeStarted: make(chan struct{}),
+		unblockWrite: make(chan struct{}),
+		readCh:       make(chan []byte, 16),
+		closed:       make(chan struct{}),
+	}
+}
+
+func (d *blockingWriteDevice) Read(p []byte) (int, error) {
+	select {
+	case chunk, ok := <-d.readCh:
+		if !ok {
+			return 0, io.EOF
+		}
+		n := copy(p, chunk)
+		return n, nil
+	case <-d.closed:
+		return 0, io.EOF
+	}
+}
+
+func (d *blockingWriteDevice) Write(p []byte) (int, error) {
+	d.writeOnce.Do(func() { close(d.writeStarted) })
+	select {
+	case <-d.unblockWrite:
+	case <-d.closed:
+		return 0, errors.New("device closed")
+	}
+	d.mu.Lock()
+	d.written.Write(p)
+	d.mu.Unlock()
+	return len(p), nil
+}
+
+func (d *blockingWriteDevice) Resize(cols, rows int) error { return nil }
+
+func (d *blockingWriteDevice) Close() error {
+	d.closeOnce.Do(func() { close(d.closed) })
+	return nil
+}
+
+func (d *blockingWriteDevice) writtenString() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.written.String()
+}
+
+// TestSessionWriteDoesNotBlockOutputPump verifies that a blocked ptmx.Write
+// never holds s.mu or stalls pump()/handleOutput()/Info()/Stream().
+func TestSessionWriteDoesNotBlockOutputPump(t *testing.T) {
+	dev := newBlockingWriteDevice()
+	s := newSession("term-block", 1234, "bash")
+	s.ptmx = dev
+	s.start()
+	defer s.close(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	frames := make(chan Frame, 16)
+	streamErr := make(chan error, 1)
+	go func() {
+		streamErr <- s.streamContext(ctx, func(f Frame) error {
+			frames <- f
+			return nil
+		})
+	}()
+
+	// Drain initial title frame.
+	select {
+	case <-frames:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial title frame")
+	}
+
+	// First write enters dev.Write and blocks inside the writer goroutine.
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- s.writeRaw([]byte("hello "))
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("writeRaw: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("writeRaw blocked while ptmx.Write was stalled")
+	}
+
+	select {
+	case <-dev.writeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer goroutine did not invoke ptmx.Write")
+	}
+
+	// Subsequent sendInput must also return immediately with updated acked offset.
+	acked, err := s.sendInput("s-1", 0, []byte("world"))
+	if err != nil {
+		t.Fatalf("sendInput while write blocked: %v", err)
+	}
+	if acked != 5 {
+		t.Fatalf("acked = %d, want 5", acked)
+	}
+
+	// Info() and output pump must remain completely unblocked while ptmx.Write is stalled.
+	if info := s.info(); info.TerminalID != "term-block" {
+		t.Fatalf("unexpected info: %+v", info)
+	}
+	dev.readCh <- []byte("OUTPUT_WHILE_WRITE_BLOCKED\n")
+
+	deadline := time.After(2 * time.Second)
+	sawOutput := false
+	for !sawOutput {
+		select {
+		case f := <-frames:
+			if f.Kind == FrameOutput && strings.Contains(string(f.Output), "OUTPUT_WHILE_WRITE_BLOCKED") {
+				sawOutput = true
+			}
+		case <-deadline:
+			t.Fatal("output pump stalled while ptmx.Write was blocked (AB-BA deadlock)")
+		}
+	}
+
+	// Unblock ptmx.Write and verify all queued bytes arrive in order.
+	close(dev.unblockWrite)
+	waitDeadline := time.After(2 * time.Second)
+	for dev.writtenString() != "hello world" {
+		select {
+		case <-waitDeadline:
+			t.Fatalf("written = %q, want %q", dev.writtenString(), "hello world")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestSessionWriteQueueFullReturnsErrorWithoutBlocking(t *testing.T) {
+	dev := newBlockingWriteDevice()
+	s := newSession("term-full", 1235, "bash")
+	s.ptmx = dev
+	defer s.close(true)
+
+	// Trigger writer goroutine and block it inside dev.Write.
+	if err := s.writeRaw([]byte("x")); err != nil {
+		t.Fatalf("initial writeRaw: %v", err)
+	}
+	select {
+	case <-dev.writeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writer goroutine did not start")
+	}
+
+	// Fill the queue up to maxWriteQueueBytes.
+	big := bytes.Repeat([]byte("a"), maxWriteQueueBytes)
+	if err := s.writeRaw(big); err != nil {
+		t.Fatalf("filling queue failed: %v", err)
+	}
+
+	// Next write must fail immediately with ErrWriteQueueFull instead of blocking.
+	done := make(chan error, 1)
+	go func() {
+		done <- s.writeRaw([]byte("overflow"))
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrWriteQueueFull) {
+			t.Fatalf("err = %v, want ErrWriteQueueFull", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("writeRaw blocked when write queue was full")
+	}
+}
+
+// TestRealPTY_BidirectionalBackpressureNoDeadlock exercises a real OS PTY where
+// the parent floods >4KB of input (exceeding macOS ~1KB TTYHOG) before the child
+// reads stdin, while the child simultaneously writes >64KB to stdout.
+func TestRealPTY_BidirectionalBackpressureNoDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry()
+	reg.SetWorkspace(dir)
+
+	info, err := reg.Create(CreateRequest{WorkspaceURI: "file://" + dir})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer func() { _ = reg.Close(info.TerminalID, true) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	ch, err := reg.StreamChannelFrom(ctx, info.TerminalID, 0)
+	if err != nil {
+		t.Fatalf("StreamChannelFrom: %v", err)
+	}
+
+	// Child sleeps briefly (letting parent fill PTY input queue), floods stdout,
+	// then reads 4096 bytes from stdin and prints a marker that does not appear
+	// literally in the command string.
+	script := "stty -echo; python3 -c 'import sys,time; time.sleep(0.15); sys.stdout.write(\"X\"*65536+\"\\n\"); sys.stdout.flush(); data=sys.stdin.read(4096); print(\"REAL_\"+\"DONE_\"+str(len(data)))' || (sleep 0.2; head -c 4096 >/dev/null; printf 'REAL_%s\\n' 'DONE_FALLBACK')\n"
+	if err := reg.Write(info.TerminalID, []byte(script)); err != nil {
+		t.Fatalf("Write script: %v", err)
+	}
+
+	// Immediately flood >4KB of input (4x macOS TTYHOG) across short lines (< MAX_CANON)
+	// without waiting for child.
+	payload := strings.Repeat(strings.Repeat("A", 63)+"\n", 64)
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- reg.Write(info.TerminalID, []byte(payload))
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("Write payload: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("reg.Write blocked on full PTY input buffer")
+	}
+
+	var out strings.Builder
+	for {
+		if strings.Contains(out.String(), "REAL_DONE_") {
+			break
+		}
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				t.Fatalf("stream closed before REAL_DONE_; got %d bytes", out.Len())
+			}
+			if f.Kind == FrameOutput {
+				out.Write(f.Output)
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for REAL_DONE_ under bidirectional backpressure; got %d bytes", out.Len())
+		}
 	}
 }

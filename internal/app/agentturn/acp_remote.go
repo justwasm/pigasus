@@ -428,7 +428,11 @@ func DialACPRemote(ctx context.Context, rawURL, token, cwd string, acpVersion ..
 	return connectACPRemote(ctx, dial, nil, cwd, ver)
 }
 
-// NewACPRemote initializes an ACP connection over static reader/writer and creates a session.
+// NewACPRemote initializes an ACP connection over reader/writer streams and
+// creates a session. The protocol connection owns closable streams; closer is
+// an optional additional host resource (for example the subprocess lifetime).
+// For a duplex io.ReadWriteCloser, pass it as both peerInput and peerOutput.
+// Both subprocess adapters and in-memory peers use this construction seam.
 func NewACPRemote(ctx context.Context, peerInput io.Writer, peerOutput io.Reader, closer io.Closer, cwd string, acpVersion ...string) (*ACPRemote, error) {
 	ver := "auto"
 	if len(acpVersion) > 0 && strings.TrimSpace(acpVersion[0]) != "" {
@@ -585,19 +589,21 @@ func (r *ACPRemote) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, e
 	}
 
 	cancelDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			detachedCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if r.sessionV2 != nil {
+	// v1 ClientSession.Prompt owns ordered cancellation: it queues exactly one
+	// session/cancel after the prompt and keeps reading its terminal response.
+	// Only v2 needs the host watcher because its prompt acknowledgement and
+	// session update stream have separate lifetimes.
+	if r.sessionV2 != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				detachedCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 				_ = r.sessionV2.Cancel(detachedCtx)
-			} else if r.sessionV1 != nil {
-				_ = r.sessionV1.Cancel(detachedCtx)
+			case <-cancelDone:
 			}
-		case <-cancelDone:
-		}
-	}()
+		}()
+	}
 
 	go func() {
 		defer func() {

@@ -15,6 +15,8 @@ type turnEnvelope struct {
 	handle *TurnHandle
 	config TurnConfig
 	prompt string
+	images []ImagePart
+	ctx    context.Context
 }
 
 func (a *Actor) loop() {
@@ -68,6 +70,8 @@ func isTransientNetworkError(err error) bool {
 		"connection reset by peer",
 		"connection refused",
 		"connection timed out",
+		"operation timed out",
+		"connection dropped",
 		"unexpected eof",
 	}
 	for _, phrase := range transientPhrases {
@@ -124,7 +128,15 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 		return
 	}
 
-	turnCtx, turnCancel := context.WithCancel(a.ctx)
+	baseCtx := a.ctx
+	if env.ctx != nil {
+		baseCtx = context.WithoutCancel(env.ctx)
+	}
+	turnCtx, turnCancel := context.WithCancel(baseCtx)
+	if env.ctx != nil {
+		stopWatch := context.AfterFunc(a.ctx, turnCancel)
+		defer stopWatch()
+	}
 	a.mu.Lock()
 	a.current = h
 	a.turnCancel = turnCancel
@@ -157,6 +169,7 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 		Model:     cfg.Model,
 		CreatedAt: startTime,
 		Input:     input,
+		InputImages: cloneImageParts(env.images),
 		Steps:     make([]Step, 0),
 		Status:    "running",
 	}
@@ -765,7 +778,7 @@ func lastStepCopy(steps []Step) *Step {
 	if len(steps) == 0 {
 		return nil
 	}
-	cp := steps[len(steps)-1]
+	cp := cloneStep(steps[len(steps)-1])
 	return &cp
 }
 

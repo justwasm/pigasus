@@ -494,11 +494,21 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 // IsFailoverEligible reports whether err is an error that justifies failing over
 // to another provider (e.g. 429 quota exhaustion, 401 unauthenticated, 403 forbidden,
 // 5xx server errors, or transient connection drops before stream payload begins).
+//
+// An empty organization prepaid wallet is the one quota-class failure that is
+// NOT eligible: AGY 1.5.17 stopped the turn on it immediately, and no other
+// target can serve a request the organization's wallet cannot pay for. Because
+// the failure can arrive as a plain 429 carrying the ordinary quota sentence,
+// the check has to run before the quota / retryable-status rules below, which
+// would otherwise mark the 429 eligible.
 func IsFailoverEligible(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}
-	if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) || apierror.IsRetryableStatusErr(err) {
+	if apierror.IsPrepaidBalanceExhaustedErr(err) {
+		return false
+	}
+	if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) || apierror.IsRetryableStatusErr(err) || apierror.IsConnectionDroppedErr(err) {
 		return true
 	}
 	var he *apierror.HTTPError

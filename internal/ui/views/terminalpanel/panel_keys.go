@@ -71,7 +71,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 2. Esc key handling (Modal isolation):
+	// 2. Esc key handling (Modal isolation or passthrough):
 	if key.Code == tea.KeyEsc {
 		if p.isScrollbackMode {
 			// Exit scrollback mode back to live output view
@@ -80,23 +80,25 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			p.mu.Unlock()
 			return true, nil
 		}
-		detachFn := p.seams.Detach
-		closeFn := p.seams.Close
-		p.mu.Unlock()
-		// Detach from panel modal; leaves PTY running
-		if detachFn != nil {
-			return true, detachFn()
+		if !p.seams.PassThroughEsc {
+			detachFn := p.seams.Detach
+			closeFn := p.seams.Close
+			p.mu.Unlock()
+			// Detach from panel modal; leaves PTY running
+			if detachFn != nil {
+				return true, detachFn()
+			}
+			if closeFn != nil {
+				return true, closeFn()
+			}
+			return true, nil
 		}
-		if closeFn != nil {
-			return true, closeFn()
-		}
-		return true, nil
 	}
 
 	// 3. Scrollback navigation triggers:
-	// PgUp activates scrollback mode if history exists
+	// Unmodified PgUp activates scrollback mode if history exists
 	sbCount := p.scrollbackCount()
-	if key.Code == tea.KeyPgUp && sbCount > 0 {
+	if key.Code == tea.KeyPgUp && key.Mod == 0 && sbCount > 0 {
 		p.isScrollbackMode = true
 		step := p.rows / 2
 		if step < 1 {
@@ -162,10 +164,13 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 
 	// 4. Encode key and forward directly to the backend PTY
 	writeFn := p.seams.WriteInput
-	cursorKeysApp := p.cursorKeysApp
+	encodeOpts := KeyEncodeOptions{
+		CursorKeysApp:   p.cursorKeysApp,
+		ModifyOtherKeys: p.modifyOtherKeys,
+	}
 	p.mu.Unlock()
 
-	raw := EncodeKeyWithModes(key, cursorKeysApp)
+	raw := EncodeKeyWithOptions(key, encodeOpts)
 	if len(raw) > 0 && writeFn != nil {
 		_ = writeFn(raw)
 	}

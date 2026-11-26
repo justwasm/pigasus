@@ -5,15 +5,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
 )
 
 type mockHost struct {
-	height int
-	width  int
-	panels map[panelregistry.Kind]any
+	height    int
+	width     int
+	panels    map[panelregistry.Kind]any
+	artifacts []compaction.ArtifactRef
 }
 
 func (m *mockHost) TerminalHeight() int { return m.height }
@@ -25,6 +27,7 @@ func (m *mockHost) Panel(k panelregistry.Kind) any {
 	return nil
 }
 func (m *mockHost) ContextState() contextpanel.State    { return contextpanel.State{} }
+func (m *mockHost) Artifacts() []compaction.ArtifactRef  { return m.artifacts }
 func (m *mockHost) PanelUsageLines() []string           { return []string{"usage row"} }
 func (m *mockHost) UsageViewerSpec() tuiviewer.Spec     { return tuiviewer.Spec{Total: 10} }
 func (m *mockHost) PanelChangelogLines() []string       { return []string{"changelog row"} }

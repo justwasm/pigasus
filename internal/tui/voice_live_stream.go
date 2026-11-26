@@ -185,7 +185,7 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 	m.syncVoiceWireHUD()
 
 	taskCtx, taskCancel := context.WithCancel(context.Background())
-	m.audio.setThinkerCancel(invocationID, taskCancel)
+	m.voiceBridge().SetThinkerCancel(invocationID, taskCancel)
 
 	go func() {
 		defer taskCancel()
@@ -196,7 +196,7 @@ func (m *RootModel) handleVoiceThinkerHandoff(invocationID string, task string) 
 				_ = sess.SendThinkerNote(note)
 			}
 		})
-		alreadySent := m.audio.clearThinkerCancel(invocationID)
+		alreadySent := m.voiceBridge().ClearThinkerCancel(invocationID)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				if !alreadySent && sess != nil && sess.IsActive() {

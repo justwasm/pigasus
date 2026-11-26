@@ -15,6 +15,7 @@ import (
 
 // RegisterComposerStories registers prompt, textarea, CJK cursor, and attachment stories.
 func RegisterComposerStories(c *Catalog) {
+	c.Register(newInputSelectionStory())
 	// 1. PromptModel / Composer
 	c.Register(Story{
 		ID:          "composer-prompt-model",

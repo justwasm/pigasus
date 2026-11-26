@@ -28,43 +28,44 @@ func (t *defineTool) Definition() actor.ToolDefinition {
 		Name:        "define_subagent",
 		Description: defineSubagentDescription,
 		Parameters: map[string]any{
-			"type": "object",
+			"type": "OBJECT",
 			"properties": map[string]any{
-				"name":          map[string]any{"type": "string", "description": "Unique name for the subagent."},
-				"description":   map[string]any{"type": "string", "description": "What the subagent is for."},
-				"system_prompt": map[string]any{"type": "string", "description": "The subagent's system instruction."},
-				"enable_write_tools": map[string]any{
-					"type":        "boolean",
-					"description": "Grant tools to create and edit files, and run commands.",
+				"Description": map[string]any{
+					"type":        "STRING",
+					"description": "What this subagent does and when it should be used.",
+					"minLength":   "1",
 				},
-				"enable_mcp_tools": map[string]any{
-					"type":        "boolean",
+				"EnableMCPTools": map[string]any{
+					"type":        "BOOLEAN",
 					"description": "Grant access to MCP tools.",
 				},
-				"enable_subagent_tools": map[string]any{
-					"type":        "boolean",
+				"EnableSubagentTools": map[string]any{
+					"type":        "BOOLEAN",
 					"description": "Grant tools to define and invoke its own subagents.",
 				},
+				"EnableWriteTools": map[string]any{
+					"type":        "BOOLEAN",
+					"description": "Grant tools to create and edit files, and run commands.",
+				},
+				"Name": map[string]any{
+					"type":        "STRING",
+					"description": "Unique name used to invoke the subagent.",
+					"minLength":   "1",
+				},
+				"SystemPrompt": map[string]any{
+					"type":        "STRING",
+					"description": "System prompt for the subagent.",
+					"minLength":   "1",
+				},
 			},
-			"required": []string{"name", "system_prompt"},
+			"required": []string{"Name", "Description", "SystemPrompt"},
 		},
 	}
 }
 
-// defineSubagentDescription is the clone's own wording for the tool.
-//
-// 【一手】 the reference's captured description is
-//
-//	"Define a new subagent type that can then be invoked repeatedly.
-//	 Subagents always have tools to research the codebase and to
-//	 communicate with other agents."
-//
-// and that sentence is the base set this package implements: the
-// research tools and the messaging tool are always granted, and the
-// three switches add the rest.
-const defineSubagentDescription = "Define a subagent for the duration of this conversation. " +
-	"Subagents always have tools to research the codebase and to communicate with other agents; " +
-	"the grants add the write tools, the MCP tools and the tools to define and invoke its own subagents."
+// defineSubagentDescription is the reference's captured description.
+const defineSubagentDescription = "Define a new subagent type that can then be invoked repeatedly. " +
+	"Subagents always have tools to research the codebase and to communicate with other agents."
 
 type defineArgs struct {
 	Name           string `json:"name"`

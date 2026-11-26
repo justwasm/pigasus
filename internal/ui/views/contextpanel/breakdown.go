@@ -354,6 +354,39 @@ func SystemPromptTokens(fullPromptLen, skillsTokens, subagentsTokens int) int {
 	return base
 }
 
+// AutoCompactRows returns the descriptor row(s) shown directly under the
+// capacity header in /context (matching upstream agy 1.5.15 renderAutoCompact).
+func AutoCompactRows(tokens int, overrideSpec string) []Row {
+	if tokens > 0 {
+		if overrideSpec != "" {
+			return []Row{{
+				Text: fmt.Sprintf("Auto-compact at %s tokens (overridden by AGY_CLI_AUTO_COMPACT_OVERRIDE=%s)", TokenLabel(tokens), overrideSpec),
+				Pad:  5,
+			}}
+		}
+		return []Row{{
+			Text: fmt.Sprintf("Auto-compact at %s tokens", TokenLabel(tokens)),
+			Pad:  5,
+		}}
+	}
+	return []Row{
+		{Text: "Auto-compact at server default", Pad: 5},
+		{Text: palette.DimGrayOpen + "To override, set AGY_CLI_AUTO_COMPACT_OVERRIDE (e.g. 800000, 800K, 80%)" + "\x1b[39m", Pad: 5},
+	}
+}
+
+func insertAutoCompactRows(rows []Row, tokens int, overrideSpec string) []Row {
+	ac := AutoCompactRows(tokens, overrideSpec)
+	if len(rows) < 2 {
+		return append(rows, ac...)
+	}
+	out := make([]Row, 0, len(rows)+len(ac))
+	out = append(out, rows[:2]...)
+	out = append(out, ac...)
+	out = append(out, rows[2:]...)
+	return out
+}
+
 // EmptyRows returns the 7 descriptor rows of the empty context state.
 func EmptyRows(model string) []Row {
 	return EmptyRowsWithLimit(model, MaxContextTokens)

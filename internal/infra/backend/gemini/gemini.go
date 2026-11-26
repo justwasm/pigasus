@@ -667,20 +667,32 @@ type geminiFunctionCall struct {
 	Name string         `json:"name"`
 }
 
+// geminiFunctionResponsePart carries multimodal media attached to a tool response.
+type geminiFunctionResponsePart struct {
+	InlineData *geminiInlineData `json:"inlineData,omitempty"`
+}
+
 // geminiFunctionResponse is the harness's half of a tool call.
 //
 // The reference answers with the same id the call carried, so the API can
 // pair them.
 type geminiFunctionResponse struct {
-	ID       string         `json:"id,omitempty"`
-	Name     string         `json:"name"`
-	Response map[string]any `json:"response,omitempty"`
+	ID       string                       `json:"id,omitempty"`
+	Name     string                       `json:"name"`
+	Response map[string]any               `json:"response,omitempty"`
+	Parts    []geminiFunctionResponsePart `json:"parts,omitempty"`
+}
+
+type geminiImageConfig struct {
+	AspectRatio string `json:"aspectRatio,omitempty"`
 }
 
 type geminiGenConfig struct {
-	MaxOutputTokens int                   `json:"maxOutputTokens,omitempty"`
-	Temperature     *float64              `json:"temperature,omitempty"`
-	ThinkingConfig  *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+	MaxOutputTokens    int                   `json:"maxOutputTokens,omitempty"`
+	Temperature        *float64              `json:"temperature,omitempty"`
+	ThinkingConfig     *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+	ResponseModalities []string              `json:"responseModalities,omitempty"`
+	ImageConfig        *geminiImageConfig    `json:"imageConfig,omitempty"`
 }
 
 type geminiThinkingConfig struct {
@@ -885,6 +897,18 @@ func geminiContentsFor(message backend.Message, paired map[string]bool) []gemini
 		if name == "" {
 			name = message.ToolCallID
 		}
+		var frParts []geminiFunctionResponsePart
+		for _, img := range message.Images {
+			if len(img.Data) == 0 {
+				continue
+			}
+			frParts = append(frParts, geminiFunctionResponsePart{
+				InlineData: &geminiInlineData{
+					MIMEType: img.MIMEType,
+					Data:     base64.StdEncoding.EncodeToString(img.Data),
+				},
+			})
+		}
 		return []geminiContent{{
 			Role: "model",
 			Parts: []geminiPart{{
@@ -892,6 +916,7 @@ func geminiContentsFor(message backend.Message, paired map[string]bool) []gemini
 					ID:       message.ToolCallID,
 					Name:     name,
 					Response: toolResponseFor(message),
+					Parts:    frParts,
 				},
 			}},
 		}}
@@ -984,6 +1009,19 @@ func hardenGeminiContents(contents []geminiContent) []geminiContent {
 	if n := len(out); n > 0 && out[n-1].Role == "model" && !geminiHasFunctionResponse(out[n-1]) {
 		out = append(out, geminiContent{Role: "user", Parts: []geminiPart{{Text: "Continue."}}})
 	}
+	// Use the originating call's name even when a stored result omits it or
+	// carries a stale name. The API pairs by ID but validates the name too.
+	callNames := make(map[string]string)
+	for _, content := range out {
+		for _, part := range content.Parts {
+			if call := part.FunctionCall; call != nil && call.ID != "" && call.Name != "" {
+				callNames[call.ID] = call.Name
+			}
+			if response := part.FunctionResponse; response != nil && callNames[response.ID] != "" {
+				response.Name = callNames[response.ID]
+			}
+		}
+	}
 	return out
 }
 
@@ -995,3 +1033,125 @@ func geminiHasFunctionResponse(c geminiContent) bool {
 	}
 	return false
 }
+
+func (c *GeminiClient) generateContentURL(model string) string {
+	version := c.cfg.APIVersion
+	if c.cfg.VertexProject != "" {
+		location := c.cfg.VertexLocation
+		if location == "" {
+			location = "us-central1"
+		}
+		return fmt.Sprintf(
+			"%s/%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+			c.baseURL, version, c.cfg.VertexProject, location, model,
+		)
+	}
+	return fmt.Sprintf("%s/%s/models/%s:generateContent", c.baseURL, version, model)
+}
+
+// GenerateImage performs a non-streaming Gemini API generateContent call for
+// image generation or editing.
+func (c *GeminiClient) GenerateImage(ctx context.Context, req backend.ImageGenRequest) (backend.ImageGenResult, error) {
+	if c == nil || c.httpDo == nil || strings.TrimSpace(c.cfg.BaseURL) == "" {
+		return backend.ImageGenResult{}, fmt.Errorf("backend gemini: base url is required")
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = geminicode.DefaultImageGenerationModel
+	}
+	aspectRatio := strings.TrimSpace(req.AspectRatio)
+	if aspectRatio == "" {
+		aspectRatio = "1:1"
+	}
+	parts := make([]geminiPart, 0, len(req.InputImages)+1)
+	for _, img := range req.InputImages {
+		if len(img.Data) == 0 {
+			continue
+		}
+		mimeType := strings.TrimSpace(img.MIMEType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		parts = append(parts, geminiPart{
+			InlineData: &geminiInlineData{
+				MIMEType: mimeType,
+				Data:     base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	if strings.TrimSpace(req.Prompt) == "" && len(parts) == 0 {
+		return backend.ImageGenResult{}, fmt.Errorf("backend gemini: image generation requires a prompt or input media")
+	}
+	if req.Prompt != "" {
+		parts = append(parts, geminiPart{Text: req.Prompt})
+	}
+	wireReq := geminiRequest{
+		Contents: []geminiContent{{
+			Role:  "user",
+			Parts: parts,
+		}},
+		GenerationConfig: &geminiGenConfig{
+			ResponseModalities: []string{"IMAGE"},
+			ImageConfig: &geminiImageConfig{
+				AspectRatio: aspectRatio,
+			},
+		},
+	}
+	body, err := json.Marshal(wireReq)
+	if err != nil {
+		return backend.ImageGenResult{}, fmt.Errorf("backend gemini: encode image request: %w", err)
+	}
+	endpoint := c.generateContentURL(model)
+	raw, err := streampipe.ExecuteWithRetry(ctx, endpoint, func(ctx context.Context) ([]byte, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("content-type", "application/json")
+		for name, value := range c.cfg.Headers {
+			httpReq.Header.Set(name, value)
+		}
+		if c.cfg.APIKey != "" {
+			httpReq.Header.Set("X-Goog-Api-Key", c.cfg.APIKey)
+		}
+		httpReq.Header.Set("X-Goog-Api-Client", GeminiAPIClientHeader)
+		httpReq.Header.Set("User-Agent", c.cfg.UserAgent)
+
+		resp, err := c.httpDo(httpReq)
+		if err != nil {
+			return nil, retry.ClassifyTransportError(err, endpoint)
+		}
+		defer resp.Body.Close()
+		rawBody, rerr := io.ReadAll(io.LimitReader(resp.Body, (32<<20)+1))
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, &apierror.HTTPError{StatusCode: resp.StatusCode, Body: rawBody, URL: endpoint, Header: resp.Header}
+		}
+		if rerr != nil {
+			return nil, retry.ClassifyTransportError(rerr, endpoint)
+		}
+		if len(rawBody) > 32<<20 {
+			return nil, fmt.Errorf("backend gemini: image response exceeds 32 MiB")
+		}
+		return rawBody, nil
+	})
+	if err != nil {
+		return backend.ImageGenResult{}, err
+	}
+	var parsed geminicode.GenerateContentResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return backend.ImageGenResult{}, fmt.Errorf("backend gemini: decode image response: %w", err)
+	}
+	if len(parsed.Candidates) == 0 && parsed.UsageMetadata == nil && parsed.ResponseID == "" {
+		return backend.ImageGenResult{}, fmt.Errorf("no response in generate content result")
+	}
+	res, err := geminicode.ExtractGeneratedImage(&parsed)
+	if err != nil {
+		return backend.ImageGenResult{}, err
+	}
+	return backend.ImageGenResult{
+		MIMEType: res.MIMEType,
+		Data:     res.Data,
+	}, nil
+}
+
+var _ backend.ImageGenerator = (*GeminiClient)(nil)

@@ -39,6 +39,7 @@ import (
 	"sync/atomic"
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 )
@@ -176,6 +177,9 @@ func ReadManifest(name string) Manifest {
 // here. The prior os.ReadDir + e.IsDir() pattern reported the link's
 // own FileMode and silently dropped the plugin.
 func InstalledRows() []Row {
+	if settings.ReadAdminPluginControls().PluginsDisabled {
+		return nil
+	}
 	// Cycle plugin-fsnotify: consume the watcher staleness flag so the
 	// next /plugin render starts from a known-fresh state. On the TUI
 	// path the watcher is wired; print mode leaves WatcherPtr nil
@@ -273,6 +277,10 @@ func MarketplaceRoot() string {
 // (a common shape for shared cache directories on NFS / cross-machine
 // mounts) are now visible to the Discover tab.
 func Marketplaces() []Marketplace {
+	ctrl := settings.ReadAdminPluginControls()
+	if ctrl.PluginsDisabled || ctrl.MarketplaceDisabled {
+		return nil
+	}
 	// Cycle plugin-fsnotify: see InstalledRows. The Discover tab
 	// is the one most likely to render a stale list when the user
 	// edits a marketplace cache (e.g. a CI job refreshing the cache

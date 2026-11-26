@@ -186,7 +186,7 @@ When `enableTerminalSandbox` is set to `true` (controlled via `/config` or setti
 
 1. **Allowed Roots**:
    - `Cwd`: the active workspace root.
-   - `ArtifactDir`: `~/.gemini/antigravity-cli/artifacts` (brain outputs and review panes).
+   - `ArtifactDir`: `~/.gemini/antigravity-cli/artifacts` (brain outputs and review panes). Note this is the *sandbox's* root, distinct from the conversation's artifact directory (`<appDataDir>/brain/<conv-id>`), which artifacts.tmpl names and which is a tool write root rather than a sandbox root — see [compaction.md](compaction.md) §"artifacts.List".
    - `ScratchDir`: `~/.gemini/antigravity-cli/brain/<conv-id>/scratch` (intermediate turn artifacts).
    - `ExtraPaths`: subagent worktrees and explicit additional directories.
 

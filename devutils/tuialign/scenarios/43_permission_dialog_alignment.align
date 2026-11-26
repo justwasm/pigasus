@@ -1,0 +1,28 @@
+NAME "Permission Confirmation Dialog Alignment"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"permissions":{"ask":["command(*)"]},"trustedWorkspaces":[],"showTips":false}'
+
+# Turn 1: Emit a tool call that requires confirmation (gh pr merge)
+MOCK_TURN
+  THOUGHT "Merging pull request..." TOKENS 80 DELAY 100ms
+  TOOL run_command {"CommandLine":"gh pr merge 123 --squash","toolSummary":"Merge PR","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 25 THOUGHTS 80
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 20s
+
+TYPE "merge pr 123"
+ENTER
+
+WAIT_TEXT "Run this command?" 20s
+SNAPSHOT "01_permission_dialog_command"
+
+# Navigate down to "No, cancel"
+KEYS "Down"
+SLEEP 500ms
+SNAPSHOT "02_permission_dialog_nav_down"
+
+DIFF
+CLEANUP

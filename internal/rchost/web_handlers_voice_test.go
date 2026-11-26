@@ -112,7 +112,7 @@ func TestBuildHostVoiceBackend_Priorities(t *testing.T) {
 	}
 	defer func() { auth.LoadKeychainTokenFn = nil }()
 
-	// 1. With OAuth token, resolves to AICodeLiveBackend with fallback to GeminiLiveBackend
+	// 1. With OAuth token and no GEMINI_API_KEY, resolves to AICodeLiveBackend without broken bearer fallback
 	t.Setenv("JETSKI_OAUTH_TOKEN", "ya29.host-oauth-token")
 	be := buildHostVoiceBackend()
 	ac, ok := be.(*voice.AICodeLiveBackend)
@@ -122,30 +122,19 @@ func TestBuildHostVoiceBackend_Priorities(t *testing.T) {
 	if ac.AccessToken() != "ya29.host-oauth-token" {
 		t.Fatalf("expected AccessToken == 'ya29.host-oauth-token', got %q", ac.AccessToken())
 	}
-	gl, ok := ac.Fallback().(*voice.GeminiLiveBackend)
-	if !ok {
-		t.Fatalf("expected fallback to be *voice.GeminiLiveBackend, got %T", ac.Fallback())
-	}
-	if gl.BearerToken() != "ya29.host-oauth-token" {
-		t.Fatalf("expected BearerToken == 'ya29.host-oauth-token', got %q", gl.BearerToken())
+	if ac.Fallback() != nil {
+		t.Fatalf("expected nil fallback when no API key is configured, got %T", ac.Fallback())
 	}
 
-	// 1b. When BOTH OAuth token and GEMINI_API_KEY are present, OAuth takes precedence!
+	// 1b. When BOTH OAuth token and GEMINI_API_KEY are present, GEMINI_API_KEY takes precedence!
 	t.Setenv("GEMINI_API_KEY", "test-host-api-key")
 	be = buildHostVoiceBackend()
-	ac, ok = be.(*voice.AICodeLiveBackend)
+	gl, ok := be.(*voice.GeminiLiveBackend)
 	if !ok {
-		t.Fatalf("expected OAuth to take precedence over GEMINI_API_KEY, got %T", be)
-	}
-	if ac.AccessToken() != "ya29.host-oauth-token" {
-		t.Fatalf("expected AccessToken == 'ya29.host-oauth-token', got %q", ac.AccessToken())
-	}
-	gl, ok = ac.Fallback().(*voice.GeminiLiveBackend)
-	if !ok {
-		t.Fatalf("expected fallback to be *voice.GeminiLiveBackend, got %T", ac.Fallback())
+		t.Fatalf("expected GEMINI_API_KEY to take precedence over OAuth, got %T", be)
 	}
 	if gl.APIKey() != "test-host-api-key" {
-		t.Fatalf("expected fallback APIKey == 'test-host-api-key', got %q", gl.APIKey())
+		t.Fatalf("expected APIKey == 'test-host-api-key', got %q", gl.APIKey())
 	}
 
 	// 1c. With OPENAGY_VOICE_FORCE_API_KEY, forces GeminiLiveBackend even when OAuth is present

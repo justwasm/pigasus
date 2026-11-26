@@ -222,13 +222,11 @@ func TestCursor_HiddenWhenTextSelected(t *testing.T) {
 
 	// Input selection
 	m.prompt.input.SetValue("hello")
-	m.prompt.InputSelStart = 0
-	m.prompt.InputSelEnd = 3
+	m.prompt.SetRange(0, 3)
 	if v := m.View(); v.Cursor != nil {
 		t.Errorf("cursor must be hidden when input text is selected, got: %+v", v.Cursor)
 	}
-	m.prompt.InputSelStart = 0
-	m.prompt.InputSelEnd = 0
+	m.prompt.SetRange(0, 0)
 
 	// Viewport selection dragging
 	m.viewport.SelDragging = true

@@ -1344,3 +1344,91 @@ func seasonalRowIndex(rows []Row) int {
 	}
 	return -1
 }
+
+func TestRenderingModeWarningStyledSeparatelyFromDimDescription(t *testing.T) {
+	testHome(t, map[string]any{})
+	const hint = "⚠ alt screen unavailable — run ssh -t"
+	p := New(Seams{
+		AltScreenHint: func() string { return hint },
+	})
+	idx := rowIndex(t, p, "Rendering Mode")
+	p.SetCursor(idx)
+
+	lines := p.Lines(24, 80)
+	var descLines, warnLines []string
+	for _, l := range lines {
+		plain := stripANSI(l)
+		if strings.Contains(plain, "full screen (altscreen) is ideal") || strings.Contains(plain, "flicker when toggling views") {
+			descLines = append(descLines, l)
+		}
+		if strings.Contains(plain, "alt screen unavailable") {
+			warnLines = append(warnLines, l)
+		}
+	}
+	if len(descLines) == 0 {
+		t.Fatalf("expected Rendering Mode description lines, got:\n%s", strings.Join(plainLines(p, 24, 80), "\n"))
+	}
+	if len(warnLines) == 0 {
+		t.Fatalf("expected Rendering Mode warning line, got:\n%s", strings.Join(plainLines(p, 24, 80), "\n"))
+	}
+	for _, dl := range descLines {
+		if !strings.Contains(dl, palette.SubtleOpen) || strings.Contains(dl, palette.WarningOpen) {
+			t.Errorf("description line should use SubtleOpen without WarningOpen: %q", dl)
+		}
+	}
+	for _, wl := range warnLines {
+		if !strings.Contains(wl, palette.WarningOpen) || strings.Contains(wl, palette.SubtleOpen) {
+			t.Errorf("warning line should use WarningOpen without SubtleOpen: %q", wl)
+		}
+	}
+
+	// Unrelated rows must not show the Rendering Mode warning.
+	p.SetCursor(rowIndex(t, p, "Agent Mode"))
+	if joined := strings.Join(plainLines(p, 24, 80), "\n"); strings.Contains(joined, hint) {
+		t.Errorf("unrelated row unexpectedly showed Rendering Mode warning:\n%s", joined)
+	}
+
+	// Submenu for Rendering Mode must also show the warning in WarningOpen.
+	p.SetCursor(idx)
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	subLines := p.Lines(24, 80)
+	foundSubWarn := false
+	for _, l := range subLines {
+		if strings.Contains(stripANSI(l), "alt screen unavailable") {
+			foundSubWarn = true
+			if !strings.Contains(l, palette.WarningOpen) || strings.Contains(l, palette.SubtleOpen) {
+				t.Errorf("submenu warning line should use WarningOpen without SubtleOpen: %q", l)
+			}
+		}
+	}
+	if !foundSubWarn {
+		t.Errorf("expected warning in Rendering Mode submenu, got:\n%s", strings.Join(plainLines(p, 24, 80), "\n"))
+	}
+}
+
+func TestMultiLineDescriptionNotTruncatedPastThreeLines(t *testing.T) {
+	testHome(t, map[string]any{})
+	p := New(Seams{})
+	idx := rowIndex(t, p, "Tool Permission")
+	p.SetCursor(idx)
+
+	lines := plainLines(p, 24, 60)
+	joined := strings.Join(lines, "\n")
+	// Tool Permission description wraps to >3 lines at width 60; verify both
+	// the beginning and the very end of the description are rendered.
+	if !strings.Contains(joined, "Controls when the agent asks") {
+		t.Fatalf("missing start of description:\n%s", joined)
+	}
+	if !strings.Contains(joined, "without prompting.") {
+		t.Fatalf("multi-line description was truncated past 3 lines:\n%s", joined)
+	}
+	var descCount int
+	for _, l := range p.Lines(24, 60) {
+		if strings.Contains(l, palette.SubtleOpen) {
+			descCount++
+		}
+	}
+	if descCount <= 3 {
+		t.Errorf("expected >3 wrapped description lines at width 60, got %d", descCount)
+	}
+}

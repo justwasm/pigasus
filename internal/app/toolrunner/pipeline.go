@@ -46,6 +46,16 @@ func PermissionGateMiddleware(
 	promptUser func(ctx context.Context, call backend.ToolCall) (bool, error),
 	onDenial func(toolName string),
 ) Middleware {
+	return PermissionGateMiddlewareWithAmend(policy, promptUser, nil, onDenial)
+}
+
+// PermissionGateMiddlewareWithAmend enforces permission policy and allows amending tool call arguments.
+func PermissionGateMiddlewareWithAmend(
+	policy *permissions.Policy,
+	promptUser func(ctx context.Context, call backend.ToolCall) (bool, error),
+	promptAmend func(ctx context.Context, call *backend.ToolCall) (bool, error),
+	onDenial func(toolName string),
+) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, call backend.ToolCall) (string, error) {
 			if call.Name == "terminal" {
@@ -55,13 +65,18 @@ func PermissionGateMiddleware(
 				return next(ctx, call)
 			}
 			target := ToolTarget(call)
-			v := policy.DecideNames(target, tools.PermissionNames(call.Name)...)
+			v := policy.DecideCall(target, call.Arguments, tools.PermissionNames(call.Name)...)
 			v = assessCommandVerdict(policy, call, target, v)
 			switch v {
 			case permissions.Allow:
 				return next(ctx, call)
 			case permissions.Ask:
-				if promptUser != nil {
+				if promptAmend != nil {
+					approved, err := promptAmend(ctx, &call)
+					if err == nil && approved {
+						return next(ctx, call)
+					}
+				} else if promptUser != nil {
 					approved, err := promptUser(ctx, call)
 					if err == nil && approved {
 						return next(ctx, call)

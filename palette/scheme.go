@@ -326,7 +326,7 @@ var ColorblindFriendlyDark = SchemeColors{
 
 // TokyoNight is the reference's 'tokyo night' scheme.
 var TokyoNight = SchemeColors{
-	Bg:           Hex("#a9b1d6"),
+	Bg:           Hex("#1a1b26"),
 	Fg:           Hex("#c0caf5"),
 	Accent:       Hex("#7aa2f7"),
 	Border:       Hex("#414868"),
@@ -344,8 +344,8 @@ var TokyoNight = SchemeColors{
 	ErrorFg:      Hex("#f7768e"),
 	WarningFg:    Hex("#ff9e64"),
 	LinkFg:       Hex("#7aa2f7"),
-	MutedFg:      Hex("#a9b1d6"),
-	DimFg:        Hex("#9aa5ce"),
+	MutedFg:      Hex("#9aa5ce"),
+	DimFg:        Hex("#7e86ad"),
 }
 
 // Terminal is the reference's 'terminal' scheme.

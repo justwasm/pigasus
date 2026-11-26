@@ -110,3 +110,49 @@ func TestProtoJSONTimestamp(t *testing.T) {
 		}
 	}
 }
+
+func TestAllRunningTaskSnapshots(t *testing.T) {
+	convA := "conv-all-a"
+	convB := "conv-all-b"
+	tA, err := backgroundTasks.newTask(convA+"/task-1", "/tmp/a.log", "sleep 10", nil)
+	if err != nil {
+		t.Fatalf("newTask A: %v", err)
+	}
+	defer backgroundTasks.remove(tA.id)
+	tA.toolName = "run_command"
+	tA.toolSummary = "Run sleep A"
+
+	tB, err := backgroundTasks.newTask(convB+"/task-2", "/tmp/b.log", "sleep 20", nil)
+	if err != nil {
+		t.Fatalf("newTask B: %v", err)
+	}
+	defer backgroundTasks.remove(tB.id)
+	tB.toolName = "run_command"
+	tB.toolSummary = "Run sleep B"
+	tB.mu.Lock()
+	tB.completed = true
+	tB.mu.Unlock()
+
+	got := AllRunningTaskSnapshots()
+	var foundA, foundB bool
+	for _, item := range got {
+		if item.Task.TaskID == tA.id {
+			foundA = true
+			if item.ConversationID != convA {
+				t.Errorf("ConversationID = %q, want %q", item.ConversationID, convA)
+			}
+			if item.Task.ToolSummary != "Run sleep A" {
+				t.Errorf("ToolSummary = %q, want %q", item.Task.ToolSummary, "Run sleep A")
+			}
+		}
+		if item.Task.TaskID == tB.id {
+			foundB = true
+		}
+	}
+	if !foundA {
+		t.Errorf("expected running task %q in AllRunningTaskSnapshots", tA.id)
+	}
+	if foundB {
+		t.Errorf("completed task %q should not appear in AllRunningTaskSnapshots", tB.id)
+	}
+}

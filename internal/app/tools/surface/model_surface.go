@@ -69,6 +69,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/filesystem"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
 //go:embed model_tools_1.4.6.json
@@ -424,4 +425,5 @@ func AddReferenceTools(reg *tools.Registry, ws string) {
 	reg.Register(&filesystem.ReadFile{Workspace: ws})
 	reg.Register(&filesystem.WriteFile{Workspace: ws})
 	reg.Register(&filesystem.EditFile{Workspace: ws})
+	reg.Register(&tasks.UpdateSteps{})
 }

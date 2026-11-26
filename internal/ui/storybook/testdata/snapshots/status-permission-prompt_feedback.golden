@@ -2,18 +2,18 @@
 --- TEXT MATRIX ---
 00: |Modal Authorization Prompt:                                                     |
 01: |                                                                                |
-02: |┌─ Permission Required ────────────────────────────────────────────────────────┐|
-03: |                                                                                |
-04: |│ Tool: run_command                                                            │|
+02: |Command                                                                         |
+03: |────────────────────────────────────────────────────────────────────────────────|
+04: |                                                                                |
 05: |                                                                                |
-06: |│ Command: curl -fsSL https://get.example.com/install.sh | bash                │|
-07: |                                                                                |
-08: |│ Feedback (Esc to cancel, Enter to submit):                                   │|
-09: |                                                                                |
-10: |│ > █                                                                          │|
-11: |                                                                                |
-12: |└──────────────────────────────────────────────────────────────────────────────┘|
-13: |                                                                                |
+06: |Requesting permission for:                                                      |
+07: |   curl -fsSL https://get.example.com/install.sh | bash                         |
+08: |                                                                                |
+09: |Run this command?                                                               |
+10: |Feedback (Esc to cancel, Enter to submit):                                      |
+11: |> █                                                                             |
+12: |                                                                                |
+13: |  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command                         |
 14: |                                                                                |
 15: |Shortcuts: [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback           |
 16: |                                                                                |
@@ -27,18 +27,18 @@
 --- ATTRIBUTE MATRIX ---
 00: [0:27] bold
 01: (plain)
-02: [0:3] fg=#657b83 | [3:22] fg=#cb4b16 | [22:80] fg=#657b83
-03: (plain)
-04: [0:1] fg=#657b83 | [2:7] fg=#657b83 | [8:19] fg=#268bd2,bold | [79:80] fg=#657b83
+02: [0:7] bold
+03: [0:80] fg=#657b83
+04: (plain)
 05: (plain)
-06: [0:1] fg=#657b83 | [2:10] fg=#657b83 | [79:80] fg=#657b83
-07: (plain)
-08: [0:1] fg=#657b83 | [2:44] fg=#cb4b16 | [79:80] fg=#657b83
-09: (plain)
-10: [0:1] fg=#657b83 | [2:3] fg=#268bd2,bold | [4:5] fg=#657b83 | [79:80] fg=#657b83
-11: (plain)
-12: [0:80] fg=#657b83
-13: (plain)
+06: [0:26] fg=#657b83
+07: [3:55] bold
+08: (plain)
+09: [0:17] bold
+10: [0:42] fg=#cb4b16
+11: [0:1] fg=#268bd2 | [2:3] fg=#657b83
+12: (plain)
+13: [0:55] fg=#657b83
 14: (plain)
 15: [0:69] fg=#657b83
 16: (plain)

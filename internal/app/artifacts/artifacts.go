@@ -18,9 +18,12 @@
 //	Last Edited: 2026-11-07T13:55:31Z
 //
 // A file without the sidecar was not written through the artifact layer, so it
-// is not listed. The clone has no artifact writer yet; this package is the
-// read side, so a checkpoint still reports the artifacts a session inherited
-// from agy or from a forked conversation.
+// is not listed. This package owns both halves: List reads the sidecar,
+// WriteMetadata writes it, and IsArtifactFile decides which writes are
+// artifacts in the first place (the reference's isActualArtifactFile). The
+// write tools call the hook the hosts install; shell and script writes bypass
+// it, which is exactly the reference's own rule ("not shell or Python
+// scripts, which skip ArtifactMetadata").
 package artifacts
 
 import (
@@ -39,22 +42,17 @@ import (
 const MetadataSuffix = ".metadata.json"
 
 // Dir is the conversation's artifact directory.
+//
+// 【一手】 this is the path artifacts.tmpl tells the model to write to
+// ("All artifacts should be written to the artifact directory:
+// {{ArtifactDirectoryPath}}"), and it is NOT <antigravityHome>/artifacts —
+// that directory belongs to the terminal sandbox's allow-list and is
+// unrelated. See docs/guide/compaction.md §"artifacts.List".
 func Dir(conversationID string) string {
 	if conversationID == "" {
 		return ""
 	}
 	return filepath.Join(confhome.Antigravity(), "brain", conversationID)
-}
-
-// metadata is the sidecar's shape.
-//
-// updatedAt is the artifact's last-edit time; userFacing says whether the
-// artifact is shown to the user (and whether it belongs in the list). The
-// reference's other keys (summary, requestFeedback) do not appear in the
-// checkpoint's entry.
-type metadata struct {
-	UpdatedAt  time.Time `json:"updatedAt"`
-	UserFacing *bool     `json:"userFacing"`
 }
 
 // List returns the conversation's artifacts in name order.
@@ -98,17 +96,17 @@ func List(conversationID string) []compaction.ArtifactRef {
 }
 
 // readMetadata reads and parses one sidecar.
-func readMetadata(path string) (metadata, bool) {
+func readMetadata(path string) (Metadata, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return metadata{}, false
+		return Metadata{}, false
 	}
-	var meta metadata
+	var meta Metadata
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return metadata{}, false
+		return Metadata{}, false
 	}
 	if meta.UpdatedAt.IsZero() {
-		return metadata{}, false
+		return Metadata{}, false
 	}
 	return meta, true
 }

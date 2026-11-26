@@ -20,6 +20,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
@@ -102,6 +103,9 @@ func (m *RootModel) updateTurnDoneMsg(msg toolsteps.TurnDoneMsg) (tea.Model, tea
 }
 
 func (m *RootModel) updateToolRunningMsg(msg toolsteps.ToolRunningMsg) {
+	if msg.Step.Name == tasks.UpdateStepsToolName {
+		return
+	}
 	if m.conversation.thinking {
 		m.finishLiveThinking()
 	}
@@ -120,6 +124,22 @@ func (m *RootModel) updateToolRunningMsg(msg toolsteps.ToolRunningMsg) {
 }
 
 func (m *RootModel) updateToolStepMsg(msg toolsteps.ToolStepMsg) {
+	if msg.Step.Name == tasks.UpdateStepsToolName {
+		if m.conversation.thinking {
+			m.finishLiveThinking()
+		}
+		m.conversation.stepTray.syncFromToolStep(msg.Step.Args, msg.Step.Result, msg.Step.Err)
+		m.conversation.liveSteps = append(m.conversation.liveSteps, msg.Step)
+		m.viewport.rowsCacheDirty = true
+		if len(m.session.store.SendingMessages) > 0 {
+			pending := append([]string(nil), m.session.store.SendingMessages...)
+			m.session.store.SendingMessages = nil
+			for _, instr := range pending {
+				m.applySteerToTranscript(instr)
+			}
+		}
+		return
+	}
 	if m.conversation.thinking {
 		m.finishLiveThinking()
 	}

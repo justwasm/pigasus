@@ -137,6 +137,23 @@ no separate after-compaction row in the clone's panel to change.
 
 ## 4. Item 4 — a subagent keeps its task, the parent's ID, and the parent's recent messages
 
+> [!WARNING]
+> **Corrected.** The "How it reaches the compaction" half of this section is
+> **not what the code does, and never was**. It describes a PiG extension
+> (`parentContextExtension`, `session_before_compact`,
+> `extension.CompactionResult`, `factoryload.LoadExtensionFromFactory`,
+> `createSubagentSession`, `ParentContextExtensionName`) — none of those
+> symbols exist anywhere in this repository. The `SubagentSummary` /
+> `CompactionPreparation` pair it describes has since been removed: it had no
+> callers and no counterpart in the reference.
+>
+> What the code actually does — verified against agy 1.5.17's own symbol
+> table (`utils.CaptureParentMessages` / `FormatCheckpointParentMessages`,
+> `CortexStepCheckpoint.captured_parent_messages = 31`) — is described in
+> [`docs/guide/agent-loop.md`](../../guide/agent-loop.md#the-subagents-parent-context-internalappsubagenttools-cycle-363-agy-1410).
+> The **problem statement** below is accurate and worth keeping; the
+> mechanism was fiction.
+
 > "Fixed subagents losing the task their parent agent gave them, and the
 > parent's ID, after their context was compacted, including with
 > `/compact`; a subagent's summary now keeps the parent agent's 10 most

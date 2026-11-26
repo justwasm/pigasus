@@ -74,6 +74,12 @@ func NewTmuxDriver(cfg TmuxConfig) (*TmuxDriver, error) {
 			cfg.PigasusBin = "/tmp/pigasus"
 		}
 	}
+	if abs, err := filepath.Abs(cfg.PigasusBin); err == nil {
+		cfg.PigasusBin = abs
+	}
+	if abs, err := filepath.Abs(cfg.AgyBin); err == nil {
+		cfg.AgyBin = abs
+	}
 
 	return &TmuxDriver{
 		cfg:     cfg,
@@ -183,7 +189,19 @@ func (d *TmuxDriver) Launch(target TmuxTarget) error {
 	pigasusHome := filepath.Join(ws, ".antigravity-pigasus")
 	_ = os.MkdirAll(pigasusHome, 0700)
 	realSettings := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "settings.json")
+	var settingsMap map[string]any
 	if data, err := os.ReadFile(realSettings); err == nil {
+		_ = json.Unmarshal(data, &settingsMap)
+	}
+	if settingsMap == nil {
+		settingsMap = make(map[string]any)
+	}
+	settingsMap["dismissedAnnouncements"] = []string{
+		"model-claude-opus-5-5",
+		"deprecate-gemini-2-0-flash",
+		"service-quota-rollover",
+	}
+	if data, err := json.MarshalIndent(settingsMap, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(pigasusHome, "settings.json"), data, 0600)
 	}
 	realCache := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "cache", "CHANGELOG.md")
@@ -380,7 +398,7 @@ func (d *TmuxDriver) WaitForText(pane string, substring string, timeout time.Dur
 					acceptedTrust = true
 				}
 			}
-			if strings.Contains(out, "Run this command?") || strings.Contains(out, "Requesting permission for:") || strings.Contains(out, "Yes, run command") {
+			if !isPermissionPrompt(substring) && isPermissionPrompt(out) {
 				_ = d.SendKeys(pane, "C-m")
 			}
 			if strings.Contains(out, substring) {
@@ -409,7 +427,7 @@ func (d *TmuxDriver) WaitForBoth(substring string, timeout time.Duration) (strin
 					leftAcceptedTrust = true
 				}
 			}
-			if strings.Contains(left, "Run this command?") || strings.Contains(left, "Requesting permission for:") || strings.Contains(left, "Yes, run command") {
+			if !isPermissionPrompt(substring) && isPermissionPrompt(left) {
 				_ = d.SendKeys("0", "C-m")
 			}
 		}
@@ -421,7 +439,7 @@ func (d *TmuxDriver) WaitForBoth(substring string, timeout time.Duration) (strin
 					rightAcceptedTrust = true
 				}
 			}
-			if strings.Contains(right, "Run this command?") || strings.Contains(right, "Requesting permission for:") || strings.Contains(right, "Yes, run command") {
+			if !isPermissionPrompt(substring) && isPermissionPrompt(right) {
 				_ = d.SendKeys("1", "C-m")
 			}
 		}
@@ -441,4 +459,14 @@ func (d *TmuxDriver) Close() {
 	if d.tempDir != "" {
 		_ = os.RemoveAll(d.tempDir)
 	}
+}
+
+func isPermissionPrompt(s string) bool {
+	return strings.Contains(s, "Run this command?") ||
+		strings.Contains(s, "Requesting permission for:") ||
+		strings.Contains(s, "Yes, run command") ||
+		strings.Contains(s, "Permission Required") ||
+		strings.Contains(s, "Approve once") ||
+		strings.Contains(s, "Allow access to this URL?") ||
+		strings.Contains(s, "Allow calling this tool?")
 }

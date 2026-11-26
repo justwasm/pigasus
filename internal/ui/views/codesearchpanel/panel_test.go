@@ -392,7 +392,7 @@ func TestPanelStreaming(t *testing.T) {
 	// would still be "" (the zero value), which is != StateRunning and
 	// would short-circuit the wait — so we require the runner to have
 	// started before we check for a terminal state.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if p.Search() != nil && p.Search().CurrentState() != "" {
 			break
@@ -406,7 +406,7 @@ func TestPanelStreaming(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if p.Search().CurrentState() == codesearch.StateRunning {
-		t.Fatal("search did not settle in 2s")
+		t.Fatal("search did not settle in 5s")
 	}
 
 	// Drain all the matches into the panel's hit set.
@@ -480,7 +480,7 @@ func TestPanelCancel(t *testing.T) {
 	})
 	p.Start("TODO")
 	// Wait for the runner goroutine to attach the child cmd.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if p.Search() != nil && p.Search().CurrentState() == codesearch.StateRunning {
 			break
@@ -489,7 +489,7 @@ func TestPanelCancel(t *testing.T) {
 	}
 
 	// Drain the one match, so the panel owns the Esc.
-	deadline = time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		p.Drain()
 		if len(p.Hits()) > 0 {

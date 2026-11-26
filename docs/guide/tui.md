@@ -879,7 +879,7 @@ The slice-B ledger left five findings on the status line open; branch
 | `vim` | filled — the mode names are the payload package's own (`statusline.VimModeName`: `NORMAL`, `INSERT`, `VISUAL`, `VISUAL LINE`), **not** the engine's badge spelling. The member is present **only when vim editor mode is on**, and the engine is never built when it is off (invariant 155). |
 | `pending_input_count` | the queued user messages — the queue mode's own prompt counts as one, the bash queue does not |
 | `subagents` | the registry's own list, mapped into the payload's entry |
-| `artifact_count` | **empty** — the clone has no artifact counter (存疑) |
+| `artifact_count` | filled — `len(artifacts.List(conversationID))`, the same list the /artifact panel and the checkpoint's resume block read. Omitted when 0. |
 | `tool_confirmation_pending` | **empty** — the host's `pendingPermission` is a test-only seam (存疑) |
 
 `agent_state` reaches **four** of the seven documented states: `idle`,
@@ -2469,3 +2469,66 @@ Model interface (`Init`, `Update`, `View`, `Store`, `Layout`, `UIPhase`, `Keybin
      - `Queue`: prompt queue mode and stream queue buffers.
      - `Tokens`: session and last-turn token totals.
 
+
+---
+
+## Process-global colour and width state (and the tests that leaked it)
+
+Three pieces of rendering state are **process-global**, not per-model. They are
+correct in a single-session process, but in a test binary — where hundreds of
+`RootModel`s share one process — a test that sets one and does not restore it
+changes what every later test renders.
+
+| global | setter | scope |
+|---|---|---|
+| the palette's live scheme | `palette.SetScheme` | frame-scoped in production: `Update` and `View` each `PushScheme`/pop |
+| the markdown renderer's scheme | `mdrender.SetColorScheme` | process-wide; **no** push/pop exists |
+| the markdown renderer's width | `mdrender.SetCurrentWidth` | process-wide; only a fallback when a render is given width ≤ 0 |
+
+### The rule
+
+**A constructor must not set the palette's global.** `RootModel` construction
+builds the prompt styles from the configured scheme directly, and sets
+`mdrender`'s scheme (which has no frame-scoped form, so the constructor is its
+only chance). It must *not* call `applyThemeLive`, which also sets the palette
+global: that is licensed only inside a frame, and doing it at construction
+leaves the whole process — every later render outside a frame, and every later
+test — wearing a scheme nobody selected. `TestNewRootModelInstallsTheScheme
+WhereItBelongs` pins both halves.
+
+**A rendering test must give its model a size.** `tea` delivers
+`WindowSizeMsg` before a user can type, so a real session always has one.
+A test model left at `width == 0` makes every render fall back to
+`mdrender`'s process-global width, so its wrapping silently depends on whatever
+another test pinned. Set `m.viewport.width/height` explicitly.
+
+**A test that exercises the credential must isolate the account registry.**
+`backendselect.HasOAuthToken` and `rclink.ActiveAccount` read
+`~/.openagy/accounts.json` (or `$OPENAGY_ACCOUNTS_CONFIG`). `ANTIGRAVITY_HOME`
+does **not** cover it. On a signed-in developer's machine an unisolated test
+sees a real account, which changes both the `/login` short-circuit and the
+remote-control card's URL form. Set `OPENAGY_ACCOUNTS_CONFIG` to a path inside
+the test's own `t.TempDir()`.
+
+### Asserting on a hard-wrapped URL
+
+The remote-control card wraps its link into one transcript row per
+`urlchunk` chunk, so only the **first** row carries `https://`. Two helpers
+must therefore agree with the card, not with intuition:
+
+- `linkRows` follows the URL *run* (first row mentioning a URL, then the
+  indented space-free continuation rows). Matching on `https://` alone drops
+  the continuations and truncates every wrapped link.
+- `transcriptContainsURL` joins the expected chunks with the newline that
+  separates the rows. Joining them with nothing can only match a URL that fits
+  on one row.
+
+Because the card resolves the account at render time, a test must ask the same
+question at assertion time (`renderedBrowserURL`) rather than hard-coding the
+chooser form — otherwise the expectation depends on ambient account state.
+
+### Checking this class of bug
+
+Run the package with `-shuffle=on` across several seeds. Sequential order can
+hide a leak entirely: the leaked state only reaches a test that runs *after*
+the setter. `-shuffle` is the test that the fixes hold.

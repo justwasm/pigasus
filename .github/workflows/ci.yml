@@ -59,7 +59,7 @@ jobs:
         run: |
           /tmp/pigasus --help 2>&1 | head -20
           /tmp/pigasus --help 2>&1 | sed -n '/^Available subcommands:/,$p' | tail -n +2 | awk '{print $1}' | sort > /tmp/subs_got.txt
-          printf 'accounts\nacp\nagent\nagent-server\nagents\nchangelog\nhalloween\nhelp\ninstall\nlivechat\nlogs\nmcp\nmic-serve\nmodel\nmodels\nplugin\nplugins\nprovider\nproxy\nremote-control\nserver\ntui\nupdate\nweb\n' | sort > /tmp/subs_want.txt
+          printf 'accounts\nacp\nagent\nagent-server\nagents\nchangelog\nhalloween\nhelp\ninstall\nlivechat\nlogs\nmcp\nmic-serve\nmodel\nmodels\nplugin\nplugins\nprovider\nproxy\nremote-control\nserver\nterminal\ntui\nupdate\nweb\n' | sort > /tmp/subs_want.txt
           diff -u /tmp/subs_want.txt /tmp/subs_got.txt
 
       - name: Smoke test (proxy admin)

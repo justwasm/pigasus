@@ -550,6 +550,11 @@ func TestAccountsWidget_CarriesTheQuotaAndTheFixups(t *testing.T) {
 		"agy-accounts-quota-pct",
 		"agy-accounts-group-toggle",
 		"Refreshes in ",
+		// AGY 1.5.17: countdowns of 24 hours or longer are rendered in
+		// days, hours and minutes, matching the TUI's /usage panel.
+		// The widget carries the same boundary, so the two views of the
+		// same bucket cannot disagree.
+		`Math.floor(hours / 24) + "d " + (hours % 24) + "h "`,
 		// The list scrolls on its own: the panel is rebuilt on every
 		// change, and a rebuild that dropped the scroll position
 		// would leave a scrollbar that cannot be scrolled.

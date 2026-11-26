@@ -33,7 +33,7 @@ func TestPermissionPromptLines(t *testing.T) {
 	if len(lines) == 0 {
 		t.Fatal("permissionPromptLines returned nothing for an open prompt")
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "Permission Required") {
+	if !strings.Contains(strings.Join(lines, "\n"), "Command") {
 		t.Errorf("rendered modal has no title:\n%s", strings.Join(lines, "\n"))
 	}
 	if got := m.permissionPromptLines(0); len(got) == 0 {

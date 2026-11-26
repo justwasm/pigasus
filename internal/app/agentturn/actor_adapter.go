@@ -25,9 +25,11 @@ const autoContMaxNetworkDepth = 8
 
 // backendProviderAdapter adapts a backend.Client into an actor.Provider.
 type backendProviderAdapter struct {
-	client       backend.Client
-	initialModel string
-	onFailover   failover.Notifier
+	client         backend.Client
+	initialModel   string
+	effort         string
+	executionModel string
+	onFailover     failover.Notifier
 
 	mu          sync.Mutex
 	activeModel string
@@ -105,6 +107,12 @@ func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.Generat
 			Name:       m.ToolName,
 			ToolCallID: m.ToolCallID,
 		}
+		if len(m.Images) > 0 {
+			bm.Images = make([]backend.ImagePart, 0, len(m.Images))
+			for _, img := range m.Images {
+				bm.Images = append(bm.Images, backend.ImagePart{MIMEType: img.MIMEType, Data: append([]byte(nil), img.Data...)})
+			}
+		}
 		if len(m.ToolCalls) > 0 {
 			bm.ToolCalls = make([]backend.ToolCall, 0, len(m.ToolCalls))
 			for _, tc := range m.ToolCalls {
@@ -135,11 +143,13 @@ func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.Generat
 	}
 
 	streamReq := backend.StreamRequest{
-		Model:        model,
-		SystemPrompt: req.SystemPrompt,
-		Messages:     backendMsgs,
-		Tools:        backendTools,
-		MaxTokens:    req.MaxTokens,
+		Model:           model,
+		SystemPrompt:    req.SystemPrompt,
+		Messages:        backendMsgs,
+		Tools:           backendTools,
+		MaxTokens:       req.MaxTokens,
+		ReasoningEffort: p.effort,
+		ExecutionModel:  p.executionModel,
 	}
 	if switched {
 		maxTok, effort, supThink, supTools := resolveModelMetadata(model)
@@ -307,70 +317,72 @@ func (g *GatedTool) RequiresApproval(input string) bool {
 }
 
 func (g *GatedTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
-	call := backend.ToolCall{
-		Name:      g.inner.Name(),
-		Arguments: json.RawMessage(input),
-	}
+	call := backend.ToolCall{Name: g.inner.Name(), Arguments: json.RawMessage(input)}
+	var result actor.ToolResult
 	handler := g.pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {
 		res, err := g.inner.Execute(ctx, string(c.Arguments))
 		if err != nil {
 			return "", err
 		}
+		result = res
 		if res.Error != "" {
 			return res.Error, nil
 		}
 		return res.Output, nil
 	})
-
 	out, err := handler(ctx, call)
 	if err != nil {
 		return actor.ToolResult{Error: err.Error()}, err
 	}
-	return actor.ToolResult{Output: out}, nil
+	result.Output = out
+	return result, nil
 }
 
 // buildActorTools creates actor.Tool implementations bridging backend.ToolDecl and ToolRunner.
-func buildActorTools(tools []backend.ToolDecl, runner backend.ToolRunner, emit func(agentlink.Frame) bool, steps *[]agentlink.Step) []actor.Tool {
-	if len(tools) == 0 {
+func buildActorTools(decls []backend.ToolDecl, runner backend.ToolRunner, emit func(agentlink.Frame) bool, steps *[]agentlink.Step) []actor.Tool {
+	if len(decls) == 0 {
 		return nil
 	}
-
-	actorTools := make([]actor.Tool, 0, len(tools))
-	for _, decl := range tools {
+	result := make([]actor.Tool, 0, len(decls))
+	for _, decl := range decls {
 		d := decl
 		var params map[string]any
 		if len(d.Parameters) > 0 {
 			_ = json.Unmarshal(d.Parameters, &params)
 		}
-
-		at := actor.NewFuncTool(
-			d.Name,
-			d.Description,
-			func(ctx context.Context, input string) (string, error) {
-				if runner == nil {
-					return "", errors.New("agentturn: the turn has no tool runner")
-				}
+		result = append(result, actor.NewResultTool(d.Name, d.Description, func(ctx context.Context, input string) (actor.ToolResult, error) {
+			if runner == nil {
+				return actor.ToolResult{}, errors.New("agentturn: the turn has no tool runner")
+			}
+			call := backend.ToolCall{Name: d.Name, Arguments: json.RawMessage(input)}
+			if rich, ok := runner.(backend.MediaToolRunner); ok {
 				if emit != nil {
-					fr := &frameRunner{
-						inner: runner,
-						emit:  emit,
-						steps: steps,
-					}
-					return fr.Run(ctx, backend.ToolCall{
-						Name:      d.Name,
-						Arguments: json.RawMessage(input),
-					})
+					return runMediaFrame(ctx, rich, call, emit, steps)
 				}
-				return runner.Run(ctx, backend.ToolCall{
-					Name:      d.Name,
-					Arguments: json.RawMessage(input),
-				})
-			},
-			actor.WithParameters(params),
-		)
-		actorTools = append(actorTools, at)
+				out, err := rich.RunWithMedia(ctx, call)
+				if err != nil {
+					return actor.ToolResult{Error: err.Error()}, err
+				}
+				res := actor.ToolResult{Output: out.Text}
+				for _, image := range out.Images {
+					res.Images = append(res.Images, actor.ImagePart{MIMEType: image.MIMEType, Data: append([]byte(nil), image.Data...)})
+				}
+				return res, nil
+			}
+			var text string
+			var err error
+			if emit != nil {
+				text, err = (&frameRunner{inner: runner, emit: emit, steps: steps}).Run(ctx, call)
+			} else {
+				text, err = runner.Run(ctx, call)
+			}
+			if err != nil {
+				return actor.ToolResult{Error: err.Error()}, err
+			}
+			return actor.ToolResult{Output: text}, nil
+		}, actor.WithParameters(params)))
 	}
-	return actorTools
+	return result
 }
 
 // EventSink consumes streaming events from an actor.Actor turn execution.
@@ -788,6 +800,14 @@ func RunActorTurnOnActorWithPermHandler(
 	// The turn carries its own configuration: a queued turn must not be
 	// rewritten by the next submission's model, prompt, provider or tools.
 	provider := newBackendProviderAdapter(env.Backend, model)
+	provider.effort = strings.TrimSpace(t.Effort)
+	if provider.effort == "" {
+		provider.effort = strings.TrimSpace(env.Effort)
+	}
+	provider.executionModel = strings.TrimSpace(t.ExecutionModel)
+	if provider.executionModel == "" {
+		provider.executionModel = strings.TrimSpace(env.ExecutionModel)
+	}
 
 	actorTools := buildActorTools(env.Tools, env.ToolRunner, nil, nil)
 	if actorTools == nil {

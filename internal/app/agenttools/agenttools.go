@@ -131,9 +131,23 @@ func (t *tool) Execute(ctx context.Context, input string) (actor.ToolResult, err
 	if err != nil {
 		return actor.ToolResult{Error: err.Error()}, err
 	}
-	return actor.ToolResult{
-		Output: render(out),
-	}, nil
+	result := actor.ToolResult{Output: render(out)}
+	var media *tools.MediaOutput
+	switch v := out.(type) {
+	case tools.MediaOutput:
+		media = &v
+	case *tools.MediaOutput:
+		media = v
+	}
+	if media != nil {
+		for _, image := range media.Images {
+			result.Images = append(result.Images, actor.ImagePart{
+				MIMEType: image.MIMEType,
+				Data:     append([]byte(nil), image.Data...),
+			})
+		}
+	}
+	return result, nil
 }
 
 func render(out any) string {
@@ -142,6 +156,13 @@ func render(out any) string {
 		return ""
 	case string:
 		return v
+	case tools.MediaOutput:
+		return v.Text
+	case *tools.MediaOutput:
+		if v == nil {
+			return ""
+		}
+		return v.Text
 	case []byte:
 		return string(v)
 	case json.RawMessage:
@@ -180,6 +201,8 @@ type registryTool struct {
 }
 
 func (t *registryTool) Name() string { return t.decl.Name }
+
+func (t *registryTool) Unwrap() tools.Tool { return t.inner }
 
 func (t *registryTool) Description() string { return t.decl.Description }
 

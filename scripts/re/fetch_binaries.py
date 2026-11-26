@@ -237,13 +237,35 @@ def match_wheel_for_platform(filename: str, os_name: str, arch: str) -> bool:
     return False
 
 
+def get_latest_localharness_version() -> str:
+    """Query PyPI for the latest published google-antigravity version."""
+    req = urllib.request.Request(PYPI_API_BASE, headers={"User-Agent": "openagy-re-fetch/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        pypi_data = json.loads(resp.read().decode())
+    ver = pypi_data.get("info", {}).get("version")
+    if not ver:
+        raise ValueError("Could not determine latest google-antigravity version from PyPI")
+    return str(ver).strip()
+
+
 def fetch_localharness(version: str = None, os_name: str = None, arch: str = None, cache_dir: pathlib.Path = None) -> tuple[pathlib.Path, pathlib.Path]:
     """Fetch localharness binary and proto definitions from google-antigravity wheel on PyPI."""
     os_name = normalize_os(os_name)
     arch = normalize_arch(arch)
     cache_dir = cache_dir or DEFAULT_CACHE
 
-    target_version = version or "0.1.23"
+    pypi_data = None
+    if version:
+        target_version = version.strip().lstrip("v")
+    else:
+        print(f"    [localharness] Querying PyPI for latest google-antigravity version...")
+        req = urllib.request.Request(PYPI_API_BASE, headers={"User-Agent": "openagy-re-fetch/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pypi_data = json.loads(resp.read().decode())
+        target_version = str(pypi_data.get("info", {}).get("version", "")).strip()
+        if not target_version:
+            raise ValueError("Could not determine latest google-antigravity version from PyPI")
+
     target_dir = cache_dir / "localharness" / target_version / f"{os_name}_{arch}"
     target_dir.mkdir(parents=True, exist_ok=True)
     target_bin = target_dir / ("localharness.exe" if os_name == "windows" else "localharness")
@@ -253,10 +275,11 @@ def fetch_localharness(version: str = None, os_name: str = None, arch: str = Non
         print(f"    [localharness] Found cached binary ({target_bin.stat().st_size:,} B) at {target_bin}")
         return target_bin, proto_dir
 
-    print(f"    [localharness] Querying PyPI for google-antigravity release metadata...")
-    req = urllib.request.Request(PYPI_API_BASE, headers={"User-Agent": "openagy-re-fetch/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        pypi_data = json.loads(resp.read().decode())
+    if pypi_data is None:
+        print(f"    [localharness] Querying PyPI for google-antigravity release metadata...")
+        req = urllib.request.Request(PYPI_API_BASE, headers={"User-Agent": "openagy-re-fetch/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            pypi_data = json.loads(resp.read().decode())
 
     releases = pypi_data.get("releases", {}).get(target_version)
     if not releases:

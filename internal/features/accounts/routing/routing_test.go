@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -900,6 +901,92 @@ func TestRoutedClientFailover_AuthFailure(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("calls = %d, want 2 (failover from authfail to healthy)", calls)
+	}
+}
+
+func TestRoutedClientFailover_TokenRefreshDeadlineExceeded(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled": true,
+	},
+		accounts.Account{Email: "timedout@example.com", Quota: quotaSnapshot(0.9), Token: token("timedout")},
+		accounts.Account{Email: "backup@example.com", Quota: quotaSnapshot(0.9), Token: token("backup")},
+	)
+
+	calls := 0
+	inner := &customClient{
+		fn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			calls++
+			_, _ = r.TokenFunc(ctx)
+			email := r.LastRouted()
+			if email == "timedout@example.com" {
+				return nil, fmt.Errorf("gemini-api-key: connection to https://daily-cloudcode-pa.googleapis.com dropped: refresh failed: auth: auth failure (refresh): Post \"https://oauth2.googleapis.com/token\": %w (returning stale token)", context.DeadlineExceeded)
+			}
+			out := make(chan backend.StreamChunk, 1)
+			out <- backend.StreamChunk{Text: "token ok", Done: true}
+			close(out)
+			return out, nil
+		},
+	}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gemini-2.5-flash"})
+	if err != nil {
+		t.Fatalf("expected transparent failover on token refresh deadline exceeded, got: %v", err)
+	}
+	var texts []string
+	for chunk := range out {
+		if chunk.Text != "" {
+			texts = append(texts, chunk.Text)
+		}
+	}
+	if len(texts) == 0 || texts[0] != "token ok" {
+		t.Errorf("got texts %v, want ['token ok']", texts)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (failover from timedout to backup)", calls)
+	}
+}
+
+func TestRoutedClientFailover_ConnectionDropped(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled": true,
+	},
+		accounts.Account{Email: "dropped@example.com", Quota: quotaSnapshot(0.9), Token: token("dropped")},
+		accounts.Account{Email: "backup@example.com", Quota: quotaSnapshot(0.9), Token: token("backup")},
+	)
+
+	calls := 0
+	inner := &customClient{
+		fn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			calls++
+			_, _ = r.TokenFunc(ctx)
+			email := r.LastRouted()
+			if email == "dropped@example.com" {
+				return nil, errors.New("cloudcode: gemini-api-key: connection to https://daily-cloudcode-pa.googleapis.com dropped: sse read: read tcp 100.98.214.123:65077->172.217.112.4:443: read: operation timed out")
+			}
+			out := make(chan backend.StreamChunk, 1)
+			out <- backend.StreamChunk{Text: "recovered ok", Done: true}
+			close(out)
+			return out, nil
+		},
+	}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gemini-2.5-flash"})
+	if err != nil {
+		t.Fatalf("expected transparent failover on connection drop, got: %v", err)
+	}
+	var texts []string
+	for chunk := range out {
+		if chunk.Text != "" {
+			texts = append(texts, chunk.Text)
+		}
+	}
+	if len(texts) == 0 || texts[0] != "recovered ok" {
+		t.Errorf("got texts %v, want ['recovered ok']", texts)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (failover from dropped to backup)", calls)
 	}
 }
 

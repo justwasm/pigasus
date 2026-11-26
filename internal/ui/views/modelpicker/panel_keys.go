@@ -93,6 +93,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.setCursor(nav.Cursor)
 		return true, nil
 	case tea.KeyLeft:
+		if row, ok := p.currentRow(); ok && row.HasOrchestrator() {
+			p.stepOrchestrator(-1)
+			return true, nil
+		}
 		if row, ok := p.currentRow(); ok && row.HasVariants() {
 			p.cycleVariant(-1)
 			return true, nil
@@ -100,6 +104,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.cycleEffort(-1)
 		return true, nil
 	case tea.KeyRight:
+		if row, ok := p.currentRow(); ok && row.HasOrchestrator() {
+			p.stepOrchestrator(+1)
+			return true, nil
+		}
 		if row, ok := p.currentRow(); ok && row.HasVariants() {
 			p.cycleVariant(+1)
 			return true, nil
@@ -107,6 +115,14 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.cycleEffort(+1)
 		return true, nil
 	case tea.KeyTab:
+		if row, ok := p.currentRow(); ok && row.HasOrchestrator() {
+			delta := +1
+			if key.Mod&tea.ModShift != 0 {
+				delta = -1
+			}
+			p.cycleOrchestratorFocus(delta)
+			return true, nil
+		}
 		if row, ok := p.currentRow(); ok && row.HasVariants() {
 			p.cycleVariant(+1)
 			return true, nil

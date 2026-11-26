@@ -58,14 +58,14 @@ If reconstructing the entire Antigravity TUI subsystem clean-room from upstream 
 
 ### Layer 1: AST-Driven Symbol Mapping (反编译符号直驱管线)
 
-Instead of manually discovering components across files, the reconstruction pipeline starts with an automated symbol extractor over decompiled Go symbol tables (`out/extracted-1.5.14/seeds/funcs.txt`, 188,485 functions):
+Instead of manually discovering components across files, the reconstruction pipeline starts with an automated symbol extractor over decompiled Go symbol tables (`out/extracted-1.5.17/seeds/funcs.txt`, 185,523 functions):
 
 1. **Symbol Identification Rule**:
    - Extract any type implementing `tea.Model` or defining a `View() string` / `View() tea.View` method (official models in 1.5.10: `google3/third_party/jetski/cli/model/model.*`, `onboarding`, `swarm`, `editing`).
    - Extract any function with signature `Render*(...) string` or `*Row(...) string`.
    - Map symbols to their canonical package origins (`jetski/cli/panel.*`, `jetski/cli/model.*`, `jetski/cli/swarm.*`, `jetski/cortex/step.*`).
 2. **Automated Inventory Generation**:
-   - Executable command: `go run ./cmd/tui-inventory` directly parses `internal/ui/...` AST and cross-references against `out/extracted-1.5.14/seeds/funcs.txt`.
+   - Executable command: `go run ./cmd/tui-inventory` directly parses `internal/ui/...` AST and cross-references against `out/extracted-1.5.17/seeds/funcs.txt`.
    - Emits [`docs/guide/tui_component_inventory.json`](tui_component_inventory.json) detailing component name, package, upstream symbol, input props, and child components.
    - This ensures **zero implicit component omission** (e.g., catching `FormatVisibleRows` sticky prompt headers, `RenderNoticeRow` eligibility banners, and `codesearchaction.Feedback` instant trees).
 
@@ -158,3 +158,31 @@ Storybook development strictly obeys the repository's 5-tier architecture (`AGEN
 2. **Zero Host Imports**: Storybook **never** imports `internal/tui`, `internal/cli`, or `internal/printmode`. All host-level banners or rules are either composed from `internal/ui/tuilib` or isolated in mock factories.
 3. **Decoupled Main Entry**: `cmd/storybook/main.go` acts solely as the launcher invoking `storybook.NewModel(storybook.DefaultCatalog())`.
 4. **Validation Guard**: Verified on every cycle by `make arch` (`internal/core/architecture`).
+
+
+## 6. Applying the Storybook philosophy outside UI
+
+The useful unit is a **reproducible capability scenario**, not a screenshot and not a source file. A module is independently useful when it can be constructed with explicit dependencies, driven with named inputs/events, and checked through observable output without launching its production host.
+
+| UI Storybook concept | Domain / protocol equivalent |
+|---|---|
+| `Story.ID` and named states | Named table-driven scenario and explicit initial condition |
+| `Factory()` | Pure function or small constructor with injected ports |
+| `HandleKey` / `SetState` | Input/event sequence; request, stream frame, cancellation |
+| `View()` and screen-buffer assertion | Response/event sequence, typed error, serialized fixture, or state transition |
+| Fixed viewport/theme/ticker | Fixed clock, in-memory transport, explicit config and fixture bytes |
+| Catalog render/snapshot tests | Independently runnable scenario suites and a small host-composition test |
+
+Do not make every backend package implement the UI `StoryInstance` interface. Keep the scenario vocabulary local and idiomatic (usually named Go subtests), and introduce shared harness machinery only when real repetition justifies it. Pure codecs need no HTTP mock; state machines need fake transports/clocks; visual components need rendered output assertions rather than only internal-field checks.
+
+For example, the plugin validator can consume `testing/fstest.MapFS` through
+`validate.Source.Files`: each scenario supplies its own manifest/components and
+asserts `validate.Check(source).Report` findings. No CLI process or temporary
+user home is needed. The proxy codec similarly accepts explicit request IDs,
+timestamps, and media-resolution dependencies; its scenarios assert serialized
+messages and emitted stream events rather than starting an HTTP server.
+
+Use versioned golden fixtures only when wire/render representation is part of
+the contract. Review their diffs; do not auto-update them in normal test runs.
+
+The detailed extraction sequence, inventory, and acceptance gates live in [modularity-roadmap.md](modularity-roadmap.md). Each extraction must move ownership and its tests together, preserve the five-tier dependency direction, and leave the host as an adapter/composition root rather than a forwarding facade.

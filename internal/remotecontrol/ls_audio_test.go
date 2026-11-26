@@ -138,3 +138,75 @@ func TestAnUnknownSessionAnswersNotFound(t *testing.T) {
 		}
 	}
 }
+
+// TestOutOfOrderAudioChunksDoNotStallEndAudioSession verifies that
+// SendAudioChunk reorders chunks by sequenceNumber and EndAudioSession
+// completes promptly even when chunks arrive out of order or with a gap.
+func TestOutOfOrderAudioChunksDoNotStallEndAudioSession(t *testing.T) {
+	var gotAudio []byte
+	disp := newAudioDispatcher(t, rcaudio.TranscriberFunc(
+		func(_ context.Context, audio []byte, _ string) (string, error) {
+			gotAudio = append([]byte(nil), audio...)
+			return "ordered speech", nil
+		}))
+
+	frames := make(chan string, 8)
+	go func() {
+		_, _ = disp.DispatchStream(context.Background(), "StreamAudioTranscription",
+			`{"mimeType":"audio/pcm;rate=16000"}`,
+			func(raw json.RawMessage) error {
+				frames <- string(raw)
+				return nil
+			})
+	}()
+
+	var ready string
+	select {
+	case ready = <-frames:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stream did not open")
+	}
+	var answer struct {
+		Ready struct {
+			SessionID string `json:"sessionId"`
+		} `json:"ready"`
+	}
+	if err := json.Unmarshal([]byte(ready), &answer); err != nil {
+		t.Fatalf("unmarshal ready: %v", err)
+	}
+	sid := answer.Ready.SessionID
+
+	sendChunk := func(seq int, payload string) {
+		t.Helper()
+		b64 := base64.StdEncoding.EncodeToString([]byte(payload))
+		_, err := disp.DispatchDirect(context.Background(), "SendAudioChunk",
+			`{"sessionId":"`+sid+`","data":"`+b64+`","sequenceNumber":`+string(rune('0'+seq))+`}`)
+		if err != nil {
+			t.Fatalf("SendAudioChunk(%d): %v", seq, err)
+		}
+	}
+	sendChunk(2, "two")
+	sendChunk(0, "zero-")
+	sendChunk(1, "one-")
+
+	if _, err := disp.DispatchDirect(context.Background(), "EndAudioSession", `{"sessionId":"`+sid+`"}`); err != nil {
+		t.Fatalf("EndAudioSession: %v", err)
+	}
+
+	var seen []string
+	deadline := time.After(5 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case f := <-frames:
+			seen = append(seen, f)
+		case <-deadline:
+			t.Fatalf("timed out waiting for transcription after out-of-order chunks; got %v", seen)
+		}
+	}
+	if string(gotAudio) != "zero-one-two" {
+		t.Fatalf("transcriber received %q, want %q", gotAudio, "zero-one-two")
+	}
+	if !strings.Contains(seen[0], "ordered speech") || !strings.Contains(seen[1], `"complete"`) {
+		t.Fatalf("unexpected frames: %v", seen)
+	}
+}

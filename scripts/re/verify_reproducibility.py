@@ -71,9 +71,9 @@ def compare_trees(label: str, golden_dir: pathlib.Path, test_dir: pathlib.Path, 
 
 
 def verify_agy(tmp_root: pathlib.Path) -> bool:
-    golden = REPO / "out" / "extracted-1.5.14"
+    golden = REPO / "out" / "extracted-1.5.17"
     if not golden.is_dir():
-        print("Golden out/extracted-1.5.14 not found, skipping.")
+        print("Golden out/extracted-1.5.17 not found, skipping.")
         return False
 
     from extract_agy import extract_agy, find_agy_binary, get_agy_version
@@ -87,9 +87,9 @@ def verify_agy(tmp_root: pathlib.Path) -> bool:
 
 
 def verify_ls(tmp_root: pathlib.Path) -> bool:
-    golden = REPO / "out" / "ide-language-server-2.33.0"
+    golden = REPO / "out" / "ide-language-server-2.34.0"
     if not golden.is_dir():
-        print("Golden out/ide-language-server-2.33.0 not found, skipping.")
+        print("Golden out/ide-language-server-2.34.0 not found, skipping.")
         return False
 
     from extract_ls import extract_language_server, find_app_bundle, get_app_version
@@ -111,26 +111,33 @@ def verify_ls(tmp_root: pathlib.Path) -> bool:
 
 
 def verify_localharness(tmp_root: pathlib.Path) -> bool:
+    golden = REPO / "out" / "localharness-0.1.24"
+    if not golden.is_dir():
+        print("Golden out/localharness-0.1.24 not found, skipping.")
+        return False
+
     from fetch_binaries import fetch_localharness
     from extract_localharness import extract_localharness
 
-    bin_path, proto_dir = fetch_localharness(version="0.1.23", os_name="darwin", arch="arm64")
+    bin_path, proto_dir = fetch_localharness(version="0.1.24", os_name="darwin", arch="arm64")
 
     # Extract twice to two independent directories to test 100% determinism & reproducibility
-    test_out_a = tmp_root / "localharness_run_a"
-    test_out_b = tmp_root / "localharness_run_b"
-    extract_localharness(bin_path, proto_dir, test_out_a, "0.1.23")
-    extract_localharness(bin_path, proto_dir, test_out_b, "0.1.23")
+    test_out_a = tmp_root / "localharness-0.1.24-run-a"
+    test_out_b = tmp_root / "localharness-0.1.24-run-b"
+    extract_localharness(bin_path, proto_dir, test_out_a, "0.1.24")
+    extract_localharness(bin_path, proto_dir, test_out_b, "0.1.24")
 
     ok = compare_trees("localharness SDK (run A vs run B determinism)", test_out_a, test_out_b)
+    if not compare_trees("localharness SDK (golden vs run A)", golden, test_out_a):
+        ok = False
 
     # Also verify that reconstructed .proto files match expected schema signatures
     proto_files = list((test_out_a / "proto").glob("*.proto"))
-    if len(proto_files) != 7:
-        print(f"Warning: Expected 7 .proto schemas, got {len(proto_files)}")
+    if len(proto_files) != 8:
+        print(f"Warning: Expected 8 .proto schemas, got {len(proto_files)}")
         ok = False
     else:
-        print(f"  Verified: All 7 .proto files reconstructed deterministically.")
+        print(f"  Verified: All 8 .proto files reconstructed deterministically.")
 
     return ok
 

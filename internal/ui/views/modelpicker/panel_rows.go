@@ -44,12 +44,15 @@ func (p *Panel) Rows() []Row {
 		}
 		raw = filtered
 	}
-	if len(p.variantChoices) == 0 {
+	if len(p.variantChoices) == 0 && p.orchestrator == nil {
 		return raw
 	}
 	out := make([]Row, len(raw))
 	copy(out, raw)
 	for i, r := range out {
+		if r.HasOrchestrator() && p.orchestrator != nil {
+			out[i].Orchestrator = p.orchestrator
+		}
 		if r.HasVariants() {
 			if idx, ok := p.variantChoices[r.Slug]; ok && idx >= 0 && idx < len(r.Variants) {
 				out[i].VariantChoice = r.Variants[idx]

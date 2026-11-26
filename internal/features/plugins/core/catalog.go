@@ -50,6 +50,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/justwasm/pigasus/internal/core/settings"
 	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 )
 
@@ -134,6 +135,9 @@ type InstalledPlugin struct {
 // plugin list is a list of what is installed, and answering with the
 // four plugins a fresh install ships would be a lie.
 func InstalledPlugins() []InstalledPlugin {
+	if settings.ReadAdminPluginControls().PluginsDisabled {
+		return nil
+	}
 	MaybeConsumeStaleness()
 	entries, err := pluginscan.ReadEntries(StateDir())
 	if err != nil {

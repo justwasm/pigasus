@@ -284,10 +284,14 @@ func TestPanelRowCounts(t *testing.T) {
 		}
 	}
 
-	// A kind with no rows counts zero.
+	// The artifact panel's rows follow the conversation, so its count is
+	// the host's artifact list rather than a constant. This used to be
+	// pinned to zero, which is half of what kept /artifact answering
+	// "No artifacts" for a conversation full of them.
 	m := goldenPanel(panelregistry.Artifact)
-	if got := m.panelRegistry().RowCount(panelregistry.Artifact); got != 0 {
-		t.Errorf("artifact: the registry's row count = %d, want 0", got)
+	wantRows := len(m.Artifacts())
+	if got := m.panelRegistry().RowCount(panelregistry.Artifact); got != wantRows {
+		t.Errorf("artifact: the registry's row count = %d, want the host's %d artifacts", got, wantRows)
 	}
 }
 

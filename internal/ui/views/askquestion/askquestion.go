@@ -89,6 +89,7 @@ func (m *Model) initTextarea() {
 	m.input = tas.New()
 	m.input.Prompt = ""
 	m.input.ShowLineNumbers = false
+	m.input.SetVirtualCursor(false)
 	w := m.width - 4
 	if w < 10 {
 		w = 10
@@ -461,13 +462,47 @@ func writeInDisplayLabel(text string) string {
 	return text
 }
 
+// WriteInActive reports whether the current question's custom write-in textarea is focused.
+func (m *Model) WriteInActive() bool {
+	if !m.Active() || m.currentQuestion < 0 || m.currentQuestion >= len(m.states) {
+		return false
+	}
+	return m.states[m.currentQuestion].WriteInActive
+}
+
+// Cursor returns the hardware cursor position relative to Render() when the
+// custom write-in textarea is active, or nil otherwise.
+func (m *Model) Cursor() *tea.Cursor {
+	if !m.WriteInActive() {
+		return nil
+	}
+	c := m.input.Cursor()
+	if c == nil {
+		return nil
+	}
+	_, inputStartLine := m.renderWithInputOffset()
+	if inputStartLine < 0 {
+		return nil
+	}
+	out := *c
+	out.Position.X += 2 // "  " indent before each textarea line
+	out.Position.Y += inputStartLine
+	return &out
+}
+
 // Render renders the ask_question UI aligned 1:1 with jetski.
 func (m *Model) Render() string {
+	rendered, _ := m.renderWithInputOffset()
+	return rendered
+}
+
+func (m *Model) renderWithInputOffset() (string, int) {
 	if !m.Active() {
-		return ""
+		return "", -1
 	}
 	q := m.questions[m.currentQuestion]
 	st := m.states[m.currentQuestion]
+	inputStartLine := -1
 
 	var b strings.Builder
 
@@ -516,6 +551,7 @@ func (m *Model) Render() string {
 			if st.WriteInActive {
 				b.WriteString("\n")
 				b.WriteString(palette.DimGrayOpen + "  Your answer:" + palette.DimGrayClose + "\n")
+				inputStartLine = strings.Count(b.String(), "\n")
 				lines := strings.Split(m.input.View(), "\n")
 				for _, line := range lines {
 					b.WriteString("  " + line + "\n")
@@ -565,10 +601,12 @@ func (m *Model) Render() string {
 		b.WriteString(hintLine + "\n")
 	}
 
-	return b.String()
+	return b.String(), inputStartLine
 }
 
 // View implements tea.Model.
 func (m *Model) View() tea.View {
-	return tea.NewView(m.Render())
+	v := tea.NewView(m.Render())
+	v.Cursor = m.Cursor()
+	return v
 }

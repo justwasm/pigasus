@@ -126,6 +126,8 @@ func (a *Actor) StartTurn(ctx context.Context, req TurnRequest) (*TurnHandle, er
 		handle: h,
 		config: cfg,
 		prompt: req.Prompt,
+		images: cloneImageParts(req.Images),
+		ctx:    ctx,
 	}
 
 	select {

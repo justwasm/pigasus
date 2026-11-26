@@ -28,7 +28,7 @@ func TestPermissionPrompt_HostBasicLifecycle(t *testing.T) {
 
 	// Render view
 	view := prompt.View()
-	if !strings.Contains(view, "run_command") {
+	if !strings.Contains(view, "Command") && !strings.Contains(view, "cargo build --release") {
 		t.Errorf("view missing tool name:\n%s", view)
 	}
 

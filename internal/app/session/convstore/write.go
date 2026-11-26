@@ -5,6 +5,7 @@
 package convstore
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -118,9 +119,40 @@ func LoadHistory(workspace string, maxCount int) []string {
 // conversation is immediately available to agy and wagyu for
 // -c / --continue and /resume.
 func SaveConversation(id, workspace string, steps []Step) error {
-	if id == "" || len(steps) == 0 {
+	return saveConversation(id, workspace, nil, steps)
+}
+
+// SaveConversationDelta is SaveConversation for a conversation whose
+// earlier steps are already on disk.
+//
+// prev is the step list the caller last persisted; next is the full list
+// now. Only the steps that differ are written, so a save that adds a turn
+// costs the turn, not the conversation. The side caches and the summaries
+// index still see the full list: they describe the whole conversation and
+// are cheap next to the step table.
+//
+// The conversation's step list only ever grows and only its tail is
+// rewritten (a streamed reply is re-written as it completes), so the diff
+// is found by scanning back from the end of prev and normally ends on the
+// first comparison.
+//
+// prev is ignored when the store has no conversation file for id: there is
+// nothing to diff against, and the full write is the correct repair.
+func SaveConversationDelta(id, workspace string, prev, next []Step) error {
+	if id == "" || len(next) == 0 {
 		return nil
 	}
+	if !HasConversation(id) {
+		prev = nil
+	}
+	return saveConversation(id, workspace, prev, next)
+}
+
+func saveConversation(id, workspace string, prev, next []Step) error {
+	if id == "" || len(next) == 0 {
+		return nil
+	}
+	steps := next
 	store := StoreDir()
 	convDir := filepath.Join(store, "conversations")
 	if err := os.MkdirAll(convDir, 0o755); err != nil {
@@ -132,8 +164,14 @@ func SaveConversation(id, workspace string, steps []Step) error {
 	}
 
 	dbPath := filepath.Join(convDir, id+".db")
-	if err := WriteConversation(dbPath, id, steps); err != nil {
-		return err
+	var werr error
+	if prev == nil {
+		werr = WriteConversation(dbPath, id, steps)
+	} else {
+		werr = appendChangedSteps(dbPath, prev, steps)
+	}
+	if werr != nil {
+		return werr
 	}
 	_ = updateTrajectoryMetadataBlob(dbPath, id, workspace)
 
@@ -296,18 +334,69 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 			status=CASE WHEN conversation_summaries.status='' THEN excluded.status ELSE conversation_summaries.status END`,
 		id, title, preview, len(steps), uris, nowStr, nowStr, "antigravity-cli", "default-cli-project", "CASCADE_RUN_STATUS_IDLE")
 
-	// Self-heal any older records in conversation_summaries.db so previously
-	// created pigasus sessions become immediately visible to agy /resume.
+	// Self-heal older rows so previously created pigasus sessions become
+	// visible to agy /resume. The repair is a one-time migration, not part
+	// of the save path: see healSummariesOnce.
+	healSummariesOnce(sdb, id, nowStr)
+
+	updateConversationsFTS(sdb, id, title, workspace, steps)
+	repairRecentFTSHeaders(sdb)
+}
+
+// summariesHealVersion is the migration level of the summaries index.
+//
+// Bump it whenever a repair below has to run again against stores that
+// already carry the previous level.
+const summariesHealVersion = 1
+
+// healSummariesOnce runs the summaries self-heal at most once per store.
+//
+// The repair below is a migration: it fixes rows written by older builds.
+// It used to run on every save, and its predicates are unindexed, so each
+// save scanned the whole conversation_summaries table — 110 ms on a real
+// 17,620-row store, on the TUI's Update goroutine.
+//
+// The level lives in search_schema_version, the table ensureSearchSchema
+// already keeps for exactly this kind of marker. A store that has not been
+// healed yet runs the repair once and records the level; every later save
+// skips it.
+func healSummariesOnce(sdb *sql.DB, id, nowStr string) {
+	// The row being written is healed unconditionally: it may have been
+	// created by an older build in this same store, and it is one row.
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET app_data_dir = 'antigravity-cli' WHERE conversation_id = ? AND app_data_dir = ''`, id)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET project_id = 'default-cli-project' WHERE conversation_id = ? AND project_id = ''`, id)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE' WHERE conversation_id = ? AND status = ''`, id)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = ? WHERE conversation_id = ? AND last_modified_time LIKE '0001%'`, nowStr, id)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = ? WHERE conversation_id = ? AND last_user_input_time LIKE '0001%'`, nowStr, id)
+
+	if summariesHealDone(sdb) {
+		return
+	}
+	// Whole-table migration, once.
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET app_data_dir = 'antigravity-cli' WHERE app_data_dir = ''`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET project_id = 'default-cli-project' WHERE project_id = ''`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE' WHERE status = ''`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = replace(replace(last_modified_time, 'T', ' '), 'Z', '+00:00') WHERE last_modified_time LIKE '%T%'`)
 	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = replace(replace(last_user_input_time, 'T', ' '), 'Z', '+00:00') WHERE last_user_input_time LIKE '%T%'`)
-	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = ? WHERE conversation_id = ? AND last_modified_time LIKE '0001%'`, nowStr, id)
-	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = ? WHERE conversation_id = ? AND last_user_input_time LIKE '0001%'`, nowStr, id)
+	markSummariesHealed(sdb)
+}
 
-	updateConversationsFTS(sdb, id, title, workspace, steps)
-	repairRecentFTSHeaders(sdb)
+// summariesHealDone reports whether this store already carries the
+// current heal level.
+//
+// The level lives in its own table: search_schema_version is the search
+// index's marker and already holds its own value, so the two must not
+// share a key space.
+func summariesHealDone(sdb *sql.DB) bool {
+	var v int
+	err := sdb.QueryRow(`SELECT version FROM summaries_heal_version`).Scan(&v)
+	return err == nil && v >= summariesHealVersion
+}
+
+// markSummariesHealed records the current heal level.
+func markSummariesHealed(sdb *sql.DB) {
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS summaries_heal_version (version INTEGER PRIMARY KEY)`)
+	_, _ = sdb.Exec(`INSERT OR REPLACE INTO summaries_heal_version (version) VALUES (?)`, summariesHealVersion)
 }
 
 // WriteConversation creates a fresh SQLite database at path with the
@@ -331,14 +420,31 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 	}
 	defer sdb.Close()
 
-	if _, err := sdb.Exec(`CREATE TABLE IF NOT EXISTS trajectory_meta (
+	// One transaction for the whole write.
+	//
+	// The loop below issues one statement per step, and SQLite commits (and
+	// therefore fsyncs) every statement that runs outside an explicit
+	// transaction. A long session is thousands of steps, so the per-statement
+	// fsync turned a single save into seconds of wall time. That save runs on
+	// the TUI's Update goroutine when the user submits a prompt, so it was
+	// directly the composer's Enter-to-send latency.
+	//
+	// Measured on a real 3,903-step conversation: 3.30 s of autocommit writes
+	// became 132 ms inside one transaction (16x).
+	tx, err := sdb.Begin()
+	if err != nil {
+		return fmt.Errorf("convstore: begin %s: %w", path, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS trajectory_meta (
 		trajectory_id text, cascade_id text,
 		trajectory_type integer, source integer,
 		PRIMARY KEY (trajectory_id))`); err != nil {
 		fmt.Fprintf(os.Stderr, "convstore: write schema: %v (NOT removing %s)\n", err, path)
 		return fmt.Errorf("convstore: write schema: %w", err)
 	}
-	if _, err := sdb.Exec(`CREATE TABLE IF NOT EXISTS steps (
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS steps (
 		idx integer, step_type integer NOT NULL DEFAULT 0,
 		status integer NOT NULL DEFAULT 0,
 		has_subtrajectory numeric NOT NULL DEFAULT false,
@@ -349,19 +455,19 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 		fmt.Fprintf(os.Stderr, "convstore: write steps schema: %v (NOT removing %s)\n", err, path)
 		return fmt.Errorf("convstore: write schema: %w", err)
 	}
-	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status)`)
-	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_step_type ON steps(step_type)`)
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))`)
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))`)
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS executor_metadata (idx integer, data blob, PRIMARY KEY (idx))`)
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS parent_references (idx integer, data blob, PRIMARY KEY (idx))`)
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS battle_mode_infos (idx integer, data blob, PRIMARY KEY (idx))`)
-	_, _ = sdb.Exec(`PRAGMA user_version = 1`)
+	_, _ = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status)`)
+	_, _ = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_step_type ON steps(step_type)`)
+	_, _ = tx.Exec(`CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))`)
+	_, _ = tx.Exec(`CREATE TABLE IF NOT EXISTS gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))`)
+	_, _ = tx.Exec(`CREATE TABLE IF NOT EXISTS executor_metadata (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = tx.Exec(`CREATE TABLE IF NOT EXISTS parent_references (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = tx.Exec(`CREATE TABLE IF NOT EXISTS battle_mode_infos (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = tx.Exec(`PRAGMA user_version = 1`)
 	if trajectoryID != "" {
-		_, _ = sdb.Exec(`INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)
+		_, _ = tx.Exec(`INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)
 			ON CONFLICT(id) DO NOTHING`, encodeTrajectoryMetadata(trajectoryID, ""))
 	}
-	if _, err := sdb.Exec(
+	if _, err := tx.Exec(
 		`INSERT INTO trajectory_meta VALUES (?, ?, ?, ?)
 		 ON CONFLICT(trajectory_id) DO UPDATE SET
 		   cascade_id=excluded.cascade_id,
@@ -390,7 +496,7 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 			}
 		}
 
-		if _, err := sdb.Exec(
+		if _, err := tx.Exec(
 			`INSERT INTO steps (idx, step_type, status, metadata, render_info, step_payload) VALUES (?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(idx) DO UPDATE SET
 			   step_type=excluded.step_type,
@@ -403,7 +509,126 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 			return fmt.Errorf("convstore: write step %d: %w", s.Idx, err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		fmt.Fprintf(os.Stderr, "convstore: commit %s: %v (NOT removing %s)\n", path, err, path)
+		return fmt.Errorf("convstore: commit %s: %w", path, err)
+	}
 	return nil
+}
+
+// appendChangedSteps writes the steps of next that differ from prev.
+//
+// The conversation's step list grows by appending, and the only existing
+// step that changes is the last one — a streamed model reply, which is
+// re-written with its complete text once the turn finishes. So the diff is
+// a suffix: find the first index where prev and next disagree and write
+// everything from there.
+//
+// The comparison is by index and identity, not by text: a step that is
+// still streaming may legitimately be re-encoded with a longer body, and
+// that is exactly the case the suffix write has to cover. Steps carried
+// over from an existing database keep their raw blobs, so comparing those
+// blobs catches a rewritten reply without re-encoding every step.
+//
+// Everything runs in one transaction for the same reason WriteConversation
+// does: a per-statement commit is a per-statement fsync.
+func appendChangedSteps(path string, prev, next []Step) error {
+	start := changedFrom(prev, next)
+	if start >= len(next) {
+		return nil
+	}
+	sdb, err := sql.Open("sqlite3", "file:"+path+"?mode=rwc")
+	if err != nil {
+		return fmt.Errorf("convstore: append %s: %w", path, err)
+	}
+	defer sdb.Close()
+
+	tx, err := sdb.Begin()
+	if err != nil {
+		return fmt.Errorf("convstore: begin %s: %w", path, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, s := range next[start:] {
+		var payload []byte
+		var rinfo []byte
+		var metadata []byte
+
+		if len(s.RawPayload) > 0 {
+			payload = s.RawPayload
+			rinfo = s.RawRenderInfo
+			metadata = s.RawMetadata
+		} else {
+			if s.Type == StepToolCall {
+				rinfo = encodeStepRenderInfo(s)
+				payload = encodeToolCallPayload(s, rinfo)
+			} else {
+				payload = encodeForkPayload(s)
+			}
+		}
+
+		if _, err := tx.Exec(
+			`INSERT INTO steps (idx, step_type, status, metadata, render_info, step_payload) VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(idx) DO UPDATE SET
+			   step_type=excluded.step_type,
+			   status=excluded.status,
+			   metadata=COALESCE(excluded.metadata, steps.metadata),
+			   render_info=COALESCE(excluded.render_info, steps.render_info),
+			   step_payload=COALESCE(excluded.step_payload, steps.step_payload)`,
+			s.Idx, s.Type, s.Status, metadata, rinfo, payload); err != nil {
+			return fmt.Errorf("convstore: append step %d: %w", s.Idx, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("convstore: commit %s: %w", path, err)
+	}
+	return nil
+}
+
+// changedFrom returns the first index at which prev and next differ.
+//
+// The comparison is positional: prev is the list the store already holds,
+// so prev[i] and next[i] are the same step unless it was rewritten. A pure
+// append leaves every index of prev intact and the answer is len(prev).
+//
+// It scans backwards, because the only in-place change is the
+// still-streaming reply at the tail: a normal save does a couple of
+// comparisons, not one per step.
+func changedFrom(prev, next []Step) int {
+	if len(next) < len(prev) {
+		// The list shrank. Nothing of prev can be trusted as a prefix;
+		// rewriting what is left is the safe answer.
+		return 0
+	}
+	for i := len(prev) - 1; i >= 0; i-- {
+		if !sameStep(prev[i], next[i]) {
+			// Index i itself differs, so it is the first one to write.
+			return i
+		}
+	}
+	return len(prev)
+}
+
+// sameStep reports whether two steps carry the same stored content.
+//
+// The raw blobs are compared when both sides have them: they are what the
+// row is written from, so equal blobs mean an identical row. A step that
+// has no raw payload yet (one the clone built itself) is compared by its
+// text, which is what encodeForkPayload derives the blob from.
+func sameStep(a, b Step) bool {
+	if a.Idx != b.Idx || a.Type != b.Type || a.Status != b.Status {
+		return false
+	}
+	if len(a.RawPayload) > 0 || len(b.RawPayload) > 0 {
+		return bytes.Equal(a.RawPayload, b.RawPayload) &&
+			bytes.Equal(a.RawRenderInfo, b.RawRenderInfo) &&
+			bytes.Equal(a.RawMetadata, b.RawMetadata)
+	}
+	return a.Text == b.Text &&
+		a.Thinking == b.Thinking &&
+		a.ToolName == b.ToolName &&
+		a.ToolArgs == b.ToolArgs &&
+		a.ToolResult == b.ToolResult
 }
 
 // updateTrajectoryMetadataBlob updates the trajectory_metadata_blob in the

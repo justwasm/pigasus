@@ -7,6 +7,7 @@ package rcterminal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,12 @@ const subscriberQueue = 256
 // scrollbackLimit is how many bytes of history a terminal keeps for
 // the replay frames.
 const scrollbackLimit = 64 * 1024
+
+// maxWriteQueueBytes caps buffered PTY input when a child stops reading stdin.
+const maxWriteQueueBytes = 4 * 1024 * 1024
+
+// ErrWriteQueueFull is returned when a terminal's pending input buffer is full.
+var ErrWriteQueueFull = errors.New("rcterminal: input buffer full")
 
 // terminalDevice wraps the underlying platform terminal (PTY on Unix, ConPTY on Windows).
 type terminalDevice interface {
@@ -59,6 +66,14 @@ type Session struct {
 	cwdNow     string
 	scanner    oscScanner
 	done       chan struct{}
+
+	writeMu      sync.Mutex
+	writeBuf     []byte
+	writeErr     error
+	writeClosed  bool
+	writeStarted bool
+	writeNotify  chan struct{}
+	writeStop    chan struct{}
 }
 
 // subscriber is one open output stream.
@@ -70,13 +85,15 @@ type subscriber struct {
 // newSession builds a session around a started shell.
 func newSession(id string, pid int, title string) *Session {
 	return &Session{
-		id:        id,
-		pid:       pid,
-		title:     title,
-		createdAt: time.Now().UTC(),
-		subs:      map[*subscriber]struct{}{},
-		acked:     map[string]int64{},
-		done:      make(chan struct{}),
+		id:          id,
+		pid:         pid,
+		title:       title,
+		createdAt:   time.Now().UTC(),
+		subs:        map[*subscriber]struct{}{},
+		acked:       map[string]int64{},
+		done:        make(chan struct{}),
+		writeNotify: make(chan struct{}, 1),
+		writeStop:   make(chan struct{}),
 	}
 }
 
@@ -143,6 +160,7 @@ func (s *Session) finish(code int) {
 	s.exitCode = code
 	s.mu.Unlock()
 
+	s.closeWriteQueue()
 	s.broadcast(Frame{Kind: FrameExitCode, ExitCode: code})
 	s.closeSubscribers()
 }
@@ -186,6 +204,103 @@ func (s *Session) setSplitGroup(group string) {
 	s.mu.Unlock()
 }
 
+// enqueueWrite appends input bytes to the session's non-blocking write queue
+// and wakes the dedicated writer goroutine. It never holds s.mu or blocks on
+// ptmx.Write, preventing AB-BA deadlocks when a child's PTY input/output
+// buffers fill simultaneously.
+func (s *Session) enqueueWrite(ptmx terminalDevice, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	s.writeMu.Lock()
+	if s.writeClosed {
+		s.writeMu.Unlock()
+		return ErrClosed
+	}
+	if s.writeErr != nil {
+		err := s.writeErr
+		s.writeMu.Unlock()
+		return err
+	}
+	if len(s.writeBuf)+len(data) > maxWriteQueueBytes {
+		s.writeMu.Unlock()
+		return ErrWriteQueueFull
+	}
+	s.writeBuf = append(s.writeBuf, data...)
+	if !s.writeStarted {
+		s.writeStarted = true
+		if s.writeNotify == nil {
+			s.writeNotify = make(chan struct{}, 1)
+		}
+		if s.writeStop == nil {
+			s.writeStop = make(chan struct{})
+		}
+		go s.writeLoop(ptmx)
+	}
+	s.writeMu.Unlock()
+
+	select {
+	case s.writeNotify <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (s *Session) writeLoop(ptmx terminalDevice) {
+	for {
+		s.writeMu.Lock()
+		if len(s.writeBuf) == 0 {
+			if s.writeClosed {
+				s.writeMu.Unlock()
+				return
+			}
+			s.writeMu.Unlock()
+			select {
+			case <-s.writeNotify:
+				continue
+			case <-s.writeStop:
+				return
+			}
+		}
+		chunk := s.writeBuf
+		s.writeBuf = nil
+		s.writeMu.Unlock()
+
+		for len(chunk) > 0 {
+			n, err := ptmx.Write(chunk)
+			if n > 0 {
+				chunk = chunk[n:]
+			}
+			if err != nil {
+				s.writeMu.Lock()
+				s.writeErr = err
+				s.writeBuf = nil
+				s.writeMu.Unlock()
+				return
+			}
+			if n == 0 {
+				s.writeMu.Lock()
+				s.writeErr = io.ErrShortWrite
+				s.writeBuf = nil
+				s.writeMu.Unlock()
+				return
+			}
+		}
+	}
+}
+
+func (s *Session) closeWriteQueue() {
+	s.writeMu.Lock()
+	alreadyClosed := s.writeClosed
+	s.writeClosed = true
+	s.writeBuf = nil
+	stopCh := s.writeStop
+	s.writeMu.Unlock()
+	if !alreadyClosed && stopCh != nil {
+		close(stopCh)
+	}
+}
+
 // sendInput writes bytes to the shell and answers the offset the
 // input stream has reached.
 func (s *Session) sendInput(streamID string, offset int64, data []byte) (int64, error) {
@@ -202,8 +317,13 @@ func (s *Session) sendInput(streamID string, offset int64, data []byte) (int64, 
 		s.mu.Unlock()
 		return acked, nil
 	}
+	ptmx := s.ptmx
 	if len(data) > 0 {
-		if _, err := s.ptmx.Write(data); err != nil {
+		if ptmx == nil {
+			s.mu.Unlock()
+			return acked, fmt.Errorf("rcterminal: device is nil")
+		}
+		if err := s.enqueueWrite(ptmx, data); err != nil {
 			s.mu.Unlock()
 			return acked, fmt.Errorf("rcterminal: write input: %w", err)
 		}
@@ -217,15 +337,16 @@ func (s *Session) sendInput(streamID string, offset int64, data []byte) (int64, 
 // writeRaw writes bytes directly to the ptmx device without requiring a stream offset.
 func (s *Session) writeRaw(data []byte) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.exited || s.closed {
+		s.mu.Unlock()
 		return ErrClosed
 	}
-	if s.ptmx == nil {
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	if ptmx == nil {
 		return fmt.Errorf("rcterminal: device is nil")
 	}
-	_, err := s.ptmx.Write(data)
-	return err
+	return s.enqueueWrite(ptmx, data)
 }
 
 // stream serves the terminal's output until the terminal ends or

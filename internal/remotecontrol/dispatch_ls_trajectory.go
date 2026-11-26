@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -280,7 +281,7 @@ func (d *Dispatcher) handleLSGetUserTrajectoryDescriptions(params json.RawMessag
 func (d *Dispatcher) lsTrajectoryScope() map[string]any {
 	scope := map[string]any{}
 	if ws := d.lsWorkspace(); ws != "" {
-		scope["workspaceUri"] = lsNormalizedURI(ws)
+		scope["workspaceUri"] = files.NormalizedURI(ws)
 	}
 	return scope
 }

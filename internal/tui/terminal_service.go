@@ -96,16 +96,24 @@ func (s *LocalTerminalService) StreamTerminal(ctx context.Context, id string, of
 	go func() {
 		defer close(out)
 		for f := range frames {
+			var ev TerminalEvent
 			switch f.Kind {
 			case rcterminal.FrameOutput:
-				out <- TerminalEvent{Output: f.Output, Offset: f.Offset}
+				ev = TerminalEvent{Output: f.Output, Offset: f.Offset}
 			case rcterminal.FrameTitle:
-				out <- TerminalEvent{Title: f.Title}
+				ev = TerminalEvent{Title: f.Title}
 			case rcterminal.FrameCwd:
-				out <- TerminalEvent{Cwd: f.Cwd}
+				ev = TerminalEvent{Cwd: f.Cwd}
 			case rcterminal.FrameExitCode:
 				code := int32(f.ExitCode)
-				out <- TerminalEvent{ExitCode: &code}
+				ev = TerminalEvent{ExitCode: &code}
+			default:
+				continue
+			}
+			select {
+			case out <- ev:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()

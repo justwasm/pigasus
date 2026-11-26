@@ -16,6 +16,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/logts"
+	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
@@ -42,6 +43,13 @@ type StatusLineModel struct {
 
 	// externalState is the cached rendered output / tick counter.
 	externalState *statusline.State
+
+	// The status percentage is redrawn much more often than model settings
+	// change. Key the resolved window by the bounded provider snapshot.
+	contextModel      string
+	contextRegistry   *models.Registry
+	contextGeneration uint64
+	contextWindow     int
 }
 
 // Reload re-reads the statusLine and title blocks from settings.

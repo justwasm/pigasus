@@ -18,6 +18,7 @@ import (
 
 	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/infra/livevoice"
 	"github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -219,7 +220,7 @@ func runWebServerWithHost(host string, port int, defaultProxy string, noBrowser 
 			}
 		}
 
-		aggEnabled, poolTotal, poolHealthy := aggregatePoolStatus(r.Context())
+		aggEnabled, poolTotal, poolHealthy := livevoice.PoolStatus(r.Context(), currentGeminiAPIKeyFn)
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"default_proxy":           defaultProxy,

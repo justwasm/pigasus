@@ -3,11 +3,27 @@
 package modelpicker
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/models/modelctx"
 	"github.com/justwasm/pigasus/palette"
 )
+
+func currentTagForRow(r Row) string {
+	modelID := r.CatalogueID(r.TierIndex(r.DefaultTier))
+	if modelID == "" {
+		modelID = r.Slug
+	}
+	if modelID == "" {
+		modelID = r.Display
+	}
+	if tokens, spec := modelctx.AutoCompactWindow(modelID); spec != "" && tokens > 0 {
+		return fmt.Sprintf(" (current · %d)", tokens)
+	}
+	return " (current)"
+}
 
 // RenderModelPickerRow formats a single picker row with cursor, padding,
 // styling, and optional (current) or custom model notes.
@@ -18,7 +34,24 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 		ink = palette.DimGrayOpen
 	}
 	variantChip := ""
-	if r.HasVariants() {
+	if r.HasOrchestrator() {
+		fam := r.Orchestrator.Planner.CurrentFamily()
+		choice := fam.ShortLabel
+		if choice == "" {
+			choice = fam.Label
+		}
+		if i == cursor {
+			variantChip = strings.Repeat(" ", RowPad(r.Display)) +
+				palette.DimGrayOpen + "Planner: ◂ " + palette.DimGrayClose +
+				palette.BlueOpen + choice + palette.BlueClose +
+				palette.DimGrayOpen + " ▸" + palette.DimGrayClose
+		} else {
+			variantChip = strings.Repeat(" ", RowPad(r.Display)) +
+				palette.DimGrayOpen + "Planner: ◂ " + palette.DimGrayClose +
+				choice +
+				palette.DimGrayOpen + " ▸" + palette.DimGrayClose
+		}
+	} else if r.HasVariants() {
 		choice := r.VariantChoice
 		if choice == "" && len(r.Variants) > 0 {
 			choice = r.Variants[0]
@@ -49,7 +82,7 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 			row += palette.BlueClose
 		}
 		if isCurrent {
-			row += PanelGray238 + " (current)" + PanelGray238C
+			row += PanelGray238 + currentTagForRow(r) + PanelGray238C
 		}
 	} else {
 		row = "  " + ink + r.Display
@@ -63,7 +96,7 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 			if variantChip == "" {
 				row += strings.Repeat(" ", RowPad(r.Display))
 			}
-			row += PanelGray238 + " (current)" + PanelGray238C
+			row += PanelGray238 + currentTagForRow(r) + PanelGray238C
 		}
 	}
 	if r.Note != "" {

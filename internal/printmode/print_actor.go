@@ -24,6 +24,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -33,6 +34,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 )
 
@@ -76,6 +78,11 @@ func preparePrintProvider(cfg actorPrintConfig) (actor.Provider, error) {
 }
 
 func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt func() string, denials *[]string) ([]actor.Tool, func(), error) {
+	imageProvider := surface.ImageProviderFromBackend(backendselect.ImageGeneratorFor(cfg.Backend))
+	if cfg.Catalog != nil {
+		surface.ConfigureConversation(cfg.Catalog, cfg.ConversationID)
+		surface.ConfigureImageGenerator(cfg.Catalog, imageProvider)
+	}
 	if cfg.AgentBody != "" {
 		rawTools := agenttools.Tools(cfg.Catalog)
 		gated := make([]actor.Tool, 0, len(rawTools))
@@ -99,6 +106,7 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 		Registry:          cfg.Registry,
 		ConversationID:    cfg.ConversationID,
 		PermissionGateFor: printSubagentGateFactory(cfg),
+		ImageGenerator:    imageProvider,
 	})
 
 	installBrowserSubagent(cfg, provider)
@@ -118,8 +126,8 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 		}
 	}
 
-	termMgr := terminalmgr.New(cfg.Workspace)
-	termTool := &terminaltool.Tool{Manager: termMgr}
+	termBackend, termClose := terminalmgr.ResolveBackend(cfg.Workspace, nil)
+	termTool := &terminaltool.Tool{Manager: termBackend}
 	if cfg.Catalog != nil {
 		cfg.Catalog.Register(termTool)
 	}
@@ -133,7 +141,7 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 	for _, t := range merged {
 		gated = append(gated, agentturn.NewGatedTool(t, cfg.Policy, denials))
 	}
-	return gated, termMgr.CloseAll, nil
+	return gated, termClose, nil
 }
 
 func installBrowserSubagent(cfg actorPrintConfig, provider actor.Provider) {

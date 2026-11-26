@@ -100,27 +100,18 @@ func buildHostFastpushStore() fastpush.Store {
 	return fastpush.NewFSStore(root, nil)
 }
 
-// buildHostVoiceBackend resolves the live voice backend honoring OAuth access tokens
-// (antigravity-oauth-token / auth.LoadTokenUnified) and fallback GEMINI_API_KEY.
+// buildHostVoiceBackend resolves the live voice backend honoring GEMINI_API_KEY
+// first (matching commit 8774ea39) and falling back to OAuth access tokens.
 func buildHostVoiceBackend() voice.LiveBackend {
 	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
 		return voice.NewMockLiveBackend()
 	}
 	apiKey := endpoints.CurrentGeminiAPIKey()
-	if os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "" {
+	if apiKey != "" {
 		return voice.NewGeminiLiveBackend(apiKey)
 	}
 	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
-		var fallback voice.LiveBackend
-		if apiKey != "" {
-			fallback = voice.NewGeminiLiveBackend(apiKey)
-		} else {
-			fallback = voice.NewGeminiLiveBackendWithBearer(tok.Token.AccessToken)
-		}
-		return voice.NewAICodeLiveBackendWithFallback(tok.Token.AccessToken, fallback)
-	}
-	if apiKey != "" {
-		return voice.NewGeminiLiveBackend(apiKey)
+		return voice.NewAICodeLiveBackend(tok.Token.AccessToken)
 	}
 	if ep := endpoints.Current().Voice; ep != "" && ep != endpoints.DefaultVoice {
 		return voice.NewGeminiLiveBackend("")

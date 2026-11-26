@@ -12,8 +12,10 @@ package modelpicker
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/features/models/modelctx"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/effortpanel"
 	"github.com/justwasm/pigasus/palette"
@@ -161,17 +163,51 @@ func (p *Panel) footer(lines []string, height int) []string {
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "esc", back))
 		return append(lines, linesRet...)
 	}
+	var overrideLine string
+	if ok {
+		modelID := row.CatalogueID(p.effortCursorFor(row))
+		if modelID == "" {
+			modelID = row.Slug
+		}
+		if modelID == "" {
+			modelID = row.Display
+		}
+		if tokens, spec := modelctx.AutoCompactWindow(modelID); spec != "" && tokens > 0 {
+			note := "overridden by " + modelctx.EnvAutoCompactOverride + "=" + spec
+			if spec != strconv.Itoa(tokens) {
+				note += fmt.Sprintf(" (%d)", tokens)
+			}
+			overrideLine = "  Context  " + palette.DimGrayOpen + note + "\x1b[39m"
+		}
+	}
 	// Cycle 208: the slider (and its legend entry) only exist while the
 	// cursor is on a row that offers more than one effort. The
 	// reference's own picker has exactly one such row (the three-tier
 	// Gemini); a configured model that declares tiers gets the same
 	// slider, widened to fit its own tier count.
+	if ok && row.HasOrchestrator() {
+		if overrideLine != "" {
+			lines = append(lines, "", overrideLine)
+		}
+		lines = append(lines, "")
+		lines = append(lines, renderOrchestratorDetailLines(row.Orchestrator)...)
+		lines = append(lines, renderOrchestratorCollapseLines(row.Orchestrator)...)
+		return append(lines, "",
+			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "tab", "Next Field", "←/→", "Change",
+				"enter", "Select", "esc", back))
+	}
 	if ok && row.HasVariants() {
+		if overrideLine != "" {
+			lines = append(lines, "", overrideLine)
+		}
 		return append(lines, "",
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "←/→", "Planner", "tab", "Planner",
 				"enter", "Select", "esc", back))
 	}
 	if !ok || !row.HasEffortSlider() {
+		if overrideLine != "" {
+			lines = append(lines, "", overrideLine)
+		}
 		return append(lines, "",
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate",
 				"enter", "Select", "esc", back))
@@ -181,11 +217,14 @@ func (p *Panel) footer(lines []string, height int) []string {
 		level = p.effortCursorFor(row)
 	}
 	eff := effortpanel.RebuildEffortSliderN(level, effortpanel.EffortLow, row.Tiers, false)
-	return append(lines, "",
+	lines = append(lines, "",
 		"  Effort  "+eff[2][2:],
 		"        "+eff[3],
-		"            "+StripLeadingSpaces(eff[4], 4),
-		"",
+		"            "+StripLeadingSpaces(eff[4], 4))
+	if overrideLine != "" {
+		lines = append(lines, overrideLine)
+	}
+	return append(lines, "",
 		tuilib.PanelKeyboardHint("↑/↓", "Navigate", "←/→", "Effort",
 			"enter", "Select", "esc", back))
 }

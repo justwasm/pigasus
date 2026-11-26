@@ -112,13 +112,14 @@ func TestDefineSubagentSchemaAdvertisesTheGrants(t *testing.T) {
 	if !ok {
 		t.Fatalf("schema properties are %T, want map[string]any", def.Parameters["properties"])
 	}
-	for _, name := range []string{"enable_write_tools", "enable_mcp_tools", "enable_subagent_tools"} {
+	for _, name := range []string{"EnableWriteTools", "EnableMCPTools", "EnableSubagentTools"} {
 		entry, ok := props[name].(map[string]any)
 		if !ok {
 			t.Errorf("the schema has no %q property", name)
 			continue
 		}
-		if entry["type"] != "boolean" {
+		typ, _ := entry["type"].(string)
+		if strings.ToLower(typ) != "boolean" {
 			t.Errorf("%q is %v, want a boolean", name, entry["type"])
 		}
 	}

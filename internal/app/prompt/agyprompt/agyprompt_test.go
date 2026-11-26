@@ -199,6 +199,47 @@ func TestDiscoverSkills(t *testing.T) {
 	}
 }
 
+func TestAgySkillPathsIncludesGlobalAgentsWithGeminiPrecedence(t *testing.T) {
+	userHome := t.TempDir()
+	agentHome := filepath.Join(userHome, ".gemini", "antigravity-cli")
+	geminiSkills := filepath.Join(userHome, ".gemini", "skills")
+	agentsSkills := filepath.Join(userHome, ".agents", "skills")
+	for _, d := range []string{
+		filepath.Join(geminiSkills, "collide"),
+		filepath.Join(agentsSkills, "collide"),
+		filepath.Join(agentsSkills, "agents-only"),
+	} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(geminiSkills, "collide", "SKILL.md"), []byte("---\nname: collide\ndescription: gemini wins\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsSkills, "collide", "SKILL.md"), []byte("---\nname: collide\ndescription: agents loses\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsSkills, "agents-only", "SKILL.md"), []byte("---\nname: agents-only\ndescription: from agents\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := AgySkillPaths(agentHome, "")
+	got := DiscoverSkills(paths)
+	byName := map[string]Skill{}
+	for _, s := range got {
+		if _, dup := byName[s.Name]; dup {
+			t.Fatalf("duplicate skill %q in DiscoverSkills", s.Name)
+		}
+		byName[s.Name] = s
+	}
+	if byName["collide"].Description != "gemini wins" {
+		t.Fatalf("collide = %+v, want gemini wins", byName["collide"])
+	}
+	if byName["agents-only"].Description != "from agents" {
+		t.Fatalf("agents-only = %+v, want from agents", byName["agents-only"])
+	}
+}
+
 // sectionBody returns the body between <name> and </name>, including the
 // leading newline, exactly as Build renders it.
 func sectionBody(prompt, name string) string {

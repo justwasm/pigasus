@@ -27,7 +27,7 @@
 --- ATTRIBUTE MATRIX ---
 00: [0:65] bold
 01: (plain)
-02: [0:1] fg=#859900 | [2:6] fg=#b58900,bold | [6:49] fg=#586e75
+02: [0:1] fg=#dc322f | [2:6] fg=#b58900,bold | [6:49] fg=#586e75
 03: [0:5] fg=#586e75
 04: (plain)
 05: (plain)

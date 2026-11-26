@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,12 @@ func UserAgent() string {
 // `alt=sse` query is what makes the endpoint answer with an event stream
 // instead of one JSON document.
 const StreamPath = "/v1internal:streamGenerateContent?alt=sse"
+
+// GenerateContentPath is the unary RPC used for non-streaming calls such as image generation.
+const GenerateContentPath = "/v1internal:generateContent"
+
+// FetchAvailableModelsPath is the unary RPC returning available model IDs including imageGenerationModelIds.
+const FetchAvailableModelsPath = "/v1internal:fetchAvailableModels"
 
 // DefaultProject is the consumer project the reference's loadCodeAssist
 // reports ("cloudaicompanionProject":"aicode-consumers").
@@ -85,6 +92,17 @@ type Client struct {
 
 	mu         sync.Mutex
 	signatures map[string]string // tool call id -> thoughtSignature
+
+	// Keep discovery local to this connection, project and credential. Only the
+	// most recent successful, nonempty catalogue is retained; failures may retry.
+	imageModelsKey imageModelsCacheKey
+	imageModels    []string
+}
+
+type imageModelsCacheKey struct {
+	endpoint string
+	project  string
+	token    [sha256.Size]byte
 }
 
 // New builds a client. It never fails: a missing token surfaces on the
@@ -322,4 +340,157 @@ func (c *Client) userAgent() string {
 		return ua
 	}
 	return UserAgent()
+}
+
+func (c *Client) postUnary(ctx context.Context, endpoint, path string, payload any) ([]byte, error) {
+	if c.cfg.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.cfg.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	token, err := c.token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	raw, _, err := c.postUnaryWithToken(ctx, endpoint, path, payload, token)
+	return raw, err
+}
+
+// The returned token identifies the credential actually used after a reactive refresh.
+func (c *Client) postUnaryWithToken(ctx context.Context, endpoint, path string, payload any, token string) ([]byte, string, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = c.cfg.Endpoint
+	}
+	url := strings.TrimRight(endpoint, "/") + path
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, token, fmt.Errorf("geminicode: marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, token, fmt.Errorf("geminicode: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.userAgent())
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, token, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		if fresh, terr := c.token(ctx); terr == nil && fresh != token {
+			_ = resp.Body.Close()
+			req2, rerr := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if rerr != nil {
+				return nil, token, fmt.Errorf("geminicode: build request: %w", rerr)
+			}
+			req2.Header = req.Header.Clone()
+			token = fresh
+			req2.Header.Set("Authorization", "Bearer "+token)
+			resp, err = c.http.Do(req2)
+			if err != nil {
+				return nil, token, err
+			}
+		}
+	}
+	defer resp.Body.Close()
+	raw, rerr := io.ReadAll(io.LimitReader(resp.Body, (32<<20)+1))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, token, &HTTPError{StatusCode: resp.StatusCode, Body: raw, URL: url, Header: resp.Header}
+	}
+	if rerr != nil {
+		return nil, token, rerr
+	}
+	if len(raw) > 32<<20 {
+		return nil, token, fmt.Errorf("geminicode: unary response exceeds 32 MiB")
+	}
+	return raw, token, nil
+}
+
+// FetchAvailableModels resolves /v1internal:fetchAvailableModels on the configured endpoint.
+func (c *Client) FetchAvailableModels(ctx context.Context, project string) (*FetchAvailableModelsResponse, error) {
+	return c.FetchAvailableModelsAt(ctx, project, c.cfg.Endpoint)
+}
+
+// FetchAvailableModelsAt resolves /v1internal:fetchAvailableModels on a specific endpoint.
+// Nonempty results are cached per client, endpoint, project and access token.
+func (c *Client) FetchAvailableModelsAt(ctx context.Context, project, endpoint string) (*FetchAvailableModelsResponse, error) {
+	if c.cfg.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.cfg.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+	project = strings.TrimSpace(project)
+	if project == "" {
+		project = c.cfg.Project
+	}
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		endpoint = strings.TrimRight(strings.TrimSpace(c.cfg.Endpoint), "/")
+	}
+	token, err := c.token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := imageModelsCacheKey{endpoint: endpoint, project: project, token: sha256.Sum256([]byte(token))}
+	c.mu.Lock()
+	if c.imageModelsKey == key && len(c.imageModels) > 0 {
+		out := &FetchAvailableModelsResponse{ImageGenerationModelIDs: append([]string(nil), c.imageModels...)}
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+	raw, usedToken, err := c.postUnaryWithToken(ctx, endpoint, FetchAvailableModelsPath, FetchAvailableModelsRequest{Project: project}, token)
+	if err != nil {
+		return nil, err
+	}
+	key.token = sha256.Sum256([]byte(usedToken))
+	var out FetchAvailableModelsResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("geminicode: decode fetchAvailableModels: %w", err)
+	}
+	for _, id := range out.ImageGenerationModelIDs {
+		if strings.TrimSpace(id) != "" {
+			c.mu.Lock()
+			c.imageModelsKey = key
+			c.imageModels = append([]string(nil), out.ImageGenerationModelIDs...)
+			c.mu.Unlock()
+			break
+		}
+	}
+	return &out, nil
+}
+
+// GenerateImage performs a non-streaming /v1internal:generateContent image generation call.
+func (c *Client) GenerateImage(ctx context.Context, req ImageGenerationRequest) (ImageGenerationResult, error) {
+	return c.GenerateImageAt(ctx, req, c.cfg.Endpoint)
+}
+
+// GenerateImageAt performs a non-streaming /v1internal:generateContent image generation call against endpoint.
+func (c *Client) GenerateImageAt(ctx context.Context, req ImageGenerationRequest, endpoint string) (ImageGenerationResult, error) {
+	if strings.TrimSpace(req.Project) == "" {
+		req.Project = c.cfg.Project
+	}
+	wireReq, err := BuildImageGenerationRequest(req)
+	if err != nil {
+		return ImageGenerationResult{}, err
+	}
+	raw, err := c.postUnary(ctx, endpoint, GenerateContentPath, wireReq)
+	if err != nil {
+		return ImageGenerationResult{}, err
+	}
+	var envelope struct {
+		Response json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return ImageGenerationResult{}, fmt.Errorf("geminicode: decode generateContent: %w", err)
+	}
+	if len(envelope.Response) > 0 {
+		raw = envelope.Response
+	}
+	var resp *GenerateContentResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return ImageGenerationResult{}, fmt.Errorf("geminicode: decode generateContent: %w", err)
+	}
+	return ExtractGeneratedImage(resp)
 }

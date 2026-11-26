@@ -3,10 +3,13 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"os"
+	"os/exec"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -21,13 +24,40 @@ const (
 	keychainAccount = "antigravity"
 )
 
+var (
+	probeDarwinKeychainUnlockedFn func() bool
+	keyringGetFn                  = keyring.Get
+)
+
+func isSSHSession() bool {
+	return os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CLIENT") != ""
+}
+
+// probeDarwinKeychainUnlocked checks whether the macOS login keychain is
+// currently unlocked without triggering an interactive GUI prompt.
+func probeDarwinKeychainUnlocked() bool {
+	if probeDarwinKeychainUnlockedFn != nil {
+		return probeDarwinKeychainUnlockedFn()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/security", "show-keychain-info")
+	cmd.Stdin = nil
+	return cmd.Run() == nil
+}
+
 // readKeychainSecret reads the raw secret out of the macOS Keychain.
 //
-// The read is the platform's half; the answer it gives — a missing
-// entry, a keyring that will not open — is classified by the shared
-// layer in keychain.go, so both platforms answer the same way.
+// Over SSH on macOS (reference behaviour since 1.5.16, unchanged in 1.5.17),
+// probe whether the login keychain is unlocked
+// first: if unlocked, reuse the Keychain entry; if locked, fail immediately
+// with errKeyringLocked so callers fall back to file-based token storage
+// without triggering a GUI prompt.
 func readKeychainSecret() (string, error) {
-	return keyring.Get(keychainService, keychainAccount)
+	if isSSHSession() && !probeDarwinKeychainUnlocked() {
+		return "", errKeyringLocked
+	}
+	return keyringGetFn(keychainService, keychainAccount)
 }
 
 // ClearKeychainToken deletes the Antigravity OAuth token from the macOS
@@ -41,6 +71,9 @@ func ClearKeychainToken() error {
 	}
 	if os.Getenv("OPENAGY_DISABLE_KEYCHAIN") != "" || flag.Lookup("test.v") != nil {
 		return nil
+	}
+	if isSSHSession() && !probeDarwinKeychainUnlocked() {
+		return errKeyringLocked
 	}
 	// A missing entry is the desired steady state for a fresh machine
 	// and not an error from the caller's perspective.

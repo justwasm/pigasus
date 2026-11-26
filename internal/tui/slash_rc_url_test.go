@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/urlchunk"
@@ -29,14 +30,30 @@ const chooserURL = "https://accounts.google.com/AccountChooser?Email=user%40exam
 
 // linkRows returns the transcript rows that carry a browser link.
 //
-// A link row is a row that mentions a URL — the OSC 8 frame carries
-// the complete URL, so the frame's target is the row's URL.
+// A link is one URL the card hard-wraps into a row per urlchunk chunk, so
+// only the FIRST row of the group carries the "https://" prefix; the rest are
+// bare continuations. The group is therefore the first row that mentions a URL
+// plus every following indented row whose text has no spaces in it — URL
+// chunks never contain a space, and every prose line of the card does ("Open
+// on another device to...", "Hostname: ..."). Matching on "https://" alone
+// silently dropped the continuation rows, which truncated every link that was
+// wide enough to wrap.
 func linkRows(rows []string) []string {
 	var out []string
+	started := false
 	for _, r := range rows {
-		if strings.Contains(r, "https://") {
-			out = append(out, r)
+		text := strings.TrimSpace(ansi.Strip(r))
+		if !started {
+			if strings.Contains(text, "https://") {
+				started = true
+				out = append(out, r)
+			}
+			continue
 		}
+		if !strings.HasPrefix(r, rcURLIndent) || text == "" || strings.ContainsAny(text, " \t") {
+			break
+		}
+		out = append(out, r)
 	}
 	return out
 }
@@ -203,4 +220,15 @@ func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
 			t.Errorf("the transcript re-wrapped a chunk row into %d rows: %q", len(wrapped), row)
 		}
 	}
+}
+
+// renderedBrowserURL is the URL the remote-control card prints for instanceID.
+//
+// The card resolves the account at render time (buildRemoteControlCardForAccount
+// falls back to rclink.ActiveAccount), so the expected URL can only be computed
+// by asking the same question. Hard-coding the chooser form made the assertion
+// depend on whether an account happened to be resolvable in the surrounding
+// test binary; this asks for it at assertion time, exactly as the card did.
+func renderedBrowserURL(m *RootModel, instanceID, rawQuery string) string {
+	return rclink.BrowserURLForAccount(rclink.ActiveAccount(), instanceID, rawQuery)
 }

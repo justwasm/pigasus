@@ -2205,14 +2205,30 @@ type ArtifactComment struct {
 }
 
 // ArtifactMetadata is the artifact metadata.
+//
+// 【反编译】 the field set is the getter set, and nothing else: the recovered
+// symbol table carries exactly seven (*ArtifactMetadata).Get* methods —
+// GetArtifactType, GetSummary, GetCreatedAt, GetUpdatedAt, GetVersion,
+// GetRequestFeedback, GetUserFacing (out/extracted-1.5.17/seeds/seeds.txt,
+// and identically in the 1.3.4 extract). This struct used to carry
+// Uri/Title/Kind/Author/Tags, which belong to no recovered getter and are a
+// different message; that mismatch is why the artifact layer kept a private
+// sidecar struct instead of using this type.
+//
+// Field numbers are not recovered for this message (it is declared in
+// codeium_common.proto, which was not in the 1.5.17 proto dump), so they are
+// ordered to match the getter order rather than invented. The JSON names are
+// the ones the reference actually writes and reads: `summary`, `userFacing`
+// and `requestFeedback` appear verbatim in artifacts.tmpl,
+// generative_ui/SKILL.md and the IDE bundle's `getArtifactMetadata` filter.
 type ArtifactMetadata struct {
-	Uri       string       `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
-	Title     string       `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
-	Kind      ArtifactType `protobuf:"varint,3,opt,name=kind,proto3,enum=codeium_common_pb.ArtifactType" json:"kind,omitempty"`
-	CreatedAt time.Time    `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3,stdtime" json:"created_at,omitempty"`
-	UpdatedAt time.Time    `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3,stdtime" json:"updated_at,omitempty"`
-	Author    string       `protobuf:"bytes,6,opt,name=author,proto3" json:"author,omitempty"`
-	Tags      []string     `protobuf:"bytes,7,rep,name=tags,proto3" json:"tags,omitempty"`
+	ArtifactType    ArtifactType `protobuf:"varint,1,opt,name=artifact_type,json=artifactType,proto3,enum=codeium_common_pb.ArtifactType" json:"artifactType,omitempty"`
+	Summary         string       `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
+	CreatedAt       time.Time    `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3,stdtime" json:"createdAt,omitempty"`
+	UpdatedAt       time.Time    `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3,stdtime" json:"updatedAt,omitempty"`
+	Version         int32        `protobuf:"varint,5,opt,name=version,proto3" json:"version,omitempty"`
+	RequestFeedback bool         `protobuf:"varint,6,opt,name=request_feedback,json=requestFeedback,proto3" json:"requestFeedback,omitempty"`
+	UserFacing      bool         `protobuf:"varint,7,opt,name=user_facing,json=userFacing,proto3" json:"userFacing,omitempty"`
 }
 
 // ArtifactSelection is an artifact selection.

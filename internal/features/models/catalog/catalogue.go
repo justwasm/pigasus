@@ -35,7 +35,17 @@ var (
 // A configured model whose id collides with a reference model is dropped:
 // the reference's row wins, because that id is the reference's own.
 func ModelCatalogue() []ModelEntry {
-	reg := models.CachedRegistry()
+	return modelCatalogue(models.CachedRegistry())
+}
+
+// ModelCatalogueSnapshot is the view-loop equivalent of ModelCatalogue.
+// Provider edits are checked at most once per refresh interval; explicit saves
+// and cache invalidation remain immediately visible.
+func ModelCatalogueSnapshot() []ModelEntry {
+	return modelCatalogue(models.CachedRegistrySnapshot())
+}
+
+func modelCatalogue(reg *models.Registry) []ModelEntry {
 	gate := Claude55Available()
 	adc := ADCAuthAvailable()
 	key := GeminiAPIKeyAvailable()

@@ -572,7 +572,7 @@ func markRegistryState(id string, state taskregistry.State) {
 		return
 	}
 	reg.Update(id, func(t *taskregistry.Task) {
-		if t.State == taskregistry.StateDone || t.State == taskregistry.StateFailed {
+		if t.State == taskregistry.StateDone || t.State == taskregistry.StateFailed || t.State == taskregistry.StateKilled {
 			return
 		}
 		t.State = state

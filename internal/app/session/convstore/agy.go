@@ -606,11 +606,34 @@ func (c *Conversation) ChatTurns() []ChatTurn {
 			}
 		case "model":
 			if t := strings.TrimSpace(s.Text); t != "" {
+				if IsLeakedAssistantError(t) {
+					continue
+				}
 				out = append(out, ChatTurn{Role: "assistant", Text: t})
 			}
 		}
 	}
 	return out
+}
+
+// IsLeakedAssistantError reports whether content is a leaked transport/auth
+// error string erroneously persisted as a model response by older versions.
+func IsLeakedAssistantError(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	if strings.HasPrefix(content, "gemini-api-key: connection") ||
+		strings.HasPrefix(content, "cloudcode: gemini-api-key:") ||
+		strings.HasPrefix(content, "cloudcode: ") ||
+		strings.Contains(content, "dropped: refresh failed:") ||
+		strings.Contains(content, "refresh failed: auth: auth failure") ||
+		strings.Contains(content, "returning stale token") ||
+		(strings.Contains(content, "connection to ") && strings.Contains(content, "dropped:")) ||
+		(strings.Contains(content, "connection dropped:") && strings.Contains(content, "context deadline exceeded")) {
+		return true
+	}
+	return false
 }
 
 // LastChatTurns returns at most n trailing user/assistant messages, always

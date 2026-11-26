@@ -22,6 +22,7 @@ import (
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/features/tools/isolation"
@@ -1283,7 +1284,7 @@ func TestVoice_AntigravityMicSSHRemote(t *testing.T) {
 		}
 		t.Fatalf("expected nil error after reaching mic server, got: %v", err)
 	}
-	defer m.audio.cancelDictationCapture()
+	defer m.voiceBridge().CancelDictation()
 }
 
 func TestVoice_LiveRecordingFlow(t *testing.T) {
@@ -2045,6 +2046,38 @@ func TestBtwContextInherited(t *testing.T) {
 	// And parent session must NOT have grown
 	if len(m.SessionMessages()) != len(parent) {
 		t.Fatalf("parent session grew to %d messages, want %d", len(m.SessionMessages()), len(parent))
+	}
+}
+
+func TestBtwInheritsOrchestratorConfig(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	m := newSlashModel(t)
+	m.session.model = "Orchestrator"
+	if err := settings.SetOrchestrator(settings.OrchestratorSettings{
+		Planner:  "gemini-4-neon",
+		Executor: "gemini-4-hydrogen",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var captured backend.StreamRequest
+	m.turn.backend = &btwRecordingBackend{
+		onStream: func(req backend.StreamRequest) {
+			captured = req
+		},
+	}
+
+	if handled, _ := m.handleSlashCommand("/btw summarize the plan"); !handled {
+		t.Fatal("/btw not handled")
+	}
+	if captured.Model != "gemini-4-neon-high" {
+		t.Fatalf("/btw Model = %q, want gemini-4-neon-high", captured.Model)
+	}
+	if captured.ReasoningEffort != "high" {
+		t.Fatalf("/btw ReasoningEffort = %q, want high", captured.ReasoningEffort)
+	}
+	if captured.ExecutionModel != "gemini-4-hydrogen-high" {
+		t.Fatalf("/btw ExecutionModel = %q, want gemini-4-hydrogen-high", captured.ExecutionModel)
 	}
 }
 

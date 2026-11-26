@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 )
 
 func TestLSCreateDebugBundle(t *testing.T) {
@@ -33,7 +35,7 @@ func TestLSCreateDebugBundle(t *testing.T) {
 		t.Fatalf("bundleUri = %q, want file:// prefix", uri)
 	}
 
-	p := parseURIPath(uri)
+	p := files.ParseURIPath(uri)
 	zr, err := zip.OpenReader(p)
 	if err != nil {
 		t.Fatalf("failed to open created bundle zip: %v", err)
@@ -68,7 +70,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 
 	// 2. Test CreateWorktree
 	createReq, _ := json.Marshal(map[string]any{
-		"repoUri":        lsNormalizedURI(repoDir),
+		"repoUri":        files.NormalizedURI(repoDir),
 		"worktreeName":   "feat-test",
 		"baseBranchName": "main",
 	})
@@ -85,7 +87,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 		t.Errorf("worktreeName = %v, want feat-test", createAns["worktreeName"])
 	}
 
-	wtPath := parseURIPath(wtURI)
+	wtPath := files.ParseURIPath(wtURI)
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Fatalf("worktree directory not on disk: %v", err)
 	}
@@ -100,7 +102,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 	// 3. Test GetWorktreeDiff
 	diffReq, _ := json.Marshal(map[string]any{
 		"worktreeDirUri":     wtURI,
-		"targetWorkspaceUri": lsNormalizedURI(repoDir),
+		"targetWorkspaceUri": files.NormalizedURI(repoDir),
 	})
 	diffAnsRaw, rpcErr := d.routeMethod(context.Background(), "GetWorktreeDiff", diffReq)
 	if rpcErr != nil {
@@ -118,7 +120,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 	// 4. Test CheckoutWorktree with deleteWorktreeAfterCheckout=true
 	checkoutReq, _ := json.Marshal(map[string]any{
 		"worktreeDirUri":              wtURI,
-		"targetWorkspaceUri":          lsNormalizedURI(repoDir),
+		"targetWorkspaceUri":          files.NormalizedURI(repoDir),
 		"deleteWorktreeAfterCheckout": true,
 	})
 	coAnsRaw, rpcErr := d.routeMethod(context.Background(), "CheckoutWorktree", checkoutReq)

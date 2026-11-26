@@ -13,8 +13,10 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/rctunnel/patches"
 )
@@ -72,6 +74,18 @@ type Options struct {
 	// one that would silently lose the feature.
 	DisableAccountSwitcher bool
 
+	// PrepaidBalanceExhausted tells the page that the organization's
+	// prepaid wallet is empty, so the account widget carries the
+	// `Organization prepaid wallet is empty` notice from the first
+	// paint.
+	//
+	// The notice is *sticky*: AGY 1.5.17 renders it as a non-dismissible
+	// warning, because nothing the user can do in the browser restores
+	// the balance. A server that learns the condition mid-session
+	// (Server.NotePrepaidBalanceExhausted) flips it at runtime; this
+	// field is the start-up value, the same way AccountEmail is.
+	PrepaidBalanceExhausted bool
+
 	// ReferencePage serves the reference's own IDE page.
 	//
 	// The reference's language server serves a page whose title is
@@ -112,6 +126,13 @@ type Server struct {
 	// and the sign-ins in flight. It has its own lock, so a registry
 	// write never blocks a page load.
 	acct accountsState
+
+	// prepaidExhausted is the sticky "the organization's prepaid wallet
+	// is empty" flag the page's notice reads. It starts at the option
+	// and can only ever be set — the condition clears when an
+	// administrator adds funds, which the server learns from a fresh
+	// quota read and never by guessing.
+	prepaidExhausted atomic.Bool
 }
 
 // NewServer constructs a new web UI Server.
@@ -127,16 +148,76 @@ func NewServer(opts Options) *Server {
 	if opts.AppVersion == "" {
 		opts.AppVersion = "1.4.7"
 	}
-	return &Server{
+	s := &Server{
 		opts:    opts,
 		fsys:    FS(),
 		modTime: time.Now(),
 		acct:    newAccountsState(),
 	}
+	s.prepaidExhausted.Store(opts.PrepaidBalanceExhausted)
+	return s
+}
+
+// NotePrepaidBalanceExhausted records that a turn failed because the
+// organization's prepaid wallet is empty, so every page served from now on
+// carries the `Organization prepaid wallet is empty` notice.
+//
+// The flag is sticky and one-way: a fresh quota read that succeeds is the only
+// thing that clears it (ClearPrepaidBalanceExhausted), because a single
+// unrelated successful turn does not prove the wallet was refilled.
+func (s *Server) NotePrepaidBalanceExhausted() {
+	if s == nil {
+		return
+	}
+	s.prepaidExhausted.Store(true)
+}
+
+// NotePrepaidBalanceError records the condition when err is the enterprise
+// prepaid-wallet failure, and reports whether it did.
+//
+// This is the one call the turn loop needs: it takes the turn's error rather
+// than asking the caller to classify it first, so the host that observes the
+// failure does not have to import the error package to wire the notice.
+func (s *Server) NotePrepaidBalanceError(err error) bool {
+	if s == nil || !apierror.IsPrepaidBalanceExhaustedErr(err) {
+		return false
+	}
+	s.prepaidExhausted.Store(true)
+	return true
+}
+
+// ClearPrepaidBalanceExhausted drops the notice, for a caller that has a fresh
+// quota read proving the wallet is funded again.
+func (s *Server) ClearPrepaidBalanceExhausted() {
+	if s == nil {
+		return
+	}
+	s.prepaidExhausted.Store(false)
+}
+
+// PrepaidBalanceExhausted reports whether the page currently carries the
+// notice. The accessor exists so a host wrapper or a test can observe the
+// state without reading the field.
+func (s *Server) PrepaidBalanceExhausted() bool {
+	if s == nil {
+		return false
+	}
+	return s.prepaidExhausted.Load()
 }
 
 // Handler returns an http.Handler that serves the embedded Jetski Web UI.
 func Handler(opts Options) http.Handler {
+	return NewServer(opts)
+}
+
+// NewServerHandler is Handler for a caller that also needs the Server itself.
+//
+// The prepaid-wallet notice has to be turned on from outside the request
+// lifecycle - by the host that observes a failed turn - so that host needs a
+// *Server, not the http.Handler interface Handler returns. Keeping Handler as
+// the http.Handler-shaped entry point means the many call sites that only serve
+// pages are unaffected.
+func NewServerHandler(opts Options) *Server {
 	return NewServer(opts)
 }
 

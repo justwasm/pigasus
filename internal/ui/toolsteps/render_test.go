@@ -1226,3 +1226,49 @@ func TestStepDetailLines_ZeroWidthRespectsCurrentWidth(t *testing.T) {
 		t.Fatalf("expected width=0 cache to track mdrender.CurrentWidth: narrow=%d lines, wide=%d lines", len(narrow), len(wide))
 	}
 }
+
+func TestShellCommandStatusDots_1516(t *testing.T) {
+	failed := NewToolStep("run_command", json.RawMessage(`{"CommandLine":"false"}`), "Command exited with code 1.\n\nNo output from the command.", false)
+	timedOut := NewToolStep("run_command", json.RawMessage(`{"CommandLine":"sleep 99"}`), "Command timed out after 5s", true)
+	canceled := NewToolStep("run_command", json.RawMessage(`{"CommandLine":"sleep 99"}`), "Command canceled by user", true)
+
+	if !failed.Err || failed.Canceled {
+		t.Fatalf("failed step flags = Err:%v Canceled:%v, want Err:true Canceled:false", failed.Err, failed.Canceled)
+	}
+	if !timedOut.Err || timedOut.Canceled {
+		t.Fatalf("timedOut step flags = Err:%v Canceled:%v, want Err:true Canceled:false", timedOut.Err, timedOut.Canceled)
+	}
+	if canceled.Err || !canceled.Canceled {
+		t.Fatalf("canceled step flags = Err:%v Canceled:%v, want Err:false Canceled:true", canceled.Err, canceled.Canceled)
+	}
+
+	for _, tc := range []struct {
+		name string
+		opts RenderOptions
+	}{
+		{"low-collapsed", RenderOptions{Verbosity: VerbosityLow, Expanded: false, Width: 100}},
+		{"high-expanded", RenderOptions{Verbosity: VerbosityHigh, Expanded: true, Width: 100}},
+		{"medium-expanded-ctrl-o", RenderOptions{Verbosity: VerbosityMedium, Expanded: true, Width: 100}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, st := range []Step{failed, timedOut} {
+				lines := RenderBlock([]Step{st}, tc.opts)
+				joined := strings.Join(lines, "\n")
+				if !strings.Contains(joined, stepBulletErrOpen) {
+					t.Fatalf("%s: expected red bullet %q for %s, got:\n%s", tc.name, stepBulletErrOpen, st.Title, joined)
+				}
+				if strings.Contains(joined, stepBulletOpen) {
+					t.Fatalf("%s: unexpected green bullet for failed/timed-out %s:\n%s", tc.name, st.Title, joined)
+				}
+			}
+			lines := RenderBlock([]Step{canceled}, tc.opts)
+			joined := strings.Join(lines, "\n")
+			if !strings.Contains(joined, stepBulletCanceledOpen) {
+				t.Fatalf("%s: expected gray bullet %q for canceled command, got:\n%s", tc.name, stepBulletCanceledOpen, joined)
+			}
+			if strings.Contains(joined, stepBulletErrOpen) || strings.Contains(joined, stepBulletOpen) {
+				t.Fatalf("%s: canceled command should not show red or green bullet:\n%s", tc.name, joined)
+			}
+		})
+	}
+}

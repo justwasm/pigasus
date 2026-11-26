@@ -216,6 +216,78 @@ Two things this cycle could **not** do, and therefore did not do:
 
 ---
 
+## The 1.5.16 → 1.5.17 delta
+
+> Recorded 2026-11-26. This section is the durable evidence for the bump: the
+> `out/extracted-1.5.16/` tree was retired in the same change, so the
+> differences are written down here rather than left implicit in a directory
+> that no longer exists.
+
+Extracted with `python3 scripts/re/extract_agy.py --bin ~/.local/bin/agy` into
+`out/extracted-1.5.17/`. The release notes came from
+`python3 scripts/re/fetch_changelog.py --version 1.5.17`, stored as
+`internal/cli/testdata/changelog_upstream_1.5.17.md`.
+
+### Unchanged
+
+| Artifact | Evidence |
+|---|---|
+| Built-in changelog feed | byte-identical: 259,799 bytes / 1,352 lines / sha256 `b777354c…25e521`. `changelog_reference.txt` and the five constants in `changelog_data_test.go` did not change. |
+| Embedded chroma lexers | all 353 XML files, same file set and same bytes |
+| `prompt`, `trajectory`, `trajectory_steps`, `cascade_plugins` protos | descriptor bytes unchanged (only the file offset moved) |
+
+### Changed
+
+`cortex` proto (`exa.cortex_pb`, 516 messages / 90 enums in both releases):
+
+```
+RunCommandToolConfig:
+  + 28 repeated RunCommandToolConfig.EnvEntry env;
+
+PolicyGuardianConfig:
+  + 26 TYPE_BOOL enable_proctor_read_budget;
+  + 27 PolicyGuardianConfig.SkillScanMode proctor_skill_scan_mode;
+
+PolicyGuardianCoverage.Area (new values 7..16):
+  + url_data_exfil, destructive_action, remote_code_exec, dependency_install,
+    skill_supply_chain, mcp_tool_use, recon, user_coercion,
+    post_exec_tampering, network_exposure
+```
+
+`remote_agent_proxy` proto (`google.gca.aicode.v1main`): 368 → 391 messages,
+20 → 26 enums. New messages include `MemoryConfig` (client_id, root_dir, mounts,
+memory_rules_disabled, ambient_memory_disabled), `MemoryMount` (dumbo,
+description), `DumboMemoryMount` (group, read_only) and `AgentPluginConfig`
+(plugin_id, enabled, argument_values).
+
+Six RemoteAgentProxy RPCs are genuinely new — they are absent from the 1.5.16
+symbol table and present in 1.5.17:
+
+| RPC | 1.5.16 | 1.5.17 | clone |
+|---|---|---|---|
+| `UploadSkill` | 0 | 17 | not implemented |
+| `ListAgentSidecars` | 0 | 19 | not implemented |
+| `SummarizeVoiceChat` | 0 | 18 | not implemented |
+| `UpdateAgentRemoteSession` | 0 | 39 | not implemented |
+| `UpdateAgentRemoteSessionViewerState` | 0 | — | not implemented |
+| `ListAgentConfiguredPlugins` | 0 | 16 | not implemented |
+| `DeleteSkill` | 33 | 48 | served (`remotecontrol/plugins_ls.go`) |
+
+New upstream symbols also include
+`openaiconverter.(*ResponsesStreamState).recordReasoningDelta` /
+`extractReasoningSummaryText` (reasoning-summary streaming on the OpenAI
+Responses path) and the `PolicyGuardianMonitor` post-tool verdict helpers.
+
+### Deliberately not implemented
+
+The six RPCs, the altscreen mouse-selection input model, the `/model`
+Orchestrator rework, and the auth/quota/stream-resume fixes each need their own
+cycle with wire evidence. That evidence is currently unavailable: the reference
+account is suspended, so the binary could be extracted but not driven. **No live
+parity was performed for 1.5.17.** The `how` notes in `reference.lock.json` say
+so, and only the artifacts that were statically re-verified against the new
+extraction carry a 1.5.17 re-verification claim.
+
 <!-- BEGIN AUTOMATED DRIFT REPORT -->
 ## Automated Reference Drift Inspection & Parity Audit
 

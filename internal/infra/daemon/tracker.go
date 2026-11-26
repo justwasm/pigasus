@@ -72,12 +72,13 @@ const DefaultGracePeriod = 5 * time.Second
 // The zero value is ready for use; most callers should reach for
 // Global() to share one across the binary.
 type Tracker struct {
-	mu      sync.Mutex
-	procs   map[int]*tracked // pid → tracked
-	closed  atomic.Bool      // Set true after Shutdown completes; further Track calls no-op
-	wg      sync.WaitGroup   // increments per Track, decrements per Untrack
-	grace   time.Duration    // SIGTERM → SIGKILL delay; zero defaults to DefaultGracePeriod
-	stopped chan struct{}    // closed once Shutdown has finished; nil before the first Shutdown
+	mu          sync.Mutex
+	procs       map[int]*tracked // pid → tracked
+	closed      atomic.Bool      // Set true after Shutdown completes; further Track calls no-op
+	wg          sync.WaitGroup   // increments per Track, decrements per Untrack
+	grace       time.Duration    // SIGTERM → SIGKILL delay; zero defaults to DefaultGracePeriod
+	stoppedOnce sync.Once        // guards creation of stopped
+	stopped     chan struct{}    // closed once Shutdown has finished; nil before the first Shutdown (read under mu)
 
 	logger Logger // optional; nil falls back to a no-op
 
@@ -373,8 +374,11 @@ func (t *Tracker) escalateKill(delay time.Duration, logger Logger, ctx context.C
 		case <-ctx.Done():
 		}
 	}
-	if t.stopped != nil {
-		close(t.stopped)
+	t.mu.Lock()
+	stopped := t.stopped
+	t.mu.Unlock()
+	if stopped != nil {
+		close(stopped)
 	}
 	return killed
 }
@@ -394,8 +398,11 @@ func (t *Tracker) waitForGraceExit(graceCtx context.Context, delay time.Duration
 		alive := len(t.procs)
 		t.mu.Unlock()
 		if alive == 0 {
-			if t.stopped != nil {
-				close(t.stopped)
+			t.mu.Lock()
+			stopped := t.stopped
+			t.mu.Unlock()
+			if stopped != nil {
+				close(stopped)
 			}
 			return 0
 		}
@@ -408,15 +415,20 @@ func (t *Tracker) waitForGraceExit(graceCtx context.Context, delay time.Duration
 }
 
 func (t *Tracker) Shutdown(ctx context.Context) int {
-	t.onceSignal.Do(func() {
+	// stopped is created here but read by waitForGraceExit, escalateKill
+	// and Stopped from other goroutines, so every access takes mu.
+	t.mu.Lock()
+	t.stoppedOnce.Do(func() {
 		t.stopped = make(chan struct{})
 	})
+	t.mu.Unlock()
 
 	t.mu.Lock()
 	if t.closed.Load() {
+		stopped := t.stopped
 		t.mu.Unlock()
-		if t.stopped != nil {
-			<-t.stopped
+		if stopped != nil {
+			<-stopped
 		}
 		return 0
 	}
@@ -434,8 +446,11 @@ func (t *Tracker) Shutdown(ctx context.Context) int {
 	t.mu.Unlock()
 
 	if len(snapshot) == 0 {
-		if t.stopped != nil {
-			close(t.stopped)
+		t.mu.Lock()
+		stopped := t.stopped
+		t.mu.Unlock()
+		if stopped != nil {
+			close(stopped)
 		}
 		return 0
 	}

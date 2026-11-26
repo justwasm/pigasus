@@ -15,6 +15,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/artifacts"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/features/agents"
@@ -88,6 +89,9 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 	if len(workspaces) > 1 {
 		tools.SetExtraWorkspaces(workspaces[1:])
 	}
+	// The conversation's artifact directory is its own write root, and the
+	// write tools record a sidecar for artifacts.
+	artifacts.InstallWriteRoot(cfg.conversationID)
 
 	pcfg := actorPrintConfig{
 		Backend:        be,

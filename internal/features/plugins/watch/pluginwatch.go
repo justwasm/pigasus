@@ -95,11 +95,15 @@ func roots(homeDir string) []string {
 		return nil
 	}
 	gemini := filepath.Dir(homeDir) // ~/.gemini
-	return []string{
+	out := []string{
 		filepath.Join(gemini, "config", "plugins"),
 		filepath.Join(gemini, "skills"),
 		filepath.Join(homeDir, "cache", "marketplaces"),
 	}
+	if filepath.Base(gemini) == ".gemini" {
+		out = append(out, filepath.Join(filepath.Dir(gemini), ".agents", "skills"))
+	}
+	return out
 }
 
 // Watcher monitors the three plugin/skill/marketplace roots under

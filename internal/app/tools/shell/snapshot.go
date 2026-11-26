@@ -16,6 +16,51 @@ import (
 	"github.com/justwasm/pigasus/internal/core/compaction"
 )
 
+// ConversationTaskRef pairs a running background task snapshot with the
+// conversation ID that owns it.
+type ConversationTaskRef struct {
+	ConversationID string
+	Task           compaction.TaskRef
+}
+
+// AllRunningTaskSnapshots returns all still-running background tasks across
+// every conversation, oldest first.
+func AllRunningTaskSnapshots() []ConversationTaskRef {
+	backgroundTasks.mu.Lock()
+	tasks := make([]*BackgroundTask, 0, len(backgroundTasks.order))
+	for _, id := range backgroundTasks.order {
+		if t, ok := backgroundTasks.tasks[id]; ok && t != nil {
+			tasks = append(tasks, t)
+		}
+	}
+	backgroundTasks.mu.Unlock()
+
+	out := make([]ConversationTaskRef, 0, len(tasks))
+	for _, t := range tasks {
+		t.mu.Lock()
+		done := t.completed || t.killed
+		t.mu.Unlock()
+		if done {
+			continue
+		}
+		convID, _, _ := strings.Cut(t.id, "/")
+		out = append(out, ConversationTaskRef{
+			ConversationID: convID,
+			Task: compaction.TaskRef{
+				TaskID:      t.id,
+				ToolName:    t.toolName,
+				ToolSummary: t.toolSummary,
+				Description: t.command,
+				StartTime:   protoJSONTimestamp(t.started),
+				StepIndex:   uint32(t.stepIndex),
+				LogURI:      fileURI(t.logPath),
+				IsDaemon:    t.isDaemon,
+			},
+		})
+	}
+	return out
+}
+
 // RunningTaskSnapshots returns the conversation's still-running tasks in the
 // checkpoint's shape, oldest first.
 //

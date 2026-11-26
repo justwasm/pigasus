@@ -203,6 +203,10 @@ func TestSetupCLIParser_TUIDispatch(t *testing.T) {
 // TestRunEntrypoint_PassesArgs verifies that cliapp.Run correctly passes arguments
 // to the parser and does not ignore them in favor of os.Args.
 func TestRunEntrypoint_PassesArgs(t *testing.T) {
+	// Startup writes default settings as well as changing the live palette.
+	// Keep both effects local so later models do not inherit a dark theme.
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	restorePalette(t)
 	// Calling Run with ["pigasus", "server", "--help"] should succeed (exit 0)
 	code := Run([]string{"pigasus", "server", "--help"})
 	if code != 0 {

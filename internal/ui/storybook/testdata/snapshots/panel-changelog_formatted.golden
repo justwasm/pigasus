@@ -5,23 +5,23 @@
 02: |  The terminal-first surface to interact with Pigasus agents. Stay in your flow |
 03: |without context switching.                                                      |
 04: |                                                                                |
-05: |  ## 1.5.13                                                                     |
+05: |  ## 1.5.14                                                                     |
 06: |                                                                                |
-07: |  • Added Gemini 4 Neon (Low, Medium, High, and XHigh) to /model and --model    |
-08: |  when you sign in with Application Default Credentials (AGY_ADC_AUTH), and     |
-09: |  added support for Gemini 4 Neon through an enterprise model gateway.          |
-10: |  • Improved mouse selection in Markdown tables in the full screen (altscreen)  |
-11: |  rendering mode and the artifact viewer: a drag that starts in a table now     |
-12: |  follows its columns, so you copy only the text of the column you drag in, or  |
-13: |  whole cells separated by tabs when you drag across columns, instead of the    |
-14: |  borders and the text of neighboring columns.                                  |
-15: |  • Improved how the agent works through multi-step tasks: it now runs          |
-16: |  independent searches, file reads, and edits together in one step and chains   |
-17: |  related shell commands into a single command, so tasks take fewer turns.      |
-18: |  • Fixed custom models in settings.json ignoring modelFeatures flags set to    |
-19: |  false, such as supportsThinking and supportsToolCalls, so the CLI no longer   |
-20: |  requests thinking or tool calls from a model you've marked as not supporting  |
-21: |  (0–20 of 4120 lines)                                                          |
+07: |  • Added /thinking (/thinking [on|off], saved as "showThinking" in             |
+08: |  settings.json and off by default) to stream the model's full thinking live    |
+09: |  in the transcript while it thinks and keep finished thoughts expanded         |
+10: |  without pressing Ctrl+O.                                                      |
+11: |  • Added a live Overview section to /swarm board on terminals at least 28      |
+12: |  rows tall, showing the swarm's goal, overall task progress (Overview · N of   |
+13: |  M tasks done and any blocked count), and up to six workstream threads with    |
+14: |  status indicators for which workers are working, in review, waiting on a      |
+15: |  peer, failed, or done.                                                        |
+16: |  • Added plan mode to --remote-agent sessions, so a remote agent can research  |
+17: |  and write a plan for your review before editing files or running commands:    |
+18: |  switch to it with Shift+Tab, start in it with --mode plan, or choose plan     |
+19: |  under Agent Mode on the Remote Agent tab of /config.                          |
+20: |  • Added an Agent Mode setting (default, accept-edits, and plan) to the        |
+21: |  (0–20 of 4241 lines)                                                          |
 22: |                                                                                |
 23: |  ↑/↓ Navigate · esc Cancel                                                     |
 --- ATTRIBUTE MATRIX ---
@@ -35,16 +35,16 @@
 07: [2:78] fg=#e8eaed
 08: [2:78] fg=#e8eaed
 09: [2:78] fg=#e8eaed
-10: [2:78] fg=#e8eaed
+10: [2:26] fg=#e8eaed
 11: [2:78] fg=#e8eaed
 12: [2:78] fg=#e8eaed
 13: [2:78] fg=#e8eaed
-14: [2:46] fg=#e8eaed
-15: [2:78] fg=#e8eaed
+14: [2:78] fg=#e8eaed
+15: [2:24] fg=#e8eaed
 16: [2:78] fg=#e8eaed
 17: [2:78] fg=#e8eaed
 18: [2:78] fg=#e8eaed
-19: [2:78] fg=#e8eaed
+19: [2:54] fg=#e8eaed
 20: [2:78] fg=#e8eaed
 21: [0:22] fg=#657b83
 22: (plain)

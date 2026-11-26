@@ -13,20 +13,63 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
+// ArtifactMetadata is the artifact half of a write's arguments — the subset
+// of codeium_common_pb.ArtifactMetadata a file-creation call carries.
+//
+// 【一手】 tools_pb.(*FileEdit).GetArtifactMetadata (recovered symbol
+// 0x6b59220 in the 1.3.4 extract, 0x1008baea0 in 1.5.17) proves the
+// reference's write payload carries this message; artifacts.tmpl and
+// generative_ui/SKILL.md name UserFacing and RequestFeedback as the keys
+// the model sets. A nil pointer means the model did not send the key, which
+// is different from sending false.
+type ArtifactMetadata struct {
+	Summary         string `json:"summary"`
+	UserFacing      *bool  `json:"userFacing"`
+	RequestFeedback *bool  `json:"requestFeedback"`
+}
+
+// ArtifactWriteHook, when set, records the artifact sidecar for a path that
+// landed in the conversation's artifact directory. It is a hook rather than
+// a direct import so internal/app/tools stays free of internal/app/artifacts
+// (the same seam TriggeredMemoriesHook uses).
+var ArtifactWriteHook func(path string, meta ArtifactMetadata)
+
+// recordArtifact hands a completed write to the host's artifact layer.
+func recordArtifact(path string, meta ArtifactMetadata) {
+	if ArtifactWriteHook != nil {
+		ArtifactWriteHook(path, meta)
+	}
+}
+
+// createFileSchema is the write declaration. artifactMetadata is optional:
+// the reference's write tool accepts it on any write and only the artifact
+// directory acts on it, so the schema must not require it.
+var createFileSchema = json.RawMessage(`{"type":"object","properties":{` +
+	`"path":{"type":"string"},` +
+	`"content":{"type":"string"},` +
+	`"overwrite":{"type":"boolean"},` +
+	`"artifactMetadata":{"type":"object","properties":{` +
+	`"summary":{"type":"string","description":"One-line summary of the artifact."},` +
+	`"userFacing":{"type":"boolean","description":"Whether the artifact is shown to the user in the conversation and listed in the artifact panel."},` +
+	`"requestFeedback":{"type":"boolean","description":"Whether the artifact asks the user for review."}` +
+	`}}` +
+	`},"required":["path","content"]}`)
+
 // CreateFile — Source: tools.create_file (v4 32 #14). The new primary
 // file-write tool. Renamed from 1.3.3 write_file to match v4 naming.
 type CreateFile struct{ Workspace string }
 
 func (c *CreateFile) Name() string { return "create_file" }
 func (c *CreateFile) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`)
+	return createFileSchema
 }
 func (c *CreateFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	start := time.Now()
 	var p struct {
-		Path      string `json:"path"`
-		Content   string `json:"content"`
-		Overwrite bool   `json:"overwrite"`
+		Path             string           `json:"path"`
+		Content          string           `json:"content"`
+		Overwrite        bool             `json:"overwrite"`
+		ArtifactMetadata ArtifactMetadata `json:"artifact_metadata"`
 	}
 	if err := tools.ArgsOf(args, &p); err != nil {
 		return nil, err
@@ -44,6 +87,7 @@ func (c *CreateFile) Run(ctx context.Context, args json.RawMessage) (any, error)
 	if err := os.WriteFile(full, []byte(p.Content), 0644); err != nil {
 		return nil, err
 	}
+	recordArtifact(full, p.ArtifactMetadata)
 	res := tools.ResultStamp(start) + "Created file."
 	if TriggeredMemoriesHook != nil {
 		if mem := TriggeredMemoriesHook(c.Workspace, full); mem != "" {
@@ -60,7 +104,7 @@ type WriteFile struct{ Workspace string }
 
 func (w *WriteFile) Name() string { return "write_file" }
 func (w *WriteFile) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`)
+	return createFileSchema
 }
 func (w *WriteFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	var p struct {
@@ -85,7 +129,10 @@ type EditFile struct{ Workspace string }
 
 func (e *EditFile) Name() string { return "edit_file" }
 func (e *EditFile) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"oldString":{"type":"string"},"newString":{"type":"string"}},"required":["path","oldString","newString"]}`)
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"oldString":{"type":"string"},"newString":{"type":"string"},` +
+		`"artifactMetadata":{"type":"object","properties":{"summary":{"type":"string"},` +
+		`"userFacing":{"type":"boolean"},"requestFeedback":{"type":"boolean"}}}}` +
+		`,"required":["path","oldString","newString"]}`)
 }
 
 func executeEdit(content, oldStr, newStr, full string, start time.Time) (string, error) {
@@ -104,11 +151,12 @@ func executeEdit(content, oldStr, newStr, full string, start time.Time) (string,
 func (e *EditFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	start := time.Now()
 	var p struct {
-		Path        string `json:"path"`
-		OldString   string `json:"oldString"`
-		NewString   string `json:"newString"`
-		Target      string `json:"target"`
-		Replacement string `json:"replacement"`
+		Path             string           `json:"path"`
+		OldString        string           `json:"oldString"`
+		NewString        string           `json:"newString"`
+		Target           string           `json:"target"`
+		Replacement      string           `json:"replacement"`
+		ArtifactMetadata ArtifactMetadata `json:"artifact_metadata"`
 	}
 	if err := tools.ArgsOf(args, &p); err != nil {
 		return nil, err
@@ -134,6 +182,14 @@ func (e *EditFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// An edit to an artifact refreshes its sidecar's updatedAt; the
+	// reference's FileEdit carries artifactMetadata for exactly this case.
+	// A failed edit (target text not found) returns a result, not an error,
+	// so the success check is the result text — same guard as the memory
+	// hook below.
+	if !strings.Contains(res, "Encountered error in tool execution") {
+		recordArtifact(full, p.ArtifactMetadata)
+	}
 	if TriggeredMemoriesHook != nil && !strings.Contains(res, "Encountered error in tool execution") {
 		if mem := TriggeredMemoriesHook(e.Workspace, full); mem != "" {
 			res += mem
@@ -156,12 +212,13 @@ type AppendFile struct{ Workspace string }
 
 func (a *AppendFile) Name() string { return "append_file" }
 func (a *AppendFile) Schema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`)
+	return createFileSchema
 }
 func (a *AppendFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	var p struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
+		Path             string           `json:"path"`
+		Content          string           `json:"content"`
+		ArtifactMetadata ArtifactMetadata `json:"artifact_metadata"`
 	}
 	if err := tools.ArgsOf(args, &p); err != nil {
 		return nil, err
@@ -183,6 +240,10 @@ func (a *AppendFile) Run(ctx context.Context, args json.RawMessage) (any, error)
 		return nil, err
 	}
 	defer f.Close()
-	_, err = f.WriteString(content)
-	return nil, err
+	if _, err = f.WriteString(content); err != nil {
+		return nil, err
+	}
+	recordArtifact(full, p.ArtifactMetadata)
+	return nil, nil
 }
+

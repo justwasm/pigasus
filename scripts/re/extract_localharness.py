@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Standardized extraction SOP script for Google Antigravity localharness.
 
-Downloads the specified `google-antigravity` wheel from PyPI (or uses a local wheel/binary),
+Downloads the specified (or latest) `google-antigravity` wheel from PyPI (or uses a local wheel/binary),
 extracts the `localharness` binary, recovers function seeds, and reconstructs
-the protobuf schema into `out/localharness/`.
+the protobuf schema into `out/localharness-<version>/` (with symlink `out/localharness`).
 
 Usage:
-    python3 scripts/re/extract_localharness.py [--version 0.1.23] [--wheel path/to.whl] [--bin path/to/localharness] [--out out/localharness]
+    python3 scripts/re/extract_localharness.py [--version 0.1.24] [--wheel path/to.whl] [--bin path/to/localharness] [--out out/localharness-<version>]
 """
 
 import argparse
 import hashlib
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,9 @@ import tempfile
 import zipfile
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
+RE_DIR = pathlib.Path(__file__).resolve().parent
+if str(RE_DIR) not in sys.path:
+    sys.path.insert(0, str(RE_DIR))
 
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -91,8 +95,10 @@ def extract_localharness(binary_path: pathlib.Path, proto_dir: pathlib.Path, out
     # 3. Protocol dump from python stubs
     if proto_dir and proto_dir.is_dir():
         print(f"    [3/3] Reconstructing .proto schemas from Python stubs...")
-        protodump_script = REPO / "out" / "localharness" / "proto_tools" / "protodump.py"
-        pb2_files = list(proto_dir.glob("*_pb2.py"))
+        protodump_script = RE_DIR / "proto_tools" / "protodump.py"
+        if not protodump_script.is_file():
+            protodump_script = REPO / "out" / "localharness" / "proto_tools" / "protodump.py"
+        pb2_files = sorted(proto_dir.glob("*_pb2.py"))
         if protodump_script.is_file() and pb2_files:
             cmd = [sys.executable, str(protodump_script), str(target_proto_dir)] + [str(p) for p in pb2_files]
             res_proto = subprocess.run(cmd, capture_output=True, text=True)
@@ -106,43 +112,66 @@ def extract_localharness(binary_path: pathlib.Path, proto_dir: pathlib.Path, out
     else:
         print(f"    [3/3] Skipped proto reconstruction (proto stubs not supplied).")
 
+    # Update backward-compatible symlink `out/localharness -> localharness-<version>`
+    if out_dir.parent == REPO / "out" and out_dir.name != "localharness":
+        symlink_path = REPO / "out" / "localharness"
+        if symlink_path.is_symlink() or not symlink_path.exists():
+            try:
+                symlink_path.unlink(missing_ok=True)
+                symlink_path.symlink_to(out_dir.name)
+                print(f"    Updated symlink: out/localharness -> {out_dir.name}")
+            except Exception as e:
+                print(f"Warning: Could not update symlink: {e}")
+
     print(f"==> localharness extraction complete: {out_dir}\n")
+
+
+def infer_version_from_wheel(whl_path: pathlib.Path) -> str:
+    m = re.search(r"google_antigravity-([0-9]+(?:\.[0-9]+)*)-", whl_path.name)
+    return m.group(1) if m else "unknown"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Extract artifacts from localharness PyPI wheel or binary.")
-    parser.add_argument("--version", default="0.1.23", help="PyPI version of google-antigravity (default: 0.1.23)")
+    parser.add_argument("--version", help="PyPI version of google-antigravity (default: latest on PyPI)")
     parser.add_argument("--wheel", help="Path to local google_antigravity .whl")
     parser.add_argument("--bin", help="Path to extracted localharness binary")
-    parser.add_argument("--out", help="Output directory (default: out/localharness)")
+    parser.add_argument("--out", help="Output directory (default: out/localharness-<version>)")
     args = parser.parse_args()
 
-    out_dir = pathlib.Path(args.out).resolve() if args.out else REPO / "out" / "localharness"
-
     if args.bin:
+        version = (args.version or "unknown").strip().lstrip("v")
+        out_dir = pathlib.Path(args.out).resolve() if args.out else REPO / "out" / f"localharness-{version}"
         bin_path = pathlib.Path(args.bin).resolve()
-        extract_localharness(bin_path, None, out_dir, args.version)
+        extract_localharness(bin_path, None, out_dir, version)
         return
 
-    with tempfile.TemporaryDirectory() as td:
-        temp_dir = pathlib.Path(td)
-        if args.wheel:
-            whl_path = pathlib.Path(args.wheel).resolve()
-        else:
-            whl_path = download_wheel(args.version, temp_dir)
+    if args.wheel:
+        whl_path = pathlib.Path(args.wheel).resolve()
+        version = (args.version or infer_version_from_wheel(whl_path)).strip().lstrip("v")
+        out_dir = pathlib.Path(args.out).resolve() if args.out else REPO / "out" / f"localharness-{version}"
+        with tempfile.TemporaryDirectory() as td:
+            temp_dir = pathlib.Path(td)
+            print(f"    Unpacking wheel: {whl_path.name}")
+            unpack_dir = temp_dir / "unpacked"
+            with zipfile.ZipFile(whl_path, "r") as z:
+                z.extractall(unpack_dir)
 
-        print(f"    Unpacking wheel: {whl_path.name}")
-        unpack_dir = temp_dir / "unpacked"
-        with zipfile.ZipFile(whl_path, "r") as z:
-            z.extractall(unpack_dir)
+            bin_path = unpack_dir / "google" / "antigravity" / "bin" / "localharness"
+            if not bin_path.is_file():
+                raise FileNotFoundError(f"localharness binary not found in wheel: {bin_path}")
+            bin_path.chmod(0o755)
 
-        bin_path = unpack_dir / "google" / "antigravity" / "bin" / "localharness"
-        if not bin_path.is_file():
-            raise FileNotFoundError(f"localharness binary not found in wheel: {bin_path}")
-        bin_path.chmod(0o755)
+            proto_dir = unpack_dir / "google" / "antigravity" / "proto"
+            extract_localharness(bin_path, proto_dir, out_dir, version)
+        return
 
-        proto_dir = unpack_dir / "google" / "antigravity" / "proto"
-        extract_localharness(bin_path, proto_dir, out_dir, args.version)
+    from fetch_binaries import fetch_localharness, get_latest_localharness_version
+
+    version = args.version.strip().lstrip("v") if args.version else get_latest_localharness_version()
+    out_dir = pathlib.Path(args.out).resolve() if args.out else REPO / "out" / f"localharness-{version}"
+    bin_path, proto_dir = fetch_localharness(version=version)
+    extract_localharness(bin_path, proto_dir, out_dir, version)
 
 
 if __name__ == "__main__":

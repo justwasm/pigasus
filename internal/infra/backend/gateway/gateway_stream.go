@@ -214,7 +214,18 @@ func (c *GatewayClient) runGatewayStreamBodyWithRetry(ctx context.Context, resp 
 }
 
 // readGatewayBodyOnce reads one response body to completion.
+//
+// A nil resp means the mid-stream reopen produced no response. That is the
+// condition the caller's retry budget exists to absorb, so it is reported as
+// a connection drop rather than dereferenced. CloudCode's reader carries the
+// same guard; without it every protocol branch below would fault on Body.
 func (c *GatewayClient) readGatewayBodyOnce(ctx context.Context, resp *http.Response, externalModel string, out chan<- backend.StreamChunk) error {
+	if resp == nil {
+		return &retry.ConnectionDroppedError{
+			URL: c.baseURL,
+			Err: fmt.Errorf("gateway: reopen produced no response"),
+		}
+	}
 	switch c.cfg.protocol() {
 	case GatewayProtocolAnthropic:
 		return c.readAnthropicBody(ctx, resp, externalModel, out)
@@ -235,7 +246,7 @@ func (c *GatewayClient) readOpenAIBody(ctx context.Context, resp *http.Response,
 	})
 	if scanErr != nil {
 		if !retry.IsConnectionDropped(scanErr) {
-			out <- backend.StreamChunk{Error: scanErr, Done: true}
+			out <- backend.StreamChunk{Error: scanErr, Done: true, Meta: meta}
 		}
 		return scanErr
 	}
@@ -295,14 +306,19 @@ func processOpenAIChoices(ctx context.Context, chunk gatewaySSEChunk, acc *gatew
 		for _, tc := range choice.Delta.ToolCalls {
 			acc.add(tc.Index, tc.ID, tc.Function.Name, tc.Function.Arguments)
 		}
-		if choice.Delta.Content == "" {
-			continue
+		if choice.Delta.Content != "" {
+			select {
+			case <-ctx.Done():
+				out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+				return ctx.Err()
+			case out <- backend.StreamChunk{Text: choice.Delta.Content}:
+			}
 		}
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-			return ctx.Err()
-		case out <- backend.StreamChunk{Text: choice.Delta.Content}:
+		// Emit the last text delta, but never the accumulated calls, when
+		// this same frame declares a truncated or filtered response.
+		switch choice.FinishReason {
+		case "length", "content_filter":
+			return gatewayTerminationError(GatewayProtocolOpenAI, choice.FinishReason)
 		}
 	}
 	return nil

@@ -24,22 +24,29 @@ import (
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/editor/selection"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
 	"github.com/justwasm/pigasus/internal/ui/foundations/inputselection"
-	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/mentionpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
+	"github.com/justwasm/pigasus/internal/ui/vimbridge"
 	"github.com/justwasm/pigasus/vim"
 )
 
-// PromptModel owns the composer's state and its input-area selection.
+// PromptModel owns the composer widget and composes its selection behavior
+// from the host-independent selection module.
 type PromptModel struct {
-	tuiviewport.InputSelection
+	selection.Model
 
 	// Cycle 71: input component. charm.land/bubbles/v2 textarea
 	input tas.Model
 	// Undo / redo stack manager for composer input
 	undoMgr *composer.UndoManager
+	// vim is the composer's Vim editing bridge (internal/ui/vimbridge).
+	// It owns the engine and the two settings; vimEng/vimOn/vimFirstOn
+	// below are the mirror the host's own paths read.
+	vim *vimbridge.Bridge
 	// Cycle 216: the Vim editing engine, created on first use when
 	vimEng *vim.State
 	// vimOn / vimFirstOn mirror the "Editor Mode" and "Editor Mode ›
@@ -160,12 +167,41 @@ func (p *PromptModel) IsEscArmed() bool {
 
 // VimActive reports whether Vim editing mode is enabled in the composer.
 func (p *PromptModel) VimActive() bool {
-	return p.vimOn
+	return p.vimBridge().Enabled()
 }
+
+// vimBridge returns the composer's Vim bridge, building an inert one
+// seeded from the mirror fields on first use. The host installs the real
+// one (with its seams) through SetVimBridge.
+func (p *PromptModel) vimBridge() *vimbridge.Bridge {
+	if p.vim == nil {
+		p.vim = vimbridge.New(vimbridge.Ports{})
+		p.vim.SetEnabled(p.vimOn)
+		if p.vimEng != nil {
+			p.vim.AdoptEngine(p.vimEng)
+		}
+	}
+	return p.vim
+}
+
+// SetVimEnabled turns Vim editing mode on or off. It is the one writer of
+// vimOn: the bridge owns the value and the mirror follows.
+func (p *PromptModel) SetVimEnabled(on bool) {
+	p.vimBridge().SetEnabled(on)
+	p.vimOn = on
+	if !on {
+		p.vimEng = nil
+	}
+}
+
+// SetVimBridge installs the composer's Vim bridge. The host builds it
+// with its own seams; until it does, the composer's mirror fields are
+// all there is.
+func (p *PromptModel) SetVimBridge(b *vimbridge.Bridge) { p.vim = b }
 
 // SetVimMode sets whether Vim editing mode is active in the composer.
 func (p *PromptModel) SetVimMode(on bool) {
-	p.vimOn = on
+	p.SetVimEnabled(on)
 }
 
 // InputLineCount returns the visual line count of the input field (at least 1).
@@ -184,15 +220,66 @@ func (p *PromptModel) IsInputY(y int) bool {
 	return y >= p.promptScreenY && y < p.promptScreenY+p.InputLineCount()
 }
 
-// HasInputSelection reports whether a non-empty selection is active.
-func (p *PromptModel) HasInputSelection() bool {
-	return p.InputSelStart != p.InputSelEnd
-}
-
-// InputOffsetAt maps screen coordinate (x, y) to a byte offset within the
-// input value.
+// InputOffsetAt maps a screen coordinate into the current composer value.
 func (p *PromptModel) InputOffsetAt(x, y int) int {
 	return inputselection.OffsetAt(p.input.Value(), p.InputLineCount(), p.promptScreenY, x, y)
+}
+
+// BeginSelection adapts the textarea to the selection module's editor port.
+func (p *PromptModel) BeginSelection(offset int) {
+	p.Model.Begin(offset, composer.NewTextArea(&p.input))
+}
+
+// BeginWordSelection selects the word at offset and starts a word drag.
+func (p *PromptModel) BeginWordSelection(offset int) {
+	p.Model.BeginWord(p.input.Value(), offset, composer.NewTextArea(&p.input))
+}
+
+func (p *PromptModel) DragSelection(offset int) bool {
+	return p.Model.Drag(offset, composer.NewTextArea(&p.input))
+}
+
+// EndSelection finishes a drag. It answers whether the selection is
+// still highlighted; it performs no clipboard write, because agy 1.5.17
+// requires a release not to overwrite the user's clipboard.
+func (p *PromptModel) EndSelection(offset int, leftButton bool) bool {
+	return p.Model.End(p.input.Value(), offset, leftButton)
+}
+
+// ClickAt records a press at offset and answers the click count (1 or
+// 2). The host turns a 2 into a word selection.
+func (p *PromptModel) ClickAt(offset int) int {
+	return p.Model.ClickAt(offset, p.promptClockNanos())
+}
+
+// promptClockNanos is the monotonic clock the double-click tracker reads.
+// It is the real one; a test that needs a deterministic count calls
+// Model.ClickAt directly with its own reading.
+func (p *PromptModel) promptClockNanos() int64 { return time.Now().UnixNano() }
+
+// ResetClickTracker forgets the click tracker so a press elsewhere is
+// not the first half of a double-click.
+func (p *PromptModel) ResetClickTracker() { p.Model.ResetClicks() }
+
+// CopyInputSelection returns the selected text for the host's clipboard
+// write. It answers false when nothing is selected.
+func (p *PromptModel) CopyInputSelection() (string, bool) {
+	request, ok := p.Model.Copy(p.input.Value())
+	return request.Text, ok
+}
+
+// CutInputSelection removes the selection, records one undo step and
+// returns the text the host must place on the clipboard.
+func (p *PromptModel) CutInputSelection() (string, bool) {
+	if p.undoMgr != nil {
+		p.undoMgr.RecordBeforeChange(p.input.Value(), tuilib.InputCursorByteOffset(p.input), "cut-selection")
+	}
+	request, ok := p.Model.Cut(composer.NewTextArea(&p.input))
+	if !ok {
+		return "", false
+	}
+	p.promptHistory.Reset()
+	return request.Text, true
 }
 
 // SetInputCursorOffset moves the textarea cursor to the given byte offset.
@@ -208,47 +295,24 @@ func (p *PromptModel) SetInputCursorOffset(offset int) {
 // SelectAll selects the entire input and moves the cursor to the end. It
 // returns the selected text; writing the clipboard is the host's job.
 func (p *PromptModel) SelectAll() (string, bool) {
-	val := p.input.Value()
-	if len(val) == 0 {
-		return "", false
-	}
-	p.InputSelStart = 0
-	p.InputSelEnd = len(val)
-	p.SetInputCursorOffset(len(val))
-	return val, true
+	request, ok := p.Model.SelectAll(composer.NewTextArea(&p.input))
+	return request.Text, ok
 }
 
 // DeleteInputSelection deletes the selected substring and clears selection.
 func (p *PromptModel) DeleteInputSelection() {
-	if !p.HasInputSelection() {
-		return
-	}
-	start, end := p.InputSelectionRange()
-	if newVal, ok := inputselection.DeleteRange(p.input.Value(), start, end); ok {
-		p.input.SetValue(newVal)
-		p.SetInputCursorOffset(start)
-	}
-	p.ResetInputSelection()
+	p.Model.DeleteInputSelection(composer.NewTextArea(&p.input))
 }
 
 // ReplaceInputSelection replaces the selected substring and clears selection.
 func (p *PromptModel) ReplaceInputSelection(replacement string) {
-	if !p.HasInputSelection() {
-		return
-	}
-	start, end := p.InputSelectionRange()
-	if newVal, ok := inputselection.ReplaceRange(p.input.Value(), start, end, replacement); ok {
-		p.input.SetValue(newVal)
-		p.SetInputCursorOffset(start + len(replacement))
-	}
-	p.ResetInputSelection()
+	p.Model.ReplaceInputSelection(composer.NewTextArea(&p.input), replacement)
 }
 
 // ApplyInputSelectionHighlight applies reverse-video styling to the selected
 // range within the rendered input view.
 func (p *PromptModel) ApplyInputSelectionHighlight(inputView string) string {
-	start, end := p.InputSelectionRange()
-	return inputselection.ApplyHighlight(inputView, p.input.Value(), start, end)
+	return p.Model.ApplyHighlight(inputView, p.input.Value())
 }
 
 // selectAllInput selects all text and copies it to the clipboard. The

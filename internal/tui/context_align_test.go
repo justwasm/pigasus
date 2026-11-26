@@ -506,3 +506,21 @@ func TestContextInlineMouseSelectionAndKeyboardScroll(t *testing.T) {
 		t.Fatalf("expected KeyUp to be handled by /context panel")
 	}
 }
+
+func TestContextPanel_AutoCompactOverride(t *testing.T) {
+	m := mkPanel(panelregistry.Context, "/context", 0)
+	m.session.model = "Gemini 3.8 Flash (High)"
+	m.viewport.width = 120
+
+	t.Setenv("AGY_CLI_AUTO_COMPACT_OVERRIDE", "")
+	defaultJoined := strings.Join(contextpanel.Lines(m.contextState()), "\n")
+	if !strings.Contains(defaultJoined, "Auto-compact at server default") {
+		t.Fatalf("expected server default row in /context, got:\n%s", defaultJoined)
+	}
+
+	t.Setenv("AGY_CLI_AUTO_COMPACT_OVERRIDE", "800K")
+	overrideJoined := strings.Join(contextpanel.Lines(m.contextState()), "\n")
+	if !strings.Contains(overrideJoined, "Auto-compact at 800.0k tokens (overridden by AGY_CLI_AUTO_COMPACT_OVERRIDE=800K)") {
+		t.Fatalf("expected overridden auto-compact row in /context, got:\n%s", overrideJoined)
+	}
+}

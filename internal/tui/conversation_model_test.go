@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/agentlink"
 )
 
 // TestConversationModel_TurnState pins the turn predicates that used to
@@ -138,5 +141,68 @@ func TestConversationModel_ModelRetryStatus(t *testing.T) {
 	status, ok = c.ModelRetryStatus()
 	if !ok || !strings.Contains(status, "HTTP 503: MODEL_CAPACITY_EXHAUSTED") || !strings.Contains(status, "(/logs)") {
 		t.Errorf("expected retry reason and /logs hint, got %q (ok=%v)", status, ok)
+	}
+}
+
+func TestActivityPhaseTimer_ResetsBetweenPhasesAndTools(t *testing.T) {
+	var c ConversationModel
+	t0 := time.Unix(1000, 0)
+	c.BeginThinking(t0)
+	if got := c.phaseTimer.elapsed(t0.Add(12 * time.Second)); got != 12*time.Second {
+		t.Fatalf("thinking elapsed = %v, want 12s", got)
+	}
+
+	// Starting a tool resets the phase timer for that tool.
+	c.ClearThinking()
+	c.BeginToolRun("Running command")
+	if got := c.phaseTimer.elapsed(time.Now()); got >= time.Second {
+		t.Fatalf("tool elapsed right after BeginToolRun = %v, want < 1s", got)
+	}
+	firstKey := c.phaseTimer.key
+
+	// Starting a second tool with the same label still resets the timer.
+	c.BeginToolResult()
+	c.BeginToolRun("Running command")
+	if c.phaseTimer.key == firstKey {
+		t.Fatalf("expected distinct phase key for second tool run, got %q", c.phaseTimer.key)
+	}
+}
+
+func TestLiveRows_ElapsedTimers(t *testing.T) {
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.streaming = true
+	m.conversation.thinking = true
+	m.conversation.phaseTimer.track("thinking", time.Now().Add(-12*time.Second))
+
+	gotThink := ansi.Strip(strings.Join(m.liveRows(120), "\n"))
+	if !strings.Contains(gotThink, "Thinking... 12s") {
+		t.Fatalf("thinking liveRows = %q, want Thinking... 12s", gotThink)
+	}
+
+	m.conversation.thinking = false
+	m.conversation.activeTool = "Running command"
+	m.conversation.phaseTimer.track("tool:1:Running command", time.Now().Add(-18*time.Second))
+
+	gotTool := ansi.Strip(strings.Join(m.liveRows(120), "\n"))
+	if !strings.Contains(gotTool, "Running command... 18s") {
+		t.Fatalf("tool liveRows = %q, want Running command... 18s", gotTool)
+	}
+}
+
+func TestTurnCollector_ThinkingDurationExcludesToolsAndStreaming(t *testing.T) {
+	c := &turnCollector{}
+	c.thoughtDelta("step 1")
+	// Simulate 3s of thinking before tool starts.
+	c.thoughtStart = time.Now().Add(-3 * time.Second)
+	c.tool(&agentlink.Tool{Phase: agentlink.ToolStart, Name: "run_command"})
+	if !c.thoughtStart.IsZero() {
+		t.Fatal("expected thoughtStart to freeze when tool starts")
+	}
+	// Simulate 10s passing during tool + text streaming; thinkingDuration must stay ~3s.
+	c.tool(&agentlink.Tool{Phase: agentlink.ToolEnd, Name: "run_command"})
+	c.text("final answer")
+	dur := c.thinkingDuration()
+	if dur < 2900*time.Millisecond || dur > 4*time.Second {
+		t.Fatalf("thinkingDuration = %v, want ~3s (excluding tool/text)", dur)
 	}
 }

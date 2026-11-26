@@ -23,6 +23,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
@@ -92,7 +93,15 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	}
 	provider := agentturn.NewBackendProviderAdapter(be, modelName)
 
+	convID := s.prompt.ConversationID
+	if convID == "" {
+		convID = agyprompt.NewConversationID()
+	}
+
+	imageProvider := surface.ImageProviderFromBackend(backendselect.ImageGeneratorFor(be))
 	catalog := surface.RuntimeCatalog(s.opts.Workspace)
+	surface.ConfigureConversation(catalog, convID)
+	surface.ConfigureImageGenerator(catalog, imageProvider)
 	if host := s.opts.InteractionHost; host != nil {
 		// The interactive tools are the only ones that need the
 		// transport: re-register them so their calls park on the host
@@ -104,16 +113,18 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	catalogTools := agenttools.MainAgentTools(catalog)
 	subTools := subagenttools.Tools(subagenttools.Deps{
 		Provider:       provider,
-		Backend:        s.opts.Backend,
+		Backend:        be,
 		Model:          modelName,
 		CWD:            s.opts.Workspace,
 		AgentDir:       s.opts.AgentDir,
-		ConversationID: s.prompt.ConversationID,
+		ConversationID: convID,
+		Catalogue:      catalogTools,
+		ImageGenerator: imageProvider,
 	})
 
-	termMgr := terminalmgr.New(s.opts.Workspace)
-	defer termMgr.CloseAll()
-	termTool := &terminaltool.Tool{Manager: termMgr}
+	termBackend, termClose := terminalmgr.ResolveBackend(s.opts.Workspace, nil)
+	defer termClose()
+	termTool := &terminaltool.Tool{Manager: termBackend}
 	catalog.Register(termTool)
 
 	allTools := make([]actor.Tool, 0, len(catalogTools)+len(subTools)+2)
@@ -123,18 +134,14 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	if s.opts.Browser != nil {
 		allTools = append(allTools, &browserActorTool{
 			tool: agentbrowser.NewTool(s.opts.Browser, agentbrowser.Options{
-				RootConversationID: func() string { return s.prompt.ConversationID },
-				CascadeID:          func() string { return s.prompt.ConversationID },
-				OwnerID:            s.prompt.ConversationID,
+				RootConversationID: func() string { return convID },
+				CascadeID:          func() string { return convID },
+				OwnerID:            convID,
 			}),
 			decl: agentbrowser.ToolDeclaration(),
 		})
 	}
 
-	convID := s.prompt.ConversationID
-	if convID == "" {
-		convID = agyprompt.NewConversationID()
-	}
 	_, _ = pigasusskills.Install(configdir.Dir())
 	promptOpts := agyprompt.DefaultOptions(s.opts.Workspace, s.opts.AgentDir, convID)
 	skillPaths := agyprompt.AgySkillPaths(s.opts.AgentDir, s.opts.Workspace)

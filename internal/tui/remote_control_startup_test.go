@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,44 @@ import (
 	"github.com/justwasm/pigasus/internal/core/registry"
 	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
+	"github.com/justwasm/pigasus/urlchunk"
 )
+
+// transcriptContainsURL reports whether the transcript carries wantURL.
+//
+// The remote-control card hard-wraps the account chooser URL into one row
+// per urlchunk chunk (panel_seams_slash.go buildRemoteControlCardForAccount
+// via urlchunk.Rows), so a narrow viewport splits the URL across rows and a
+// plain strings.Contains on the joined transcript fails even though every
+// chunk is on screen. Compare against the same chunking the card uses,
+// after stripping the SGR/OSC 8 styling those rows carry.
+func transcriptContainsURL(t *testing.T, transcript, wantURL string, width int) bool {
+	t.Helper()
+	if strings.Contains(transcript, wantURL) {
+		return true
+	}
+	chunkWidth := width - len(rcURLIndent) - 1
+	if chunkWidth < 1 {
+		chunkWidth = 1
+	}
+	// The chunked rows are separate transcript lines, so they must be
+	// joined with the newline that separates them. Joining them with
+	// nothing can only match a URL that fits on one row, which made this
+	// helper silently unable to verify a wrapped URL.
+	wrapped := strings.Join(urlRowsForTest(wantURL, chunkWidth), "\n")
+	return strings.Contains(transcript, wrapped)
+}
+
+// urlRowsForTest mirrors urlchunk.Rows without the hyperlink styling, so
+// the comparison works on the plain transcript text.
+func urlRowsForTest(u string, width int) []string {
+	chunks := urlchunk.Chunks(u, width)
+	rows := make([]string, 0, len(chunks))
+	for _, c := range chunks {
+		rows = append(rows, rcURLIndent+c)
+	}
+	return rows
+}
 
 // TestRemoteControlStartup_InteractiveFlagOn verifies that starting the TUI
 // with --remote-control populates the transcript with the remote-control card
@@ -47,7 +85,7 @@ func TestRemoteControlStartup_InteractiveFlagOn(t *testing.T) {
 
 	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 	wantURL := rclink.BrowserURL(instanceID, "")
-	if !strings.Contains(joined, wantURL) {
+	if !transcriptContainsURL(t, joined, wantURL, m.viewport.width) {
 		t.Errorf("expected account chooser URL %q in transcript:\n%s", wantURL, joined)
 	}
 
@@ -82,7 +120,7 @@ func TestRemoteControlStartup_InteractiveFlagWithConversation(t *testing.T) {
 
 	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 	wantURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.session.conversationID)
-	if !strings.Contains(joined, wantURL) {
+	if !transcriptContainsURL(t, joined, wantURL, m.viewport.width) {
 		t.Errorf("expected URL %q with conversation query in transcript:\n%s", wantURL, joined)
 	}
 }
@@ -131,7 +169,7 @@ func TestRemoteControlStartup_InteractiveFlagWithContinue(t *testing.T) {
 
 			instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 			wantURL := rclink.BrowserURL(instanceID, "p=c%2F"+convID)
-			if !strings.Contains(joined, wantURL) {
+			if !transcriptContainsURL(t, joined, wantURL, m.viewport.width) {
 				t.Errorf("expected URL %q with conversation query in transcript:\n%s", wantURL, joined)
 			}
 		})
@@ -167,7 +205,7 @@ func TestRemoteControlStartup_InteractiveFlagWithContinueEmptyWorkspace(t *testi
 	}
 	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 	wantURL := rclink.BrowserURL(instanceID, "")
-	if !strings.Contains(joined, wantURL) {
+	if !transcriptContainsURL(t, joined, wantURL, m.viewport.width) {
 		t.Errorf("expected account chooser URL %q without conversation query in transcript:\n%s", wantURL, joined)
 	}
 }
@@ -270,6 +308,16 @@ func TestRemoteControlStartup_NonInteractiveSnapshot(t *testing.T) {
 	})
 
 	t.Run("with remote-control and continue flag", func(t *testing.T) {
+		// --continue resolves against the shared conversation store, not
+		// against wsDir alone: resolveContinueSelection falls back to
+		// FindMostRecent, which walks the ancestors of cwd toward "/".
+		// Under t.TempDir() that walk leaves this test's own directory
+		// and reaches every sibling test's workspace, so a conversation
+		// another test happened to save becomes the "most recent" one and
+		// this test continues that instead. Anchoring the store to the
+		// test's own temp dir keeps the conversation it saved the only
+		// one the walk can find.
+		t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 		wsDir := t.TempDir()
 		origWd, _ := os.Getwd()
 		if err := os.Chdir(wsDir); err != nil {
@@ -334,12 +382,18 @@ func TestRemoteControlStartup_NonInteractiveSnapshot(t *testing.T) {
 // with --remote-control and --desktop enables remote control and passes the desktop
 // switch to StartOfficialDaemon so the service registers in desktop mode.
 func TestRemoteControlStartup_InteractiveFlagDesktop(t *testing.T) {
+	// StartOfficialDaemon runs in a goroutine (slash_commands_handlers.go
+	// handleRemoteControl), so the stub's writes need their own
+	// synchronisation: -race flags the plain bools otherwise.
+	var mu sync.Mutex
 	var daemonCalled bool
 	var gotDesktop bool
 	origStart := persistentrc.StartOfficialDaemon
 	persistentrc.StartOfficialDaemon = func(ctx context.Context, name string, session, desktop bool) error {
+		mu.Lock()
 		daemonCalled = true
 		gotDesktop = desktop
+		mu.Unlock()
 		return nil
 	}
 	defer func() { persistentrc.StartOfficialDaemon = origStart }()
@@ -358,15 +412,21 @@ func TestRemoteControlStartup_InteractiveFlagDesktop(t *testing.T) {
 	}
 
 	for i := 0; i < 50; i++ {
-		if daemonCalled {
+		mu.Lock()
+		called := daemonCalled
+		mu.Unlock()
+		if called {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !daemonCalled {
+	mu.Lock()
+	called, desktop := daemonCalled, gotDesktop
+	mu.Unlock()
+	if !called {
 		t.Fatal("expected StartOfficialDaemon to be called")
 	}
-	if !gotDesktop {
+	if !desktop {
 		t.Fatal("expected StartOfficialDaemon to be called with desktop=true")
 	}
 }
@@ -375,12 +435,17 @@ func TestRemoteControlStartup_InteractiveFlagDesktop(t *testing.T) {
 // with --desktop (without --remote-control) retains the desktop preference when the
 // user later issues /remote-control interactively.
 func TestRemoteControlStartup_DesktopFlagRetainedForSlashCommand(t *testing.T) {
+	// The stub runs on the goroutine handleRemoteControl spawns, so the
+	// writes need the same synchronisation as the desktop test above.
+	var mu sync.Mutex
 	var daemonCalled bool
 	var gotDesktop bool
 	origStart := persistentrc.StartOfficialDaemon
 	persistentrc.StartOfficialDaemon = func(ctx context.Context, name string, session, desktop bool) error {
+		mu.Lock()
 		daemonCalled = true
 		gotDesktop = desktop
+		mu.Unlock()
 		return nil
 	}
 	defer func() { persistentrc.StartOfficialDaemon = origStart }()
@@ -407,15 +472,21 @@ func TestRemoteControlStartup_DesktopFlagRetainedForSlashCommand(t *testing.T) {
 	}
 
 	for i := 0; i < 50; i++ {
-		if daemonCalled {
+		mu.Lock()
+		called := daemonCalled
+		mu.Unlock()
+		if called {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !daemonCalled {
+	mu.Lock()
+	called, desktop := daemonCalled, gotDesktop
+	mu.Unlock()
+	if !called {
 		t.Fatal("expected StartOfficialDaemon to be called")
 	}
-	if !gotDesktop {
+	if !desktop {
 		t.Fatal("expected StartOfficialDaemon to be called with desktop=true from retained flag")
 	}
 }
@@ -423,6 +494,7 @@ func TestRemoteControlStartup_DesktopFlagRetainedForSlashCommand(t *testing.T) {
 // TestRemoteControlStartup_RunRootIntegration verifies that top-level CLI execution
 // with --remote-control behaves identically to reference agy.
 func TestRemoteControlStartup_RunRootIntegration(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Run("ADC flag validation exits with code 3", func(t *testing.T) {
 		t.Setenv("AGY_ADC_AUTH", "1")
 		p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
@@ -513,7 +585,7 @@ func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 		}
 		instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 		wantURL := rclink.BrowserURL(instanceID, "")
-		if !strings.Contains(startupJoined, wantURL) {
+		if !transcriptContainsURL(t, startupJoined, wantURL, m.viewport.width) {
 			t.Fatalf("startup expected URL %q:\n%s", wantURL, startupJoined)
 		}
 
@@ -529,7 +601,7 @@ func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 		if !strings.Contains(slashJoined, "Open on another device to take over:") {
 			t.Fatalf("slash expected 'take over':\n%s", slashJoined)
 		}
-		if !strings.Contains(slashJoined, wantURL) {
+		if !transcriptContainsURL(t, slashJoined, wantURL, m.viewport.width) {
 			t.Fatalf("slash expected URL %q:\n%s", wantURL, slashJoined)
 		}
 
@@ -550,7 +622,7 @@ func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 			t.Errorf("expected 'continue this conversation' after turn started:\n%s", activeSlashJoined)
 		}
 		wantActiveURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.session.conversationID)
-		if !strings.Contains(activeSlashJoined, wantActiveURL) {
+		if !transcriptContainsURL(t, activeSlashJoined, wantActiveURL, m.viewport.width) {
 			t.Errorf("expected active conversation URL %q in:\n%s", wantActiveURL, activeSlashJoined)
 		}
 	})

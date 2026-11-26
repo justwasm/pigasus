@@ -214,6 +214,14 @@ func (s *MockServer) handleDispatch(w http.ResponseWriter, r *http.Request) {
 					"name":      "enable-subagent-user-messaging",
 					"boolValue": b,
 				},
+				{
+					"name":      "enable-auto-permission-preset",
+					"boolValue": true,
+				},
+				{
+					"name":      "generic-system-prompt",
+					"boolValue": true,
+				},
 			},
 		}
 		_ = json.NewEncoder(w).Encode(resp)

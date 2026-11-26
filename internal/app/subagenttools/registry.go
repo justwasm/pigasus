@@ -82,16 +82,20 @@ type Child struct {
 	// StartedAt is when the child was launched.
 	StartedAt time.Time
 
-	mu          sync.Mutex
-	state       string
-	currentTool string
-	cancel      context.CancelFunc
-	abortTurn   func()
-	inbox       chan Message
-	reported    bool
-	launchFn    func(ctx context.Context, initialMsg *Message)
-	subDir      string
-	wg          sync.WaitGroup
+	mu             sync.Mutex
+	state          string
+	currentTool    string
+	cancel         context.CancelFunc
+	abortTurn      func()
+	inbox          chan Message
+	reported       bool
+	launchFn       func(ctx context.Context, initialMsg *Message)
+	subDir         string
+	wg             sync.WaitGroup
+	promptTokens   int
+	outputTokens   int
+	totalTokens    int
+	thoughtsTokens int
 }
 
 // NewChild returns a child in the running state.
@@ -165,6 +169,32 @@ func (c *Child) SetCurrentTool(tool string) {
 	c.mu.Lock()
 	c.currentTool = tool
 	c.mu.Unlock()
+}
+
+// AddUsage accumulates token usage reported by a completed child turn.
+func (c *Child) AddUsage(prompt, output, total, thoughts int) {
+	if c == nil {
+		return
+	}
+	if total == 0 {
+		total = prompt + output
+	}
+	c.mu.Lock()
+	c.promptTokens += prompt
+	c.outputTokens += output
+	c.totalTokens += total
+	c.thoughtsTokens += thoughts
+	c.mu.Unlock()
+}
+
+// Usage returns the accumulated token usage across all turns of this child.
+func (c *Child) Usage() (prompt, output, total, thoughts int) {
+	if c == nil {
+		return 0, 0, 0, 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.promptTokens, c.outputTokens, c.totalTokens, c.thoughtsTokens
 }
 
 // Deliver hands a message to the child.
@@ -498,6 +528,18 @@ func (r *Registry) Busy() bool {
 		}
 	}
 	return false
+}
+
+// TotalUsage returns the combined token usage across all registered children.
+func (r *Registry) TotalUsage() (prompt, output, total, thoughts int) {
+	for _, c := range r.List() {
+		p, o, t, th := c.Usage()
+		prompt += p
+		output += o
+		total += t
+		thoughts += th
+	}
+	return prompt, output, total, thoughts
 }
 
 // Remove drops a child from the registry.

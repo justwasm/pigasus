@@ -58,6 +58,8 @@ var transientNetworkSubstrings = []string{
 	"connection reset by peer",
 	"connection refused",
 	"connection timed out",
+	"operation timed out",
+	"connection dropped",
 	"i/o timeout",
 	"no such host",
 	"handshake timeout", // matches Go's "tls: handshake timeout" and similar

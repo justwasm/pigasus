@@ -221,11 +221,19 @@ func SaveTokenUnified(tok *AntigravityToken) error {
 	return firstErr
 }
 
-// RefreshIfNeeded 检查 expiry, < 5 min 自动 refresh + 写所有路径.
+// RefreshIfNeeded 检查 expiry, 在 AccessTokenRefreshMargin (5 min) 内自动
+// refresh + 写所有路径.
+//
 // Returns: (updated token, refreshed bool, error)
 //   - 永不过期 / 远未过期 → 返回原 token, refreshed=false
 //   - < 5 min → 调 RefreshTokenReal + 写所有路径 + 更新 in-memory
 //   - refresh 失败 → 返回原 (可能 stale) token + error
+//
+// AGY 1.5.17 ("refreshes tokens ahead of expiry"): the margin check itself
+// lives in tokenfreshness.go behind NeedsRefreshAt / RefreshIfNeededAt so the
+// boundary is testable with an injected clock. This wrapper keeps the
+// historical signature for the existing call sites (UnifiedTokenCache.Get,
+// credential.Load) and passes the wall clock.
 //
 // AGY 1.2.5: when the OAuth server definitively rejects the refresh
 // token (invalid_grant / revoked enterprise account / 401 / …) we
@@ -235,35 +243,7 @@ func SaveTokenUnified(tok *AntigravityToken) error {
 // token intact — see ClassifyRefreshError in credentials.go for the
 // exact rules.
 func (t *AntigravityToken) RefreshIfNeeded(ctx context.Context) (*AntigravityToken, bool, error) {
-	if t == nil {
-		return nil, false, ErrNoToken
-	}
-	exp := t.ExpiryTime()
-	if !exp.IsZero() && time.Until(exp) > 5*time.Minute {
-		return t, false, nil
-	}
-	if t.Token.RefreshToken == "" {
-		if t.Token.AccessToken == "" {
-			return t, false, errors.New("antigravity-token: no access_token and no refresh_token")
-		}
-		return t, false, nil
-	}
-	resp, err := RefreshTokenRealWithSecret(ctx, CLIClientID, publicClientSecret, t.Token.RefreshToken)
-	if err != nil {
-		werr := handleUnifiedRefreshError(err)
-		if IsAuthRejected(werr) {
-			// The credential is gone: the caller must sign in again,
-			// and handing the stale token back would let it be used
-			// by accident.
-			return nil, false, werr
-		}
-		// A transient failure — network error, 5xx, rate limit — keeps
-		// the credential: the stale token is the best we have, and the
-		// user can try again without re-authenticating.
-		return t, false, werr
-	}
-	applyUnifiedRefreshResponse(t, resp)
-	return t, true, nil
+	return t.RefreshIfNeededAt(ctx, time.Now())
 }
 
 func handleUnifiedRefreshError(err error) error {
@@ -303,8 +283,12 @@ func (t *AntigravityToken) RefreshQuiet(ctx context.Context) (*AntigravityToken,
 	if t == nil {
 		return nil, false, ErrNoToken
 	}
-	exp := t.ExpiryTime()
-	if !exp.IsZero() && time.Until(exp) > 5*time.Minute {
+
+	// The margin check is shared with RefreshIfNeeded rather than repeated:
+	// a token that is nowhere near expiry must be handed back untouched, or
+	// every quota poll on an inactive account spends a refresh round trip
+	// and a server that rejects it turns a healthy token into an error.
+	if !t.NeedsRefreshAt(time.Now()) {
 		return t, false, nil
 	}
 	if t.Token.RefreshToken == "" {

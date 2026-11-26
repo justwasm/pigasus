@@ -76,12 +76,204 @@ const (
 	// KindAuthExpired marks a 401 that represents an expired or revoked
 	// sign-in — the canonical user-facing message is AuthExpiredMessage.
 	KindAuthExpired
+	// KindPrepaidBalanceExhausted marks a Gemini Enterprise account whose
+	// organization prepaid wallet is empty — the canonical user-facing
+	// message is PrepaidBalanceMessage.
+	//
+	// Unlike KindAuthExpired this kind cannot be derived from the status
+	// alone: it is carried by a structured `google.rpc.ErrorInfo` detail
+	// (reason PREPAID_BALANCE_EXHAUSTED) on an otherwise ordinary 429/402
+	// quota response (see IsPrepaidBalanceExhausted).
+	KindPrepaidBalanceExhausted
 )
 
 // AuthExpiredMessage is the verbatim user-facing string the 1.3.3 binary
 // emits when a 401 surfaces mid-session. The trailing period is part of the
 // recovered literal; do not edit without re-deriving it from a fresh probe.
 const AuthExpiredMessage = "Authentication expired. Please log back in."
+
+// PrepaidBalanceMessage is the verbatim user-facing string AGY 1.5.17 emits
+// when a Gemini Enterprise account's organization prepaid wallet is empty.
+//
+// AGY 1.5.17:
+//
+//	"Fixed turns on Gemini Enterprise accounts with an empty prepaid wallet
+//	 retrying repeatedly and reporting `You have exhausted your quota on this
+//	 model.`; the CLI now stops right away and tells you `Your organization's
+//	 prepaid balance is insufficient. Contact your administrator to add
+//	 funds.`"
+//
+// The sentence is the recovered literal from the same release's web bundle,
+// whose notice for the same condition (PrepaidBalanceNotice) is the title
+// above the body "Your organization has run out of Antigravity funds."
+const PrepaidBalanceMessage = "Your organization's prepaid balance is insufficient. Contact your administrator to add funds."
+
+// PrepaidBalanceNotice is the notice the Remote Control browser view shows
+// for the same condition. The 1.5.17 web bundle renders it as the title of
+// a non-dismissible warning:
+//
+//	{icon: "warning", title: "Organization prepaid wallet is empty",
+//	 message: "Your organization has run out of Antigravity funds. …",
+//	 dismissible: false}
+//
+// The title is the recovered literal; the browser view reuses it verbatim.
+const PrepaidBalanceNotice = "Organization prepaid wallet is empty"
+
+// prepaidBalanceReason is the `reason` of the `google.rpc.ErrorInfo` detail
+// the reference matches. It is an enum-shaped token (upper snake case), not
+// prose, so the comparison is case-insensitive on the whole token and not a
+// substring scan over the body: a message that merely mentions a prepaid
+// balance is not this condition.
+//
+// Recovered from the 1.5.17 web bundle, which classifies the failure as:
+//
+//	const oza = z.object({error: z.object({message: z.string(),
+//	  details: z.array(z.object({"@type": z.string(),
+//	    reason: z.string().optional(),
+//	    metadata: z.object({…}).optional()}))})});
+//	function hq(a, b) { … for (let c of a.data.error.details)
+//	  if (c?.["@type"] === "type.googleapis.com/google.rpc.ErrorInfo") … }
+//	function rza(a) { return hq(a, b => b.reason === "PREPAID_BALANCE_EXHAUSTED") === true }
+//
+// Note that the reference checks this *before* it looks at errorCode === 429,
+// which is why the condition is not status-gated here either: an enterprise
+// wallet failure that arrives with a non-429 status is exactly the case the
+// old status-gated quota rule missed and retried.
+const prepaidBalanceReason = "PREPAID_BALANCE_EXHAUSTED"
+
+// errorInfoType is the `@type` that marks a Google RPC ErrorInfo detail.
+const errorInfoType = "type.googleapis.com/google.rpc.ErrorInfo"
+
+// containsFold reports whether the lower-case ASCII needle occurs in body,
+// comparing case-insensitively without allocating. The needle is a constant
+// ASCII token, so a byte-at-a-time fold is enough and keeps this cheap enough
+// for the transport's error-construction path.
+func containsFold(body []byte, needle string) bool {
+	n := len(needle)
+	if n == 0 {
+		return true
+	}
+	first := lowerASCII(needle[0])
+	for i := 0; i+n <= len(body); i++ {
+		if lowerASCII(body[i]) != first {
+			continue
+		}
+		match := true
+		for j := 1; j < n; j++ {
+			if lowerASCII(body[i+j]) != lowerASCII(needle[j]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// lowerASCII folds an ASCII letter to lower case and leaves every other byte
+// alone, which is what containsFold needs.
+func lowerASCII(b byte) byte {
+	if b >= 'A' && b <= 'Z' {
+		return b + ('a' - 'A')
+	}
+	return b
+}
+
+// errorInfoDetail is one entry of a Google RPC `error.details` array. Only
+// the two fields the classification reads are modelled; an unknown detail
+// contributes nothing.
+type errorInfoDetail struct {
+	Type   string `json:"@type"`
+	Reason string `json:"reason"`
+}
+
+// errorInfo holds the `reason` values of the response body's ErrorInfo
+// details. The parse is deliberately narrow — an unparsable body, a non-JSON
+// body, or a body with no details yields an empty list, which classifies as
+// "not this condition" rather than as an error.
+func (e *HTTPError) errorInfo() []errorInfoDetail {
+	body := bytes.TrimSpace(e.Body)
+	if len(body) == 0 || (body[0] != '{' && body[0] != '[') {
+		return nil
+	}
+	// Cheap gate before the parse: this runs for every 429/5xx the transports
+	// build, and the detail token is a fixed ASCII string, so a case-folded
+	// byte scan settles the common case without allocating a decoder or a
+	// lowered copy of the body.
+	if !containsFold(body, "prepaid_balance_exhausted") {
+		return nil
+	}
+	var v struct {
+		Error struct {
+			Details []errorInfoDetail `json:"details"`
+		} `json:"error"`
+		Details []errorInfoDetail `json:"details"`
+	}
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil
+	}
+	if len(v.Error.Details) > 0 {
+		return v.Error.Details
+	}
+	return v.Details
+}
+
+// IsPrepaidBalanceExhausted reports whether this error is the Gemini
+// Enterprise "organization prepaid wallet is empty" condition.
+//
+// The signal is the structured `google.rpc.ErrorInfo` detail with
+// `reason: "PREPAID_BALANCE_EXHAUSTED"`. It is *not* a keyword scan: the
+// upstream message for this failure is the ordinary quota sentence
+// ("You have exhausted your quota on this model."), so the body text cannot
+// tell the two apart.
+//
+// The check is deliberately not gated on a status code. The reference
+// evaluates the detail before it branches on the status (see
+// prepaidBalanceReason), and the old status-gated quota rule is what let this
+// condition retry: a 429 that carried only the generic quota sentence tripped
+// the keyword list, but a prepaid-wallet failure that arrived with any other
+// status fell through to the retry loop.
+func (e *HTTPError) IsPrepaidBalanceExhausted() bool {
+	if e == nil {
+		return false
+	}
+	for _, d := range e.errorInfo() {
+		if d.Type != errorInfoType {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(d.Reason), prepaidBalanceReason) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsPrepaidBalanceExhaustedErr walks err's chain via errors.As looking for an
+// *HTTPError and reports whether it carries the enterprise prepaid-wallet
+// condition. Mirrors IsQuotaReachedErr so callers in the transports and the
+// turn loop can use the same idiom.
+func IsPrepaidBalanceExhaustedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.IsPrepaidBalanceExhausted()
+}
+
+// PrepaidBalanceMessageErr returns the canonical prepaid-wallet sentence when
+// err carries the condition, or "" otherwise. Callers that own a user-facing
+// surface use this so the wording lives in one place.
+func PrepaidBalanceMessageErr(err error) string {
+	if !IsPrepaidBalanceExhaustedErr(err) {
+		return ""
+	}
+	return PrepaidBalanceMessage
+}
 
 // HTTPError is a non-2xx response from a model API endpoint. It keeps the raw
 // body so the headless error reporter can extract the user-facing message and
@@ -126,12 +318,19 @@ func classifyStatus(code int) ErrorKind {
 
 // Kind returns the error kind, populating it lazily from StatusCode when
 // the caller left the field at its zero value. Safe to call repeatedly.
+//
+// A body-carried kind (KindPrepaidBalanceExhausted) wins over the status-only
+// classification when the field was not set explicitly: the status cannot
+// express it, and the response body the receiver already holds can.
 func (e *HTTPError) KindError() ErrorKind {
 	if e == nil {
 		return KindUnknown
 	}
 	if e.Kind != KindUnknown {
 		return e.Kind
+	}
+	if e.IsPrepaidBalanceExhausted() {
+		return KindPrepaidBalanceExhausted
 	}
 	return classifyStatus(e.StatusCode)
 }
@@ -155,6 +354,9 @@ func (e *HTTPError) Message() string {
 	body := bytes.TrimSpace(e.Body)
 	if len(body) == 0 {
 		return http.StatusText(e.StatusCode)
+	}
+	if e.IsPrepaidBalanceExhausted() {
+		return PrepaidBalanceMessage
 	}
 	if msg := vertexModelAccessMessage(e.StatusCode, body); msg != "" {
 		return msg
@@ -346,8 +548,16 @@ var scopeKeywords = []string{
 // AGY 1.5.0: "Fixed certain models failing a turn on rate-limit (429) and
 // server (5xx) errors instead of retrying them, now honoring the server's
 // Retry-After header".
+//
+// AGY 1.5.17: an empty organization prepaid wallet is never retryable. The
+// failure can arrive as an ordinary 429, so the status alone would mark it
+// retryable and the turn would spend its budget on retries that cannot
+// succeed; the ErrorInfo detail is what distinguishes it.
 func (e *HTTPError) IsRetryableStatus() bool {
 	if e == nil {
+		return false
+	}
+	if e.IsPrepaidBalanceExhausted() {
 		return false
 	}
 	if e.IsQuotaReached() {
@@ -538,7 +748,10 @@ func (e *HTTPError) IsAuthFailure() bool {
 	low := strings.ToLower(string(e.Body))
 	return strings.Contains(low, "unauthenticated") ||
 		strings.Contains(low, "invalid_grant") ||
-		strings.Contains(low, "token has been expired or revoked")
+		strings.Contains(low, "token has been expired or revoked") ||
+		strings.Contains(low, "auth failure") ||
+		strings.Contains(low, "refresh failed") ||
+		strings.Contains(low, "stale token")
 }
 
 // IsAuthFailureErr reports whether err represents an authentication failure.
@@ -554,7 +767,26 @@ func IsAuthFailureErr(err error) bool {
 	return strings.Contains(msg, "unauthenticated") ||
 		strings.Contains(msg, "invalid_grant") ||
 		strings.Contains(msg, "token has been expired or revoked") ||
-		strings.Contains(msg, "authentication expired")
+		strings.Contains(msg, "authentication expired") ||
+		strings.Contains(msg, "auth failure") ||
+		strings.Contains(msg, "refresh failed") ||
+		strings.Contains(msg, "stale token")
+}
+
+// IsConnectionDroppedErr reports whether err represents a dropped transport connection.
+func IsConnectionDroppedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection dropped") ||
+		(strings.Contains(msg, "connection to ") && strings.Contains(msg, "dropped:")) ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "operation timed out") ||
+		strings.Contains(msg, "connection timed out") ||
+		strings.Contains(msg, "unexpected eof")
 }
 
 // IsScopeMismatch reports whether this HTTPError is the AGY "OAuth

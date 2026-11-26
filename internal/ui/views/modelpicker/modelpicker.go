@@ -50,11 +50,18 @@ type Row struct {
 	Variants []string
 	// VariantChoice is the currently selected variant.
 	VariantChoice string
+	// Orchestrator holds the composite Planner/Executor state when present.
+	Orchestrator *OrchestratorRowState
 }
 
 // HasVariants reports whether the row offers multiple planner variants.
 func (r Row) HasVariants() bool {
 	return len(r.Variants) > 1
+}
+
+// HasOrchestrator reports whether the row carries composite Orchestrator state.
+func (r Row) HasOrchestrator() bool {
+	return r.Orchestrator != nil
 }
 
 // Rows is the static, always-present portion of the /model picker.
@@ -106,10 +113,9 @@ func RowsADC() []Row {
 	}
 	return []Row{
 		{
-			Display:       "Orchestrator",
-			Slug:          "gemini-pro-orchestrator",
-			Variants:      []string{"Carbon", "Argon"},
-			VariantChoice: "Carbon",
+			Display:      "Orchestrator",
+			Slug:         "gemini-pro-orchestrator",
+			Orchestrator: NewOrchestratorRowState(catalog.ResolveOrchestratorConfig()),
 		},
 	}
 }
@@ -339,6 +345,9 @@ func SearchMatch(label, query string) (boundary, first int, ok bool) {
 // still spells its tier into the id, so the three-tier geometry keeps
 // working for a row assembled outside this package.
 func (r Row) CatalogueID(effortCursor int) string {
+	if r.Orchestrator != nil {
+		return "gemini-pro-orchestrator"
+	}
 	if len(r.Variants) > 0 {
 		if strings.EqualFold(r.VariantChoice, "argon") {
 			return "gemini-pro-orchestrator-argon"

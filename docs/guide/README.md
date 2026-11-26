@@ -8,6 +8,7 @@
 |---|---|---|
 | [`architecture.md`](architecture.md) | the package map, the two turn engines, the two transports | you need the shape of the tree |
 | [`architecture-tiers.md`](architecture-tiers.md) | the five tiers under `internal/`, the facade map, and the rule for new packages | you are about to move a package, or a document names a path you cannot find |
+| [`entrypoints.md`](entrypoints.md) | classification of all 15 `cmd/*` binaries (primary, compatibility/proxy/shim, developer tooling) | you want to know which binary to build or run, or what each `cmd/*` package owns |
 | [`agent-loop.md`](agent-loop.md) | PiG's stream contract, the bridge, the transport split, the PiG traps | touch `internal/agent`, `internal/pigrt`, `internal/piagentbridge` |
 | [`headless.md`](headless.md) | the headless surface: `--print`, the JSON envelope, the NDJSON stream, the stdin pipeline, the exit codes | touch `internal/printmode`, the `--print` flags, or a script that reads stdout |
 | [`agent-server.md`](agent-server.md) | the client/server split: `pigasus server`, `pigasus tui --server`, the `agentlink` wire, the `agentturn` seam | touch `agentlink`, `internal/app/agentturn`, `internal/app/agentserver`, or the TUI's turn loop |
@@ -21,7 +22,9 @@
 | [`hooks.md`](hooks.md) | the `hooks.json` runtime: the six events, the document shape, the decisions and the handler execution | touch `internal/core/policy/hooks`, the `/hooks` panel, or a hook that does not fire |
 | [`plugins.md`](plugins.md) | the `/plugin` Discover tab's shelves, `agy plugin import`, the MCP server conversion | touch `internal/ui/views/pluginsui`, the `/plugin` panel, or the plugin importer |
 | [`tui.md`](tui.md) | the transcript display, the model picker, argument completion, bash mode, syntax highlighting | touch a panel or the composer |
+| [`tui-cpu.md`](tui-cpu.md) | CPU hot-path safeguards for task refresh, frame/transcript invalidation, configuration snapshots, and bounded filesystem search | investigate or change TUI/search CPU work |
 | [`tui-storybook-blueprint.md`](tui-storybook-blueprint.md) | TUI component storybook, visual regression testing, and 5-layer clean-room reconstruction blueprint | touch `cmd/storybook`, `internal/ui/storybook`, or rebuild UI components from decompilation |
+| [`modularity-roadmap.md`](modularity-roadmap.md) | Scenario-first modularization plan, package inventory, extraction gates, and Storybook-derived test contract | split a host package, extract a protocol/domain boundary, or add a deterministic scenario harness |
 | [`compaction.md`](compaction.md) | the two compaction paths, the reference's numbers, the context window | touch `internal/core/compaction`, `internal/pigrt` |
 | [`reference-drift.md`](reference-drift.md) | the gate, the version-scoped artefacts, re-evidencing | the reference binary moves |
 | [`legacy-evidence.md`](legacy-evidence.md) | what the 1.3.x-era evidence sweep retired, what survived, and the recipe that rebuilds it | a citation points at a retired path, or you need the old artefacts back |

@@ -26,4 +26,9 @@ type TasksModel struct {
 	subscribed      bool
 	cancel          func()
 	dirty           int32
+	// wakePending is shared with registry callbacks; timer ownership stays
+	// exclusively on the Bubble Tea Update goroutine.
+	wakePending    int32
+	tickArmed      bool
+	tickGeneration uint64
 }

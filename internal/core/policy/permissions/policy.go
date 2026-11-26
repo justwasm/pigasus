@@ -677,6 +677,11 @@ func (p Policy) Decide(req Request) Verdict {
 // not narrow the other spelling's class: the mode's auto-approval looks at
 // the strictest class any spelling carries.
 func (p Policy) DecideNames(target string, names ...string) Verdict {
+	return p.DecideCall(target, nil, names...)
+}
+
+// DecideCall evaluates the permission verdict for a tool call with optional raw JSON arguments.
+func (p Policy) DecideCall(target string, rawArgs []byte, names ...string) Verdict {
 	if IsForbiddenWindowsPath(target) {
 		return Deny
 	}
@@ -721,6 +726,22 @@ func (p Policy) DecideNames(target string, names ...string) Verdict {
 			}
 		}
 	}
+	// The built-in protection on sensitive files (AGY 1.5.17) is a floor
+	// under every mode: a write to a protected target asks, whichever mode
+	// the session runs in and whichever side of the workspace boundary the
+	// file sits on. It is checked here, once, rather than in each mode's
+	// arm, so that a mode added later cannot inherit the blanket edit
+	// approval without inheriting the protection.
+	//
+	// The two documented opt-outs stay above this point: --dangerously-
+	// skip-permissions and toolPermission: always-proceed are the user's
+	// explicit "never ask", and the three rule lists are the user's own
+	// decisions. What this closes is the silent case — a mode's own
+	// auto-approval, and the workspace-scope check that used to be the only
+	// gate the protected list ran behind.
+	if cls == ClassEdit && isProtectedWriteTarget(target) {
+		return Ask
+	}
 	switch p.Mode {
 	case ModeAcceptEdits:
 		if cls == ClassEdit {
@@ -729,6 +750,11 @@ func (p Policy) DecideNames(target string, names ...string) Verdict {
 	case ModeAuto:
 		if cls == ClassEdit {
 			if !p.isInsideWorkspace(target) {
+				for _, n := range names {
+					if ShouldAutoApproveOutsideWorkspaceFileEdit(target, n, rawArgs) {
+						return Allow
+					}
+				}
 				return Ask
 			}
 			return Allow

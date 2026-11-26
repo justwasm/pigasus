@@ -43,8 +43,8 @@ func TestLinesEmptyLayout(t *testing.T) {
 		Mode:  ModeEmpty,
 		Model: "Gemini 3.8 Flash (High)",
 	}))
-	if len(plain) != 17 {
-		t.Fatalf("line count = %d, want 17\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 19 {
+		t.Fatalf("line count = %d, want 19\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
 	if plain[0] != "└ Context Usage" {
 		t.Errorf("row 0 = %q, want the title", plain[0])
@@ -58,20 +58,26 @@ func TestLinesEmptyLayout(t *testing.T) {
 	if !strings.Contains(plain[2], "(0.0%)") {
 		t.Errorf("row 2 should show (0.0%%), got %q", plain[2])
 	}
-	if !strings.Contains(plain[3], "awaiting generation") {
-		t.Errorf("row 3 should say 'awaiting generation', got %q", plain[3])
+	if !strings.Contains(plain[3], "Auto-compact at server default") {
+		t.Errorf("row 3 should show auto-compact server default, got %q", plain[3])
 	}
-	if !strings.Contains(plain[4], "User messages: 0 tokens (0.0%)") {
-		t.Errorf("row 4 = %q, want the zeroed user row", plain[4])
+	if !strings.Contains(plain[4], "AGY_CLI_AUTO_COMPACT_OVERRIDE") {
+		t.Errorf("row 4 should show override hint, got %q", plain[4])
 	}
-	if !strings.Contains(plain[5], "Agent responses: 0 tokens (0.0%)") {
-		t.Errorf("row 5 = %q, want the zeroed agent row", plain[5])
+	if !strings.Contains(plain[5], "awaiting generation") {
+		t.Errorf("row 5 should say 'awaiting generation', got %q", plain[5])
 	}
-	if !strings.Contains(plain[6], "Tool calls: 0 tokens (0.0%)") {
-		t.Errorf("row 6 = %q, want the zeroed tool row", plain[6])
+	if !strings.Contains(plain[6], "User messages: 0 tokens (0.0%)") {
+		t.Errorf("row 6 = %q, want the zeroed user row", plain[6])
 	}
-	if !strings.Contains(plain[7], "1.0M (100.0%)") {
-		t.Errorf("row 7 = %q, want the free-space row", plain[7])
+	if !strings.Contains(plain[7], "Agent responses: 0 tokens (0.0%)") {
+		t.Errorf("row 7 = %q, want the zeroed agent row", plain[7])
+	}
+	if !strings.Contains(plain[8], "Tool calls: 0 tokens (0.0%)") {
+		t.Errorf("row 8 = %q, want the zeroed tool row", plain[8])
+	}
+	if !strings.Contains(plain[9], "1.0M (100.0%)") {
+		t.Errorf("row 9 = %q, want the free-space row", plain[9])
 	}
 }
 
@@ -85,26 +91,29 @@ func TestLinesStreamingLayout(t *testing.T) {
 		User:  6,
 		Agent: 29,
 	}))
-	if len(plain) != 17 {
-		t.Fatalf("line count = %d, want 17\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 19 {
+		t.Fatalf("line count = %d, want 19\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
-	if !strings.Contains(plain[3], "awaiting generation") {
-		t.Errorf("row 3 = %q, want the awaiting-generation row", plain[3])
+	if !strings.Contains(plain[3], "Auto-compact at server default") {
+		t.Errorf("row 3 = %q, want auto-compact row", plain[3])
+	}
+	if !strings.Contains(plain[5], "awaiting generation") {
+		t.Errorf("row 5 = %q, want the awaiting-generation row", plain[5])
 	}
 	if strings.Contains(strings.Join(plain, "\n"), "Token usage by category") {
 		t.Error("the in-flight layout rendered the completed-turn categories")
 	}
-	if !strings.Contains(plain[4], "User messages: 6 tokens (0.0%)") {
-		t.Errorf("row 4 = %q, want the user row", plain[4])
+	if !strings.Contains(plain[6], "User messages: 6 tokens (0.0%)") {
+		t.Errorf("row 6 = %q, want the user row", plain[6])
 	}
-	if !strings.Contains(plain[5], "Agent responses: 29 tokens (0.0%)") {
-		t.Errorf("row 5 = %q, want the agent row", plain[5])
+	if !strings.Contains(plain[7], "Agent responses: 29 tokens (0.0%)") {
+		t.Errorf("row 7 = %q, want the agent row", plain[7])
 	}
-	if !strings.Contains(plain[6], "Tool calls: 0 tokens (0.0%)") {
-		t.Errorf("row 6 = %q, want the tool row", plain[6])
+	if !strings.Contains(plain[8], "Tool calls: 0 tokens (0.0%)") {
+		t.Errorf("row 8 = %q, want the tool row", plain[8])
 	}
-	if !strings.Contains(plain[7], "Free space: 1.0M (100.0%)") {
-		t.Errorf("row 7 = %q, want the free-space row", plain[7])
+	if !strings.Contains(plain[9], "Free space: 1.0M (100.0%)") {
+		t.Errorf("row 9 = %q, want the free-space row", plain[9])
 	}
 }
 
@@ -129,8 +138,8 @@ func TestLinesLiveLayout(t *testing.T) {
 		MCPTools:       3,
 		SystemMessages: 2,
 	}))
-	if len(plain) != 27 {
-		t.Fatalf("line count = %d, want 27\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 29 {
+		t.Fatalf("line count = %d, want 29\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
 	if !strings.Contains(plain[1], "Gemini 3.8 Flash (High) · 1.9k/1.0M tokens") {
 		t.Errorf("row 1 = %q, want the used/1.0M descriptor", plain[1])
@@ -138,8 +147,11 @@ func TestLinesLiveLayout(t *testing.T) {
 	if !strings.Contains(plain[2], "(0.2%)") {
 		t.Errorf("row 2 = %q, want the used percentage", plain[2])
 	}
-	if !strings.Contains(plain[3], "Token usage by category") {
-		t.Errorf("row 3 = %q, want the category preamble", plain[3])
+	if !strings.Contains(plain[3], "Auto-compact at server default") {
+		t.Errorf("row 3 = %q, want auto-compact row", plain[3])
+	}
+	if !strings.Contains(plain[5], "Token usage by category") {
+		t.Errorf("row 5 = %q, want the category preamble", plain[5])
 	}
 	want := []string{
 		"◉ User messages: 1.0k tokens (0.1%)",
@@ -158,9 +170,33 @@ func TestLinesLiveLayout(t *testing.T) {
 		"□ Free space: 1.0M (99.8%)",
 	}
 	for i, w := range want {
-		if !strings.Contains(plain[4+i], w) {
-			t.Errorf("row %d = %q, want %q", 4+i, plain[4+i], w)
+		if !strings.Contains(plain[6+i], w) {
+			t.Errorf("row %d = %q, want %q", 6+i, plain[6+i], w)
 		}
+	}
+}
+
+func TestLinesAutoCompactThresholdAndOverride(t *testing.T) {
+	plainDefault := plainLines(Lines(State{
+		Mode:              ModeEmpty,
+		Model:             "Gemini 3.8 Flash (High)",
+		AutoCompactTokens: 256_000,
+	}))
+	if !strings.Contains(plainDefault[3], "Auto-compact at 256.0k tokens") {
+		t.Errorf("row 3 = %q, want Auto-compact at 256.0k tokens", plainDefault[3])
+	}
+	if strings.Contains(strings.Join(plainDefault, "\n"), "overridden by") {
+		t.Errorf("unexpected override note in non-overridden state")
+	}
+
+	plainOverride := plainLines(Lines(State{
+		Mode:                    ModeEmpty,
+		Model:                   "Gemini 3.8 Flash (High)",
+		AutoCompactTokens:       800_000,
+		AutoCompactOverrideSpec: "800K",
+	}))
+	if !strings.Contains(plainOverride[3], "Auto-compact at 800.0k tokens (overridden by AGY_CLI_AUTO_COMPACT_OVERRIDE=800K)") {
+		t.Errorf("row 3 = %q, want overridden auto-compact row", plainOverride[3])
 	}
 }
 

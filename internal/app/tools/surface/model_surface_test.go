@@ -233,12 +233,12 @@ func TestRuntimeCatalogRunsReferenceCommand(t *testing.T) {
 // drop any of the 60 names print mode reports in init.tools.
 func TestRuntimeCatalogKeepsCatalogue(t *testing.T) {
 	reg := RuntimeCatalog(t.TempDir())
-	for _, name := range []string{"view_file", "write_to_file", "replace_file_content", "read_file", "write_file", "edit_file"} {
+	for _, name := range []string{"view_file", "write_to_file", "replace_file_content", "read_file", "write_file", "edit_file", "update_steps"} {
 		if _, ok := reg.Get(name); !ok {
 			t.Errorf("missing %q", name)
 		}
 	}
-	if got, want := len(reg.List()), 63; got != want {
+	if got, want := len(reg.List()), 64; got != want {
 		t.Fatalf("registry size = %d, want %d", got, want)
 	}
 }

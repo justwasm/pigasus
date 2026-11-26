@@ -152,3 +152,26 @@ func TestFrontend_PatchesApplied(t *testing.T) {
 		t.Error("expected at least 1 MainJS patch applied")
 	}
 }
+
+func TestFrontend_1515RemoteControlFeaturesPresent(t *testing.T) {
+	handler := Handler(Options{EnableTouchPatches: true})
+
+	req := httptest.NewRequest("GET", "/main.js", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /main.js returned status %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, marker := range []string{
+		"Waiting on ${",
+		"Clone from This Computer",
+		"This Computer",
+		"Load older messages",
+		"Always allowed in this project",
+	} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("served /main.js missing 1.5.15 Remote Control marker %q", marker)
+		}
+	}
+}

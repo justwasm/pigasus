@@ -256,7 +256,7 @@ func TestActiveItems_DefocusOnTypingAndNoKill(t *testing.T) {
 // block and moves its cursor.
 func TestActiveItems_VimModeNavigation(t *testing.T) {
 	m := activeItemsHost(t, 30)
-	m.prompt.vimOn = true // Enable vim mode
+	m.prompt.SetVimEnabled(true) // Enable vim mode
 
 	t1 := &taskregistry.Task{
 		ID:        "task-1",
@@ -307,14 +307,14 @@ func TestActiveItems_VimModeNavigation(t *testing.T) {
 	// Test multi-line buffer in vim mode: 'j' moves line down first before focusing active items
 	m.prompt.input.SetValue("first\nsecond")
 	m.prompt.vimEng = nil
-	eng := m.vimEngine()
-	eng.Row = 0 // first line
+	m.prompt.SetVimEnabled(true)
+	m.vimBridge().Engine().Row = 0 // first line
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
 	if m.activeItems.Panel.Focused() {
 		t.Errorf("expected 'j' on line 0 to move to line 1, not focus active items")
 	}
-	if m.vimEngine().Row != 1 {
-		t.Errorf("expected vim row to be 1, got %d", m.vimEngine().Row)
+	if m.vimBridge().Engine().Row != 1 {
+		t.Errorf("expected vim row to be 1, got %d", m.vimBridge().Engine().Row)
 	}
 
 	// Now on line 1 (the last line), 'j' should focus active items

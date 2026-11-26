@@ -60,7 +60,7 @@ var (
 	thoughtDurRe   = regexp.MustCompile(`\bThought for \d+(?:\.\d+)?s\b`)
 	workedDurRe    = regexp.MustCompile(`\bworked \d+s\b`)
 	relAgoRe       = regexp.MustCompile(`\b\d+[mhd]\s+ago\b`)
-	quotaRefreshRe = regexp.MustCompile(`\bRefreshes in \d+h(?:\s*\d+m)?\b`)
+	quotaRefreshRe = regexp.MustCompile(`\bRefreshes in (?:\d+d )?\d+h(?:\s*\d+m)?\b`)
 
 	// Timestamp regexes - handles boundaries even when preceded by ANSI SGR escapes ending in 'm'
 	clock24Re = regexp.MustCompile(`(^|[^\d])([0-2][0-9]:[0-5][0-9]:[0-5][0-9])([^\d]|$)`)
@@ -109,7 +109,7 @@ func newDefaultSanitizer() *Sanitizer {
 			{re: thoughtDurRe, repl: "Thought for XX.Xs"},
 			{re: workedDurRe, repl: "worked XXs"},
 			{re: relAgoRe, repl: "XXm ago"},
-			{re: quotaRefreshRe, repl: "Refreshes in XXh XXm"},
+			{re: quotaRefreshRe, repl: "Refreshes in XXd XXh XXm"},
 		},
 		animRules: []animRule{
 			{re: braille8DotSpinnerRe, repl: "⣾"},

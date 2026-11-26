@@ -56,7 +56,7 @@ import (
 // resolveConversationSelection decides what a run continues, printing the
 // reference's warning on warn when an explicitly named conversation is missing.
 func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) convstore.Selection {
-	convID := cliflags.StringValue(fs, "conversation")
+	convID := cliflags.ResolveStringAlias(fs, "conversation", "resume", "r")
 	cont := cliflags.ResolveBoolAlias(fs, "continue", "c")
 	return convstore.ResolveSelection(convID, cont, workspace.Current(), warn)
 }
@@ -420,6 +420,10 @@ func (m *RootModel) seedNonToolStep(s convstore.Step) {
 		return
 	case "model":
 		if strings.TrimSpace(s.Text) == "" {
+			return
+		}
+		if convstore.IsLeakedAssistantError(s.Text) {
+			m.conversation.response = append(m.conversation.response, toolsteps.ErrorRow(s.Text))
 			return
 		}
 		styled := mdrender.RenderMarkdown(s.Text, m.viewport.width)

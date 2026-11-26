@@ -41,6 +41,8 @@ func TestIsTransientNetworkErr_PhrasesCovered(t *testing.T) {
 		{"connection reset by peer", fmt.Errorf("read: connection reset by peer"), true},
 		{"connection refused", fmt.Errorf("dial: connection refused"), true},
 		{"connection timed out", fmt.Errorf("dial: connection timed out"), true},
+		{"operation timed out (darwin socket timeout)", fmt.Errorf("read tcp 100.98.214.123:65077->172.217.112.4:443: read: operation timed out"), true},
+		{"connection dropped (cloudcode/backend)", fmt.Errorf("cloudcode: gemini-api-key: connection to https://daily-cloudcode-pa.googleapis.com dropped: sse read: read tcp: operation timed out"), true},
 		{"i/o timeout", fmt.Errorf("read: i/o timeout"), true},
 		{"no such host", fmt.Errorf("dial: no such host"), true},
 		{"tls handshake timeout", fmt.Errorf("tls: handshake timeout"), true},

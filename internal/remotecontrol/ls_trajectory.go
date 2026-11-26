@@ -49,6 +49,8 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 )
 
 // Cortex step-type values (exa.cortex_pb.CortexStepType) the Web UI's
@@ -139,7 +141,9 @@ type lsSnapshot struct {
 	Running        bool
 	// Pending is the queue: the messages the conversation is holding.
 	Pending []lsQueuedMessage
-	Version int
+	// BackgroundTasks holds the conversation's currently running background tasks.
+	BackgroundTasks []compaction.TaskRef
+	Version         int
 	// CreatedAt is when the trajectory started, UpdatedAt when it
 	// last changed.
 	CreatedAt time.Time
@@ -365,10 +369,9 @@ func (t *lsTrajectory) Snapshot() lsSnapshot {
 		return lsSnapshot{}
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	steps := make([]map[string]any, len(t.steps))
 	copy(steps, t.steps)
-	return lsSnapshot{
+	snap := lsSnapshot{
 		ConversationID: t.conversationID,
 		TrajectoryID:   t.trajectoryID,
 		Steps:          steps,
@@ -380,6 +383,9 @@ func (t *lsTrajectory) Snapshot() lsSnapshot {
 		UpdatedAt:      t.updatedAt,
 		InitStateID:    t.initStateID,
 	}
+	t.mu.Unlock()
+	snap.BackgroundTasks = shell.RunningTaskSnapshots(snap.ConversationID)
+	return snap
 }
 
 // Wait blocks until the trajectory's version moves past `since`, or
@@ -441,6 +447,7 @@ func lsAgentStateFrame(snap lsSnapshot) map[string]any {
 			"executableStatus":           status,
 			"executorLoopStatus":         executor,
 			"fullyIdle":                  !snap.Running && len(snap.Pending) == 0,
+			"backgroundTasksUpdate":      lsBackgroundTasksUpdate(snap.BackgroundTasks),
 			"pendingAgentMessagesUpdate": lsPendingMessagesUpdate(snap.Pending),
 			"mainTrajectoryUpdate": map[string]any{
 				"stepsUpdate": map[string]any{
@@ -506,4 +513,48 @@ func lsPendingAgentMessageJSON(msg lsQueuedMessage) map[string]any {
 		"stepPayload":      base64.StdEncoding.EncodeToString(msg.Step),
 		"deliveryStrategy": int(msg.Strategy),
 	}
+}
+
+func lsBackgroundTasksUpdate(tasks []compaction.TaskRef) map[string]any {
+	items := make([]any, 0, len(tasks))
+	indices := make([]int, 0, len(tasks))
+	for i, task := range tasks {
+		indices = append(indices, i)
+		items = append(items, map[string]any{
+			"taskSnapshot": lsTaskSnapshotJSON(task),
+		})
+	}
+	return map[string]any{
+		"indices":         indices,
+		"backgroundTasks": items,
+		"totalLength":     len(items),
+	}
+}
+
+func lsTaskSnapshotJSON(task compaction.TaskRef) map[string]any {
+	m := map[string]any{
+		"taskId":      task.TaskID,
+		"toolName":    task.ToolName,
+		"toolSummary": task.ToolSummary,
+		"description": task.Description,
+		"stepIndex":   task.StepIndex,
+		"logUri":      task.LogURI,
+		"isDaemon":    task.IsDaemon,
+	}
+	if task.StartTime != "" {
+		m["startTime"] = task.StartTime
+	}
+	return m
+}
+
+func lsTaskRefsEqual(a, b []compaction.TaskRef) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

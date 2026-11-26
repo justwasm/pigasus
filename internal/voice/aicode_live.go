@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -64,6 +67,7 @@ type AICodeLiveBackend struct {
 	clientVersion         string
 	languageServerVersion string
 	accessToken           string
+	quotaProject          string
 	fallback              LiveBackend
 	fallbackOnly          bool
 
@@ -121,6 +125,20 @@ func (b *AICodeLiveBackend) AccessToken() string {
 	return b.accessToken
 }
 
+// SetQuotaProject sets the GCP quota project sent via x-goog-user-project metadata.
+func (b *AICodeLiveBackend) SetQuotaProject(project string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.quotaProject = strings.TrimSpace(project)
+}
+
+// QuotaProject returns the configured GCP quota project override.
+func (b *AICodeLiveBackend) QuotaProject() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.quotaProject
+}
+
 // SetFallback sets the secondary fallback LiveBackend.
 func (b *AICodeLiveBackend) SetFallback(fb LiveBackend) {
 	b.mu.Lock()
@@ -166,12 +184,23 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 	}
 	endpoint := b.endpoint
 	token := b.accessToken
+	quotaProject := b.quotaProject
 	clientVer := b.clientVersion
 	lsVer := b.languageServerVersion
 	userAgent := b.userAgent
 	factory := b.streamFactory
 	fallback := b.fallback
 	b.mu.RUnlock()
+
+	if qp := strings.TrimSpace(cfg.QuotaProject); qp != "" {
+		quotaProject = qp
+	}
+	if quotaProject == "" {
+		quotaProject = strings.TrimSpace(os.Getenv("AICODE_DEV_PROJECT"))
+	}
+	if quotaProject == "" {
+		quotaProject = strings.TrimSpace(os.Getenv("OPENAGY_AICODE_PROJECT"))
+	}
 
 	if token == "" && factory == nil {
 		if fallback != nil {
@@ -183,11 +212,20 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 
 	sessionCtx, cancel := context.WithCancel(ctx)
 
+	md := metadata.Pairs(
+		"user-agent", userAgent,
+		"x-goog-api-client", "gl-go/1.27.4 gccl/"+clientVer,
+	)
+	if quotaProject != "" {
+		md.Append("x-goog-user-project", quotaProject)
+	}
+	outgoingCtx := metadata.NewOutgoingContext(sessionCtx, md)
+
 	var stream AICodeStream
 	var cleanupFn func()
 
 	if factory != nil {
-		s, cleanup, err := factory(sessionCtx, endpoint, token)
+		s, cleanup, err := factory(outgoingCtx, endpoint, token)
 		if err != nil {
 			cancel()
 			if fallback != nil {
@@ -220,12 +258,6 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 			ServerStreams: true,
 			ClientStreams: true,
 		}
-
-		md := metadata.Pairs(
-			"user-agent", userAgent,
-			"x-goog-api-client", "gl-go/1.27.4 gccl/"+clientVer,
-		)
-		outgoingCtx := metadata.NewOutgoingContext(sessionCtx, md)
 
 		st, err := conn.NewStream(outgoingCtx, streamDesc, DefaultAICodeMethod)
 		if err != nil {
@@ -299,6 +331,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		fallback: fallback,
 		eventsCh: make(chan *LiveServerEvent, 64),
 		closedCh: make(chan struct{}),
+		readyCh:  make(chan struct{}),
 		earlyBuf: make([][]byte, 0, 8),
 	}
 
@@ -318,12 +351,15 @@ type AICodeLiveSession struct {
 	fallback        LiveBackend
 	fallbackSession LiveSession
 
-	mu       sync.Mutex
-	writeMu  sync.Mutex
-	closed   bool
-	closeErr error
-	closedCh chan struct{}
-	eventsCh chan *LiveServerEvent
+	mu        sync.Mutex
+	writeMu   sync.Mutex
+	closed    bool
+	closeErr  error
+	closedCh  chan struct{}
+	closeOnce sync.Once
+	readyCh   chan struct{}
+	readyOnce sync.Once
+	eventsCh  chan *LiveServerEvent
 
 	// earlyBuf / earlyTexts retain initial audio/text chunks in case fallback activation is required.
 	confirmed    bool
@@ -338,12 +374,7 @@ func (s *AICodeLiveSession) readLoop() {
 		if fallbackActive {
 			return
 		}
-		s.mu.Lock()
-		if !s.closed {
-			s.closed = true
-			close(s.closedCh)
-		}
-		s.mu.Unlock()
+		_ = s.closeWithError(nil)
 	}()
 
 	isFirst := true
@@ -369,6 +400,11 @@ func (s *AICodeLiveSession) readLoop() {
 		s.earlyBuf = nil   // clear early buffer once first packet is confirmed
 		s.earlyTexts = nil // clear early text buffer once first packet is confirmed
 		s.mu.Unlock()
+		s.readyOnce.Do(func() {
+			if s.readyCh != nil {
+				close(s.readyCh)
+			}
+		})
 
 		msg := resp.GetMessage()
 		if msg == nil {
@@ -425,6 +461,11 @@ func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
 		}
 		fbSess, err := s.fallback.CreateSession(s.ctx, s.cfg)
 		if err != nil {
+			s.mu.Lock()
+			if s.closeErr == nil {
+				s.closeErr = fmt.Errorf("%w; fallback activation failed: %v", upstreamErr, err)
+			}
+			s.mu.Unlock()
 			return
 		}
 
@@ -439,6 +480,11 @@ func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
 		s.earlyBuf = nil
 		s.earlyTexts = nil
 		s.mu.Unlock()
+		s.readyOnce.Do(func() {
+			if s.readyCh != nil {
+				close(s.readyCh)
+			}
+		})
 
 		// Replay buffered early text and mic audio to fallback session
 		for _, txt := range texts {
@@ -731,6 +777,39 @@ func (s *AICodeLiveSession) Close() error {
 	return s.closeWithError(nil)
 }
 
+// WaitHandshake waits up to timeout for initial confirmation or immediate termination.
+// Returns nil if the session was confirmed or is still running without immediate error.
+func (s *AICodeLiveSession) WaitHandshake(timeout time.Duration) error {
+	s.mu.Lock()
+	if s.confirmed || s.fallbackSession != nil {
+		s.mu.Unlock()
+		return nil
+	}
+	if s.closed {
+		err := s.closeErr
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-s.readyCh:
+		return nil
+	case <-s.closedCh:
+		s.mu.Lock()
+		err := s.closeErr
+		s.mu.Unlock()
+		return err
+	case <-timer.C:
+		return nil
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
 func (s *AICodeLiveSession) closeWithError(err error) error {
 	s.mu.Lock()
 	if s.closed {
@@ -742,6 +821,11 @@ func (s *AICodeLiveSession) closeWithError(err error) error {
 		s.closeErr = err
 	}
 	fb := s.fallbackSession
+	s.closeOnce.Do(func() {
+		if s.closedCh != nil {
+			close(s.closedCh)
+		}
+	})
 	s.mu.Unlock()
 
 	s.cancel()

@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -160,7 +161,7 @@ func (d *Dispatcher) handleLSGetConversationMetadata(params json.RawMessage) (an
 	}
 	metadata := map[string]any{}
 	if ws := d.lsWorkspace(); ws != "" {
-		metadata["workspaceUris"] = []string{lsNormalizedURI(ws)}
+		metadata["workspaceUris"] = []string{files.NormalizedURI(ws)}
 	}
 	if !snap.CreatedAt.IsZero() {
 		metadata["createdAt"] = snap.CreatedAt.UTC().Format(time.RFC3339)

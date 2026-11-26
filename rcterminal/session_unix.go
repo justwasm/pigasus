@@ -45,8 +45,9 @@ func (u *unixPTY) Resize(cols, rows int) error {
 }
 
 // spawn starts a shell on a fresh pty.
-func spawn(dir string) (*Session, error) {
+func spawn(dir string, extraEnv []string) (*Session, error) {
 	shell := shellPath()
+	termID := newTerminalID()
 	ptmx, tty, err := pty.Open()
 	if err != nil {
 		return nil, fmt.Errorf("rcterminal: open pty: %w", err)
@@ -58,7 +59,10 @@ func spawn(dir string) (*Session, error) {
 	}
 	cmd := exec.Command(shell, "-l")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	env := append(os.Environ(), "TERM=xterm-256color")
+	env = append(env, extraEnv...)
+	env = append(env, "PIGASUS_TERMINAL_ID="+termID)
+	cmd.Env = env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
 	// A new session with the pty slave as the controlling terminal:
 	// the same disposition creack/pty's own Start uses.
@@ -72,7 +76,7 @@ func spawn(dir string) (*Session, error) {
 	// child in exit() (see internal/tools/pty_unix.go).
 	_ = tty.Close()
 
-	session := newSession(newTerminalID(), cmd.Process.Pid, filepath.Base(shell))
+	session := newSession(termID, cmd.Process.Pid, filepath.Base(shell))
 	session.cmd = cmd.Process
 	session.ptmx = &unixPTY{file: ptmx}
 	session.waitExit = func() int {
@@ -124,23 +128,29 @@ func (s *Session) resize(cols, rows int) error {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.exited || s.closed {
+	if s.exited || s.closed || s.ptmx == nil {
+		s.mu.Unlock()
 		return ErrClosed
 	}
-	if s.ptmx == nil {
-		return ErrClosed
-	}
-	return s.ptmx.Resize(cols, rows)
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	return ptmx.Resize(cols, rows)
 }
 
 // close ends the terminal: the shell is signalled, the pty is
 // closed, the streams are closed.
 func (s *Session) close(force bool) {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	s.closed = true
 	proc := s.cmd
+	ptmx := s.ptmx
 	s.mu.Unlock()
+
+	s.closeWriteQueue()
 
 	if proc != nil {
 		if force {
@@ -151,8 +161,8 @@ func (s *Session) close(force bool) {
 	}
 	// Closing the master hangs up the shell's session; the reader
 	// goroutine then sees EOF and finishes.
-	if s.ptmx != nil {
-		_ = s.ptmx.Close()
+	if ptmx != nil {
+		_ = ptmx.Close()
 	}
 	s.closeSubscribers()
 	close(s.done)

@@ -117,6 +117,49 @@ func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 		Policy:  policy,
 		Sandbox: r.sandbox,
 		Denials: r.Denials,
+		PromptAmend: func(ctx context.Context, call *backend.ToolCall) (bool, error) {
+			if r.ask != nil {
+				return r.ask(ctx, *call)
+			}
+			kind := permissionprompt.KindDefault
+			switch call.Name {
+			case "write_to_file", "write_file":
+				kind = permissionprompt.KindFileCreate
+			case "replace_file_content", "edit_file":
+				kind = permissionprompt.KindFileEdit
+			}
+			var args map[string]any
+			if len(call.Arguments) > 0 {
+				_ = json.Unmarshal(call.Arguments, &args)
+			}
+			req := permissionprompt.Request{
+				Tool: call.Name,
+				Kind: kind,
+				Args: args,
+			}
+			if r.onPrompt != nil {
+				r.onPrompt(req)
+			}
+			p := RaisePermissionPrompt(req)
+			res, err := p.Wait(ctx)
+			if err != nil {
+				return false, err
+			}
+			if res.AmendedCommand != "" && (call.Name == "run_command" || call.Name == "run_shell_command") {
+				var m map[string]any
+				_ = json.Unmarshal(call.Arguments, &m)
+				if m == nil {
+					m = make(map[string]any)
+				}
+				if _, ok := m["CommandLine"]; ok {
+					m["CommandLine"] = res.AmendedCommand
+				} else {
+					m["command"] = res.AmendedCommand
+				}
+				call.Arguments, _ = json.Marshal(m)
+			}
+			return res.IsApproved(), nil
+		},
 		PromptUser: func(ctx context.Context, call backend.ToolCall) (bool, error) {
 			if r.ask != nil {
 				return r.ask(ctx, call)
@@ -189,7 +232,7 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 			fmt.Fprintln(w, uirows.NoticeIndented(rchost.SlashADCErrorMessage()))
 			fmt.Fprintln(w, "")
 		} else {
-			convID := cliflags.StringValue(fs, "conversation")
+			convID := cliflags.ResolveStringAlias(fs, "conversation", "resume", "r")
 			if convID == "" && cliflags.ResolveBoolAlias(fs, "continue", "c") {
 				sel := resolveConversationSelection(fs, io.Discard)
 				convID = sel.ID

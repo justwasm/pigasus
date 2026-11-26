@@ -1475,7 +1475,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 		out, err := c.inner.Stream(callCtx, req)
 		if err != nil {
 			lastErr = err
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if ctx.Err() != nil {
 				return nil, err
 			}
 			email := slot.email
@@ -1511,7 +1511,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 				}
 				return nil, err
 			}
-			if !apierror.IsQuotaReachedErr(err) && (apierror.IsModelAccessErr(err) || apierror.IsRetryableStatusErr(err)) {
+			if !apierror.IsQuotaReachedErr(err) && (apierror.IsModelAccessErr(err) || apierror.IsRetryableStatusErr(err) || apierror.IsConnectionDroppedErr(err) || errors.Is(err, context.DeadlineExceeded)) {
 				c.router.ExcludeForModel(email, family)
 				c.router.logf("[account-pool] %s failed for %s (%s); trying another account (attempt %d/%d)", email, req.Model, apierror.FormatRetryReason(err), attempt+1, maxAttempts)
 				if attempt+1 < maxAttempts {
@@ -1569,6 +1569,10 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 			}
 			lastErr = firstNonEmpty.Error
 
+			if ctx.Err() != nil {
+				return errorChunkChan(firstNonEmpty), nil
+			}
+
 			if apierror.IsAccountDisabledErr(firstNonEmpty.Error) {
 				reason := apierror.AccountDisabledReason(firstNonEmpty.Error)
 				c.router.Quarantine(email, reason)
@@ -1598,7 +1602,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 				}
 				return errorChunkChan(firstNonEmpty), nil
 			}
-			if !apierror.IsQuotaReachedErr(firstNonEmpty.Error) && (apierror.IsModelAccessErr(firstNonEmpty.Error) || apierror.IsRetryableStatusErr(firstNonEmpty.Error)) {
+			if !apierror.IsQuotaReachedErr(firstNonEmpty.Error) && (apierror.IsModelAccessErr(firstNonEmpty.Error) || apierror.IsRetryableStatusErr(firstNonEmpty.Error) || apierror.IsConnectionDroppedErr(firstNonEmpty.Error) || errors.Is(firstNonEmpty.Error, context.DeadlineExceeded)) {
 				c.router.ExcludeForModel(email, family)
 				c.router.logf("[account-pool] %s stream failed for %s (%s); switching account (attempt %d/%d)", email, req.Model, apierror.FormatRetryReason(firstNonEmpty.Error), attempt+1, maxAttempts)
 				if attempt+1 < maxAttempts {

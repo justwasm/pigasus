@@ -23,11 +23,13 @@ type ToolCall struct {
 
 // ToolResult captures the return payload from a tool execution.
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Output     string `json:"output,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Terminate  bool   `json:"terminate,omitempty"`
-	ColdStored bool   `json:"cold_stored,omitempty"`
+	ToolCallID string      `json:"tool_call_id"`
+	ToolName   string      `json:"tool_name,omitempty"`
+	Images     []ImagePart `json:"images,omitempty"`
+	Output     string      `json:"output,omitempty"`
+	Error      string      `json:"error,omitempty"`
+	Terminate  bool        `json:"terminate,omitempty"`
+	ColdStored bool        `json:"cold_stored,omitempty"`
 }
 
 type toolCallIDKey struct{}
@@ -81,6 +83,36 @@ type FuncTool struct {
 	parameters       map[string]any
 	requiresApproval func(input string) bool
 	execute          func(ctx context.Context, input string) (string, error)
+}
+
+// ResultTool lets an adapter return a complete ToolResult, including multimodal attachments.
+type ResultTool struct {
+	name             string
+	description      string
+	parameters       map[string]any
+	requiresApproval func(string) bool
+	execute          func(context.Context, string) (ToolResult, error)
+}
+
+func NewResultTool(name, description string, execute func(context.Context, string) (ToolResult, error), opts ...FuncToolOption) *ResultTool {
+	f := &FuncTool{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(f)
+		}
+	}
+	return &ResultTool{name: name, description: description, execute: execute, parameters: f.parameters, requiresApproval: f.requiresApproval}
+}
+func (t *ResultTool) Name() string        { return t.name }
+func (t *ResultTool) Description() string { return t.description }
+func (t *ResultTool) Definition() ToolDefinition {
+	return ToolDefinition{Name: t.name, Description: t.description, Parameters: t.parameters}
+}
+func (t *ResultTool) RequiresApproval(input string) bool {
+	return t.requiresApproval != nil && t.requiresApproval(input)
+}
+func (t *ResultTool) Execute(ctx context.Context, input string) (ToolResult, error) {
+	return t.execute(ctx, input)
 }
 
 // FuncToolOption configures a FuncTool.

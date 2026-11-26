@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	acp "github.com/ironpark/acp-go"
 )
 
 // ACPAgentManifest models the official agent manifest specification from
@@ -360,19 +358,10 @@ func SpawnACPRemote(ctx context.Context, command string, args []string, cwd stri
 		stderr: &stderrBuf,
 	}
 
-	ver := "auto"
-	if len(acpVersion) > 0 && strings.TrimSpace(acpVersion[0]) != "" {
-		ver = strings.ToLower(strings.TrimSpace(acpVersion[0]))
-	}
-
-	transport := acp.NewStdioTransport(stdout, stdin)
-	dial := func(dialCtx context.Context) (acp.Transport, error) {
-		return transport, nil
-	}
-
-	remote, err := connectACPRemote(ctx, dial, closer, cwd, ver)
+	// Process startup owns the pipes and process lifetime; negotiation and
+	// session state use the same stream seam as in-memory protocol peers.
+	remote, err := NewACPRemote(ctx, stdin, stdout, closer, cwd, acpVersion...)
 	if err != nil {
-		_ = closer.Close()
 		stderrStr := strings.TrimSpace(stderrBuf.String())
 		if stderrStr != "" {
 			return nil, fmt.Errorf("%w (process stderr: %s)", err, stderrStr)
@@ -445,19 +434,10 @@ func spawnACPRemoteWithEnv(ctx context.Context, command string, args []string, e
 		stderr: &stderrBuf,
 	}
 
-	ver := "auto"
-	if len(acpVersion) > 0 && strings.TrimSpace(acpVersion[0]) != "" {
-		ver = strings.ToLower(strings.TrimSpace(acpVersion[0]))
-	}
-
-	transport := acp.NewStdioTransport(stdout, stdin)
-	dial := func(dialCtx context.Context) (acp.Transport, error) {
-		return transport, nil
-	}
-
-	remote, err := connectACPRemote(ctx, dial, closer, cwd, ver)
+	// Process startup owns the pipes and process lifetime; negotiation and
+	// session state use the same stream seam as in-memory protocol peers.
+	remote, err := NewACPRemote(ctx, stdin, stdout, closer, cwd, acpVersion...)
 	if err != nil {
-		_ = closer.Close()
 		stderrStr := strings.TrimSpace(stderrBuf.String())
 		if stderrStr != "" {
 			return nil, fmt.Errorf("%w (process stderr: %s)", err, stderrStr)

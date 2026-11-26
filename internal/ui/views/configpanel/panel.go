@@ -53,6 +53,10 @@ type Seams struct {
 	// flag or session setting, and returns the override description suffix
 	// (e.g. "(overridden by --sandbox)").
 	OverrideFor func(row Row) (overrideDisplay string, isOverridden bool)
+	// AltScreenHint returns an optional warning hint shown under the
+	// Rendering Mode description when the terminal does not support the
+	// alternate screen buffer.
+	AltScreenHint func() string
 }
 
 // Panel is the /config settings picker.
@@ -183,4 +187,11 @@ func (p *Panel) seasonalEvent() *seasonal.Event {
 		return nil
 	}
 	return p.seams.SeasonalEvent()
+}
+
+func (p *Panel) altScreenHint() string {
+	if p == nil || p.seams.AltScreenHint == nil {
+		return ""
+	}
+	return p.seams.AltScreenHint()
 }

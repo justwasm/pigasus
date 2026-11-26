@@ -9,7 +9,7 @@
 06: |                                                                                |
 07: |  Weekly Limit Remaining                                                        |
 08: |    [██████████████████████████████████████████████████] 100.00%                |
-09: |    Refreshes in 157h 59m                                                       |
+09: |    Refreshes in 6d 13h 59m                                                     |
 10: |                                                                                |
 11: |                                                                                |
 12: |CLAUDE AND GPT MODELS                                                           |
@@ -34,7 +34,7 @@
 06: (plain)
 07: [2:24] bold
 08: [5:55] fg=ansi:2 | [56:64] fg=#657b83
-09: [4:25] fg=ansi:2
+09: [4:27] fg=ansi:2
 10: (plain)
 11: (plain)
 12: [0:21] bold

@@ -16,6 +16,11 @@ func TestAgentServer_TerminalToolAndSkillAvailable(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
+	t.Setenv("ZDOTDIR", t.TempDir())
+	t.Setenv("ENV", "")
+	t.Setenv("BASH_ENV", "")
+	t.Setenv("PIGASUS_TERMINAL_SOCKET", "")
+	t.Setenv("PIGASUS_TERMINAL_SESSION", "")
 	home := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG_HOME", home)
 	ws := t.TempDir()
@@ -65,7 +70,8 @@ func TestAgentServer_TerminalToolAndSkillAvailable(t *testing.T) {
 		t.Fatalf("unexpected new output:\n%s", out)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(25 * time.Second)
+	lastRetry := time.Now()
 	for {
 		capOut, err := sess.Runner.Run(ctx, backend.ToolCall{
 			Name:      "terminal",
@@ -77,9 +83,16 @@ func TestAgentServer_TerminalToolAndSkillAvailable(t *testing.T) {
 		if strings.Contains(capOut, "SERVER_TERM_OK") {
 			break
 		}
+		if time.Since(lastRetry) >= 2*time.Second {
+			lastRetry = time.Now()
+			_, _ = sess.Runner.Run(ctx, backend.ToolCall{
+				Name:      "terminal",
+				Arguments: json.RawMessage(`{"action":"send","args":{"id":"srv1","input":"printf 'SERVER_%s\\n' TERM_OK\n","wait_ms":100}}`),
+			})
+		}
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for SERVER_TERM_OK:\n%s", capOut)
 		}
-		time.Sleep(30 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 }

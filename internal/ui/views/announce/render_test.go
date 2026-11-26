@@ -28,15 +28,8 @@ func TestRenderCard_Format(t *testing.T) {
 	if !strings.Contains(rendered, "Custom hint") {
 		t.Errorf("rendered card missing custom hint: %q", rendered)
 	}
-	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
-	if len(lines) != 5 {
-		t.Errorf("expected 5 lines in rendered card, got %d", len(lines))
-	}
-	if !strings.Contains(lines[0], "┌─") || !strings.Contains(lines[0], "┐") {
-		t.Errorf("expected top border with ┌─ and ┐: %q", lines[0])
-	}
-	if !strings.Contains(lines[4], "└") || !strings.Contains(lines[4], "┘") {
-		t.Errorf("expected bottom border with └ and ┘: %q", lines[4])
+	if !strings.Contains(rendered, "┃") {
+		t.Errorf("expected thick left border ┃ in rendered card, got:\n%s", rendered)
 	}
 }
 
@@ -48,33 +41,23 @@ func TestRenderBoxedCard(t *testing.T) {
 	card := &Card{
 		ID:    "box-test",
 		Title: "Boxed Announcement",
-		Body:  "Fully enclosed box drawing card.",
+		Body:  "Thick left border card.",
 		Hint:  "Press esc to dismiss",
 	}
 
 	rendered := RenderBoxedCard(card, 60)
-	lines := strings.Split(strings.TrimRight(rendered, "\n"), "\n")
-	if len(lines) < 3 {
-		t.Fatalf("expected at least 3 lines, got %d", len(lines))
-	}
-
-	// Check top border begins with ┌─ and ends with ─┐
-	top := lines[0]
-	if !strings.Contains(top, "┌─") || !strings.Contains(top, "─┐") {
-		t.Errorf("top border must contain ┌─ and ─┐, got %q", top)
-	}
-
-	// Check bottom border begins with └─ and ends with ─┘
-	bottom := lines[len(lines)-1]
-	if !strings.Contains(bottom, "└─") || !strings.Contains(bottom, "─┘") {
-		t.Errorf("bottom border must contain └─ and ─┘, got %q", bottom)
+	if !strings.Contains(rendered, "┃") {
+		t.Errorf("rendered card must contain ┃, got:\n%s", rendered)
 	}
 
 	// Check content
 	if !strings.Contains(rendered, "Boxed Announcement") {
-		t.Errorf("missing title in boxed card")
+		t.Errorf("missing title in card")
 	}
-	if !strings.Contains(rendered, "Fully enclosed box drawing card.") {
-		t.Errorf("missing body in boxed card")
+	if !strings.Contains(rendered, "Thick left border card.") {
+		t.Errorf("missing body in card")
+	}
+	if !strings.Contains(rendered, "Press esc to dismiss") {
+		t.Errorf("missing hint in card")
 	}
 }

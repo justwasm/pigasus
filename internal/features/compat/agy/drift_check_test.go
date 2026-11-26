@@ -113,11 +113,24 @@ func TestDriftCheckScript_JSONReport(t *testing.T) {
 		t.Fatalf("failed to parse JSON report: %v\nRaw: %s", err, string(rawJSON))
 	}
 
-	if report["baseline_version"] != "1.5.14" {
-		t.Errorf("expected baseline_version 1.5.14, got %v", report["baseline_version"])
+	if report["baseline_version"] != "1.5.17" {
+		t.Errorf("expected baseline_version 1.5.17, got %v", report["baseline_version"])
 	}
+	// The baseline and the candidate are the same release, so a clean result is
+	// the correct outcome and this assertion has teeth: it fails if the drift
+	// analyzer ever starts inventing differences between a tree and itself, or
+	// if the resolved candidate binary is not the one the baseline was extracted
+	// from. That second case is real - the analyzer prefers ~/.openagy/bin/agy,
+	// so a stale cache entry there makes this run report the delta between two
+	// different releases and this test is what notices.
 	if report["overall_status"] != "CLEAN" {
-		t.Errorf("expected overall_status CLEAN, got %v", report["overall_status"])
+		t.Errorf("expected overall_status CLEAN for a same-release baseline, got %v (%d alerts)",
+			report["overall_status"], len(report["alerts"].([]interface{})))
+	}
+	if alerts, ok := report["alerts"].([]interface{}); !ok {
+		t.Errorf("expected an alerts array in the report, got %T", report["alerts"])
+	} else if len(alerts) != 0 {
+		t.Errorf("expected no alerts for a same-release baseline, got %d: %v", len(alerts), alerts)
 	}
 
 	// Verify Markdown report

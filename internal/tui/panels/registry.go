@@ -3,6 +3,7 @@ package panels
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/views/artifactpanel"
@@ -17,6 +18,9 @@ type RegistryHost interface {
 	TerminalWidth() int
 	Panel(kind panelregistry.Kind) any
 	ContextState() contextpanel.State
+	// Artifacts is the conversation's artifact list — the same source the
+	// checkpoint's resume block reads. The /artifact panel renders it.
+	Artifacts() []compaction.ArtifactRef
 	PanelUsageLines() []string
 	UsageViewerSpec() tuiviewer.Spec
 	PanelChangelogLines() []string
@@ -96,8 +100,17 @@ var PanelSpecs = []PanelSpec{
 	{
 		Kind: panelregistry.Artifact,
 		Handler: func(h RegistryHost) panelregistry.Handler {
+			// The panel lists the conversation's artifacts. Without the
+			// host's list this branch used to render the empty frame for
+			// every conversation, which is why a session full of
+			// artifacts still answered "No artifacts".
+			//
+			// The row count is the artifact count, so the legend's
+			// "↑/↓ Navigate" has a real cursor bound instead of clamping
+			// at zero.
 			return panelregistry.FuncHandler{
-				OnLines: artifactpanel.Lines,
+				OnLines:    func() []string { return artifactpanel.LinesFor(h.Artifacts()) },
+				OnRowCount: func() int { return len(h.Artifacts()) },
 			}
 		},
 	},

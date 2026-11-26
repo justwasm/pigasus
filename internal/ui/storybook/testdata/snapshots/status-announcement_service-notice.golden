@@ -1,14 +1,14 @@
 === 2D SCREEN BUFFER [80x24] ===
 --- TEXT MATRIX ---
-00: |  ┌─ announcement ─────────────────────────────────────────────────────────────┐|
-01: |                                                                                |
-02: |  │  ⓘ Daily quota resets at HH:MM UTC                                         │|
+00: |┃ Daily quota resets at HH:MM UTC                                               |
+01: |┃ Antigravity Starter Quota and Pro tiers reset together every 24 hours.        |
+02: |┃ Esc to dismiss · Send a message to hide                                       |
 03: |                                                                                |
-04: |  │  Antigravity Starter Quota and Pro tiers reset together every 24 hours.    │|
+04: |                                                                                |
 05: |                                                                                |
-06: |  │  Esc to dismiss · Send a message to hide                                   │|
+06: |                                                                                |
 07: |                                                                                |
-08: |  └────────────────────────────────────────────────────────────────────────────┘|
+08: |                                                                                |
 09: |                                                                                |
 10: |                                                                                |
 11: |                                                                                |
@@ -25,15 +25,15 @@
 22: |                                                                                |
 23: |                                                                                |
 --- ATTRIBUTE MATRIX ---
-00: [0:80] fg=#657b83
-01: (plain)
-02: [0:5] fg=#657b83 | [5:7] fg=#268bd2 | [77:80] fg=#657b83
+00: [0:1] fg=#268bd2 | [2:33] bold
+01: [0:1] fg=#268bd2
+02: [0:1] fg=#268bd2 | [2:41] fg=#657b83
 03: (plain)
-04: [0:5] fg=#657b83 | [77:80] fg=#657b83
+04: (plain)
 05: (plain)
-06: [0:80] fg=#657b83
+06: (plain)
 07: (plain)
-08: [0:80] fg=#657b83
+08: (plain)
 09: (plain)
 10: (plain)
 11: (plain)

@@ -204,16 +204,12 @@ func TestTuiLiveHandler_OnThinkerCancel(t *testing.T) {
 	taskCtx, taskCancel := context.WithCancel(context.Background())
 	defer taskCancel()
 
-	m := &RootModel{
-		viewport: uiState{width: 80},
-		audio: AudioModel{
-			liveSession: sess,
-			thinking:    true,
-		},
-	}
-	m.audio.setThinkerCancel("inv-tui-active", taskCancel)
+	m := &RootModel{viewport: uiState{width: 80}}
+	m.audio.thinking = true
+	m.setLiveSession(sess)
+	m.voiceBridge().SetThinkerCancel("inv-tui-active", taskCancel)
 
-	h := &tuiLiveHandler{m: m}
+	h := m.NewLiveHandler()
 	h.OnThinkerCancel("inv-tui-cancel")
 
 	if taskCtx.Err() != context.Canceled {
@@ -247,12 +243,8 @@ func TestVoiceLiveStream_NotifyWaitingOnUser(t *testing.T) {
 	}
 	defer sess.HangUp()
 
-	m := &RootModel{
-		viewport: uiState{width: 80},
-		audio: AudioModel{
-			liveSession: sess,
-		},
-	}
+	m := &RootModel{viewport: uiState{width: 80}}
+	m.setLiveSession(sess)
 
 	m.notifyVoiceWaitingOnUser("Approve running go test?")
 	host := m.turnInteractionHost()
@@ -285,7 +277,7 @@ func TestVoiceLiveStream_ThinkerHandoffSendsBothCompleteHandoffAndAnswer(t *test
 
 	m := newRootModel(nil, "user@test", "gemini-2.5-pro", "tier1", t.TempDir(), false)
 	m.turn.engine = &mockVoiceThinkerEngine{answer: "All 12 tests passed."}
-	m.audio.liveSession = sess
+	m.setLiveSession(sess)
 
 	_ = m.handleVoiceThinkerHandoff("inv-handoff-1", "run the test suite")
 

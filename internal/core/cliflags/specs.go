@@ -154,6 +154,13 @@ func LiveChatSubcommand() SubcommandSpec {
 	return SubcommandSpec{Name: "livechat"}
 }
 
+func TerminalSubcommand() SubcommandSpec {
+	if fn := GetProvider("terminal"); fn != nil {
+		return fn()
+	}
+	return SubcommandSpec{Name: "terminal"}
+}
+
 func RCSubcommands() []SubcommandSpec {
 	if fn := GetMultiProvider("rc"); fn != nil {
 		return fn()

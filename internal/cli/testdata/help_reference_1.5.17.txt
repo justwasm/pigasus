@@ -1,0 +1,205 @@
+===BEGIN agy --help stdout===
+
+===END===
+===BEGIN agy --help stderr===
+Usage of agy:
+  --add-dir                       Add a directory to the workspace (repeatable) (default [])
+  --agent                         Agent for the current CLI session
+  -c                              Short alias for --continue
+  --continue                      Continue the most recent conversation
+  --conversation                  Resume a previous conversation by ID
+  --dangerously-skip-permissions  Auto-approve all tool permission requests without prompting
+  --disable-slash-commands        Disable slash command and skill expansion in print mode
+  --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
+  -i                              Short alias for --prompt-interactive
+  --input-format                  Input format for print mode (text, stream-json). stream-json reads one NDJSON message per line from stdin and runs a turn for each; it requires --output-format stream-json (default text)
+  --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)
+  --log-file                      Override CLI log file path
+  --mode                          Set the agent execution mode for this session (accept-edits, auto, plan)
+  --model                         Model for the current CLI session
+  --new-project                   Create a new project for this session
+  --output-format                 Output format for print mode (text, json, stream-json) (default text)
+  -p                              Short alias for --print
+  --print                         Run a single prompt non-interactively and print the response
+  --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)
+  --project                       Project ID or project name for the current CLI session
+  --prompt                        Alias for --print
+  --prompt-interactive            Run an initial prompt interactively and continue the session
+  -r                              Short alias for --conversation
+  --remote-agent                  Run this session's conversations using remote agents; --project then names a remote project by ID or name, otherwise they open in this machine's default remote project
+  --remote-control                Create a remote connection for the CLI session on start up
+  --resume                        Alias for --conversation
+  --sandbox                       Run in a sandbox with terminal restrictions enabled
+  --settings                      Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
+
+Available subcommands:
+  acp             Start the Agent Client Protocol (ACP) stdio server
+  agent           List available agents
+  agents          List available agents
+  changelog       Show changelog and release notes
+  help            Show help for subcommands
+  install         Configure environment paths and shell settings
+  mcp             Manage MCP servers (add, remove, list, enable, disable)
+  mic-serve       Serve this machine's microphone to a CLI on another host
+  models          List available models
+  plugin          Manage plugins (install, uninstall, list, enable, disable)
+  plugins         Alias for plugin
+  remote-control  Manage the remote-control background daemon (start, status, stop)
+  update          Update CLI
+===END===
+===BEGIN agy agent --help stdout===
+
+===END===
+===BEGIN agy agent --help stderr===
+Usage: agy agent [flags]
+
+List available agents
+
+Flags:
+  -h      Show help
+  --help  Show help
+===END===
+===BEGIN agy agents --help stdout===
+
+===END===
+===BEGIN agy agents --help stderr===
+Usage: agy agent [flags]
+
+List available agents
+
+Flags:
+  -h      Show help
+  --help  Show help
+===END===
+===BEGIN agy changelog --help stdout===
+
+===END===
+===BEGIN agy changelog --help stderr===
+Usage: agy changelog [flags]
+
+Show changelog and release notes
+
+Flags:
+  -h      Show help
+  --help  Show help
+===END===
+===BEGIN agy help --help stdout===
+
+===END===
+===BEGIN agy help --help stderr===
+Error: unknown subcommand: --help
+===END===
+===BEGIN agy install --help stdout===
+
+===END===
+===BEGIN agy install --help stderr===
+Usage: agy install [flags]
+
+Configure environment paths and shell settings
+
+Flags:
+  --dir           Custom directory target to configure PATH for
+  -h              Show help
+  --help          Show help
+  --skip-aliases  Bypasses shell profile alias purging
+  --skip-path     Bypasses shell profile PATH appending
+===END===
+===BEGIN agy mcp --help stdout===
+
+===END===
+===BEGIN agy mcp --help stderr===
+Usage: agy mcp <subcommand> [flags] [args]
+
+Available subcommands:
+  add      Add or update an MCP server configuration
+  remove   Remove an MCP server configuration
+  list     List all configured MCP servers
+  enable   Enable an MCP server
+  disable  Disable an MCP server
+
+Run "agy mcp <subcommand> --help" for flags, argument rules, and examples.
+===END===
+===BEGIN agy mic-serve --help stdout===
+
+===END===
+===BEGIN agy mic-serve --help stderr===
+Usage: agy mic-serve [flags]
+
+Serve this machine's microphone to a CLI on another host
+
+Flags:
+  --addr  Address to listen on; keep it on loopback (default 127.0.0.1:4713)
+  -h      Show help
+  --help  Show help
+===END===
+===BEGIN agy models --help stdout===
+
+===END===
+===BEGIN agy models --help stderr===
+Usage: agy models [flags]
+
+List available models
+
+Flags:
+  -h      Show help
+  --help  Show help
+===END===
+===BEGIN agy plugin --help stdout===
+
+===END===
+===BEGIN agy plugin --help stderr===
+Usage: agy plugin <command> [arguments]
+
+Commands:
+  list [--json]          List installed plugins
+  import [source]        Import plugins from gemini or claude
+  install <target>       Install a plugin (supports plugin[@marketplace])
+  uninstall <name>       Uninstall a plugin
+  enable <name>          Enable a plugin
+  disable <name>         Disable a plugin
+  validate [target] [--strict] [--json]
+                         Check a plugin's manifest and files: a directory,
+                         a .zip, a URL, or the plugins of a marketplace.json
+                         (see validate --help)
+  link <mp> <target>     Generate link to a marketplace
+  help                   Show this help
+===END===
+===BEGIN agy plugins --help stdout===
+
+===END===
+===BEGIN agy plugins --help stderr===
+Usage: agy plugin <command> [arguments]
+
+Commands:
+  list [--json]          List installed plugins
+  import [source]        Import plugins from gemini or claude
+  install <target>       Install a plugin (supports plugin[@marketplace])
+  uninstall <name>       Uninstall a plugin
+  enable <name>          Enable a plugin
+  disable <name>         Disable a plugin
+  validate [target] [--strict] [--json]
+                         Check a plugin's manifest and files: a directory,
+                         a .zip, a URL, or the plugins of a marketplace.json
+                         (see validate --help)
+  link <mp> <target>     Generate link to a marketplace
+  help                   Show this help
+===END===
+===BEGIN agy remote-control --help stdout===
+
+===END===
+===BEGIN agy remote-control --help stderr===
+Usage: agy remote-control <subcommand>
+
+Available subcommands:
+  start    Register and start the remote-control daemon
+  status   Show the daemon's status
+  stop     Stop the daemon and unregister it
+
+Run "agy remote-control <subcommand> --help" for flags.
+===END===
+===BEGIN agy update --help stdout===
+
+===END===
+===BEGIN agy update --help stderr===
+Usage of update:
+===END===

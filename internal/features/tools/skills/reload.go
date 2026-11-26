@@ -120,6 +120,7 @@ func Reload() []SkillInfo {
 		}
 	}
 
-	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
-	return dedupeByHash(found)
+	found = dedupeByName(dedupeByHash(found))
+	sort.SliceStable(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+	return found
 }

@@ -84,6 +84,9 @@ type PayloadState struct {
 	PendingInputCount int
 	// Subagents lists the conversation's subagents.
 	Subagents []SubagentInfo
+	// ArtifactCount is the number of artifacts the conversation has
+	// written. Zero omits the key from the payload.
+	ArtifactCount int
 	// VimMode is the vim editing mode's name ("NORMAL", "INSERT",
 	// "VISUAL" or "VISUAL LINE"). Empty when vim editor mode is off.
 	VimMode string
@@ -154,6 +157,9 @@ func PayloadFrom(s PayloadState) Payload {
 	}
 	if len(s.Subagents) > 0 {
 		payload.Subagents = s.Subagents
+	}
+	if s.ArtifactCount > 0 {
+		payload.ArtifactCount = s.ArtifactCount
 	}
 	if s.VimMode != "" {
 		payload.Vim = &VimInfo{Mode: s.VimMode}

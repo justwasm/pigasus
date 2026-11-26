@@ -12,6 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
 // HandleKey routes one key to the panel's current stage.
@@ -66,6 +68,13 @@ func (p *Panel) handleScopeKey(key tea.Key) (bool, tea.Cmd) {
 // handleListKey is the tab view's keys.
 func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 	n := len(p.readList(p.scope, p.tab))
+	// PgUp / PgDn and Shift+↑ / Shift+↓ page the list (AGY 1.5.17). They
+	// are answered before the plain ↑/↓ rule, which reads Shift+↑ as a
+	// one-row move.
+	if action, ok := pageAction(key); ok {
+		p.cursor = tuiviewport.PanelCursor(p.cursor, action, n)
+		return true, nil
+	}
 	switch key.Code {
 	case tea.KeyUp:
 		if p.cursor > 0 {
@@ -183,4 +192,19 @@ func (p *Panel) handleFormKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// pageAction classifies a page key: PgUp / Shift+↑ page up, PgDn /
+// Shift+↓ page down (AGY 1.5.17). A key that is neither is not a page.
+func pageAction(key tea.Key) (tuilib.NavAction, bool) {
+	str := key.String()
+	switch {
+	case key.Code == tea.KeyPgUp || str == "pgup" ||
+		(key.Code == tea.KeyUp && key.Mod.Contains(tea.ModShift)):
+		return tuilib.NavPageUp, true
+	case key.Code == tea.KeyPgDown || str == "pgdown" ||
+		(key.Code == tea.KeyDown && key.Mod.Contains(tea.ModShift)):
+		return tuilib.NavPageDown, true
+	}
+	return tuilib.NavNone, false
 }

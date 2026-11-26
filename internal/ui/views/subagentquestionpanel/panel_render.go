@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
@@ -134,8 +135,38 @@ func writeInDisplayLabel(text string) string {
 // moves with Left/Right (with bounds clamping). The surrounding picker's
 // shape (one row per pending question, hint row at the bottom) is
 // unchanged.
+// Cursor returns the hardware cursor position relative to PickerRows() when
+// the inline write-in textarea is active, or nil otherwise.
+func (p *Panel) Cursor() *tea.Cursor {
+	if !p.WriteInActive() || p.seams.Manager == nil {
+		return nil
+	}
+	c := p.writeInInput.Cursor()
+	if c == nil {
+		return nil
+	}
+	pending := p.pending()
+	if len(pending) == 0 {
+		return nil
+	}
+	_, inputStartRow := p.renderItemsWithInputOffset(pending)
+	if inputStartRow < 0 {
+		return nil
+	}
+	out := *c
+	out.Position.X += 6                 // "      " indent before each textarea line
+	out.Position.Y += 2 + inputStartRow // 2 header rows in PickerRows()
+	return &out
+}
+
 func (p *Panel) renderItems(pending []*subagentquestions.Question) []string {
+	rows, _ := p.renderItemsWithInputOffset(pending)
+	return rows
+}
+
+func (p *Panel) renderItemsWithInputOffset(pending []*subagentquestions.Question) ([]string, int) {
 	var rows []string
+	inputStartRow := -1
 	for i, q := range pending {
 		marker := "  "
 		if i == p.cursor {
@@ -184,10 +215,11 @@ func (p *Panel) renderItems(pending []*subagentquestions.Question) []string {
 		if p.writeInActive && i == p.cursor {
 			rows = append(rows, "")
 			rows = append(rows, palette.DimGrayOpen+"      Your answer:"+palette.DimGrayClose)
+			inputStartRow = len(rows)
 			for _, line := range strings.Split(p.writeInInput.View(), "\n") {
 				rows = append(rows, "      "+line)
 			}
 		}
 	}
-	return rows
+	return rows, inputStartRow
 }

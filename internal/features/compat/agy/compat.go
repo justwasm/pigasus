@@ -8,13 +8,17 @@ package agy
 
 import (
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/core/version"
 )
 
 // Policy defines whether agy-specific quirks should be active.
 type Policy struct {
 	// Enabled indicates whether the agy compatibility layer is loaded.
 	Enabled bool
-	// ReferenceVersion is the targeted agy version.
+	// ReferenceVersion is the targeted agy version. It is read from
+	// core/version rather than repeated here so a reference bump cannot
+	// leave this package quietly pinned to an older release.
 	ReferenceVersion string
 }
 
@@ -22,7 +26,7 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		Enabled:          true,
-		ReferenceVersion: "1.5.14",
+		ReferenceVersion: version.Reference,
 	}
 }
 

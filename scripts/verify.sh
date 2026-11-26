@@ -19,10 +19,57 @@ case "$MODE" in
     echo "==> Running architecture guard & core packages..."
     go test ./internal/core/architecture/...
     go test ./endpoints/... ./configdir/... ./render/... ./palette/...
+    echo "==> Running fast go vet on core/public & live packages..."
+    go vet ./endpoints/... ./configdir/... ./render/... ./palette/... \
+      ./internal/core/architecture/... ./internal/voice/... \
+      ./internal/infra/livevoice/... ./internal/ui/livechat/... ./internal/app/tools/web/...
     echo "==> Verifying main build..."
     mkdir -p ./bin
     go build -o ./bin/pigasus ./cmd/pigasus
     echo "==> Quick verification passed!"
+    ;;
+
+  hygiene)
+    echo "==> Running go vet across entire repository..."
+    go vet ./...
+    echo "==> Checking for oversized non-generated production Go files (> 1500 lines, non-blocking)..."
+    oversized_prod="$(find . -name '*.go' \
+      -not -path './out/*' -not -path './scratch/*' -not -path './.git/*' -not -path './node_modules/*' \
+      -not -name '*.pb.go' -not -name '*_test.go' \
+      -exec wc -l {} + | awk '$1 > 1500 && $2 != "total" {print $1, $2}' | sort -rn || true)"
+    if [ -n "$oversized_prod" ]; then
+      echo "WARNING: non-generated production .go files exceeding 1500 lines:"
+      echo "$oversized_prod" | sed 's/^/  /'
+    else
+      echo "==> No oversized non-generated production .go files found."
+    fi
+    echo "==> Checking for oversized non-generated test Go files (> 1500 lines, non-blocking)..."
+    oversized_test="$(find . -name '*_test.go' \
+      -not -path './out/*' -not -path './scratch/*' -not -path './.git/*' -not -path './node_modules/*' \
+      -exec wc -l {} + | awk '$1 > 1500 && $2 != "total" {print $1, $2}' | sort -rn || true)"
+    if [ -n "$oversized_test" ]; then
+      echo "INFO: non-generated *_test.go files exceeding 1500 lines:"
+      echo "$oversized_test" | sed 's/^/  /'
+    else
+      echo "==> No oversized non-generated *_test.go files found."
+    fi
+    echo "==> Running Go AST hygiene analyzer and reviewed modularity ratchet..."
+    go run ./devutils/hygiene -ratchet devutils/hygiene/modularity-baseline.json
+    echo "==> Hygiene check completed!"
+    ;;
+
+  scenarios)
+    # Independent domain/state-machine scenarios first; no server, PTY,
+    # credentials, or real network. Do not run the whole Storybook catalog:
+    # legacy workspace stories still start live shells and belong to integration.
+    echo "==> Running independently constructible module scenarios..."
+    go test -count=1 ./devutils/hygiene/... ./internal/core/architecture/... \
+      ./internal/features/plugins/validate/... ./internal/infra/agyproxy/codec/... \
+      ./internal/ui/editor/selection/... ./internal/remotecontrol/files/...
+    echo "==> Running real-module Storybook selection interaction..."
+    go test -count=1 ./internal/ui/storybook -run '^TestInputSelectionStoryScenarios$'
+    echo "==> Enforcing reviewed legacy-package ceilings..."
+    go run ./devutils/hygiene -ratchet devutils/hygiene/modularity-baseline.json
     ;;
 
   align)
@@ -102,7 +149,7 @@ case "$MODE" in
 
   *)
     echo "Unknown mode: $MODE"
-    echo "Usage: $0 [arch|quick|all|align|race]"
+    echo "Usage: $0 [arch|quick|hygiene|scenarios|all|align|race]"
     exit 1
     ;;
 esac

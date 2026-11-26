@@ -68,6 +68,7 @@ var declarationAliases = map[string]string{
 	"schedule":         "schedule",
 	"ask_question":     "ask_question",
 	"swarm":            "swarm",
+	"update_steps":     "update_steps",
 }
 
 // DeclarationName returns the model-facing declaration name of a catalogue

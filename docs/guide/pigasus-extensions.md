@@ -7,7 +7,9 @@
 > Canonical: [`remote-agents.md`](remote-agents.md) for the wire and the
 > client coverage, [`hidden-commands-and-flags.md`](hidden-commands-and-flags.md)
 > for anything reachable but unlisted, [`agent-server.md`](agent-server.md)
-> for the `agentlink` client/server split (a different protocol).
+> for the `agentlink` client/server split (a different protocol), and
+> [`entrypoints.md`](entrypoints.md) for the classification of all 15 `cmd/*`
+> binaries.
 
 ## 1. Three kinds of surface
 
@@ -23,7 +25,7 @@
 |---|---|---|
 | `pigasus --remote-agent` | a native client of `JetskiRemoteAgentProxyService`; it does not spawn `agy` | [`remote-agents.md`](remote-agents.md) §2.3, §3.6 |
 | `pigasus agent-server` | the mock server as a subcommand; `mock-remote-agent` is the compatibility shell | [`remote-agents.md`](remote-agents.md) §2.1 |
-| `pigasus livechat` / `--debug-wire` | standalone & embedded live multimodal chat TUI/Web UI with real-time duplex wire diagnostics | `internal/ui/livechat`, `cmd/livechat`, [`remote-agents.md`](remote-agents.md) §3.6 |
+| `pigasus livechat` / `--debug-wire` | standalone & embedded live multimodal chat TUI/Web UI with real-time duplex wire diagnostics | `internal/ui/livechat`, `internal/infra/livevoice`, `internal/voice`, `cmd/livechat`, [`remote-agents.md`](remote-agents.md) §3.6 |
 | `pigasus stats` | hidden CLI subcommand generating local session usage & cost HTML dashboard | `internal/app/subcommands/stats`, `internal/features/stats` |
 | `pigasus mic-serve` | local audio server over `JETSKI-AUDIO/1` (`micwire`); exposes real-time `MicWireStats` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/wire` & `Ctrl+Shift+W` | interactive TUI Wire Diagnostics HUD overlay; real-time RTT, TTFT, packets and tok/s rate | `internal/ui/views/wirehud` |
@@ -91,6 +93,7 @@ Remaining (Phase C — polish):
 ```bash
 make quick
 make arch
+go test ./internal/ui/livechat/... ./internal/infra/livevoice/... ./internal/voice/... -count=1
 go test ./internal/ui/views/terminalpanel/... -count=1
 go test ./internal/tui/ -run 'TestHidden|TestSlashTerminal|TestSlashUpload|TestSlashTriggers' -count=1
 go test ./internal/infra/remoteagentclient/ ./internal/infra/mockremoteagent/ -count=1

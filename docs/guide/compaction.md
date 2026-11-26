@@ -229,15 +229,34 @@ form for hosts that do not keep state across turns.
 | host | artifacts | running tasks | subagents |
 |---|---|---|---|
 | TUI (`agentturn.Local`) | `artifacts.List(conversationID)` | `shell.RunningTaskSnapshots` | `subagenttools.Registry.SnapshotSection` |
-| agent server / `rchost` | `artifacts.List` | `shell.RunningTaskSnapshots` | none (no registry) |
+| agent server / `rchost` | `artifacts.List` | `shell.RunningTaskSnapshots` | `subagenttools.Registry.SnapshotSection` |
 | `--print`, `cmd/harness` | none | none | none |
+
+The TUI's `(*RootModel).checkpointSnapshot` and the server's
+`(*Session).checkpointSnapshot` supply the same three sections, and a test
+pins the server half. The two hosts drive the same engine and a checkpoint is
+the only thing that survives a compaction, so a host that forgot the roster
+would lose every live subagent's type name, role and transcript URI at the
+moment the transcript is truncated.
+
+Both apply the same guard: a checkpoint only describes subagents spawned by
+the conversation it belongs to (`Registry.ParentID() == conversationID`), so a
+registry owned by another conversation cannot leak its roster in.
 
 `artifacts.List` reads `<appDataDir>/brain/<conversation-id>/<name>.<ext>` and
 its `<name>.<ext>.metadata.json` sidecar. A file without the sidecar was not
 written through the artifact layer, so it is not listed; `userFacing:false`
-is dropped; the timestamp is truncated to whole seconds. The clone has no
-artifact writer yet, so in a fresh pigasus conversation the section is
-usually empty.
+is dropped; the timestamp is truncated to whole seconds.
+
+The writer lives in the same package: `artifacts.WriteMetadata` writes the
+sidecar, `IsArtifactFile` decides which writes are artifacts (directly in the
+artifact directory, not `scratch/` or `.system_generated/`, artifact
+extension), and `artifacts.InstallWriteRoot` names the directory as a tool
+write root. The native file tools (`create_file` / `write_file` /
+`append_file` / `edit_file`) call `filesystem.ArtifactWriteHook`, which the
+host installs — so a markdown or HTML file the model writes there is listed.
+Shell and script writes bypass the hook, which is the reference's own rule
+("not shell or Python scripts, which skip `ArtifactMetadata`").
 
 A background task records its creating tool, `toolSummary`, `isDaemon` and
 global step when it is launched; `RunningTaskSnapshots` skips tasks that
@@ -343,7 +362,62 @@ last persisted checkpoint, appends the session's new user messages, appends
 the current `/compact`, and caps at ten. `compaction.UserRequests` ignores the
 resume block itself, so a rebuilt actor cannot mistake it for a request.
 
-## 9. Evidence
+## 9. A subagent compacts twice over
+
+A subagent's conversation is two conversations in one, and the two halves are
+summarized by two different mechanisms — deliberately, because the reference
+does it that way:
+
+| half | who summarizes it | where it enters the block |
+|---|---|---|
+| the parent's task, id and recent messages | nobody — it is carried verbatim | `checkpoint.Snapshot.ParentMessages` → `# Parent Agent Messages` |
+| the child's own turns | the model, via `compaction.ComputeSummaryAuto` | the `<summary>` body |
+
+【一手】 agy 1.5.17 keeps them apart rather than composing them. The reference
+has a symmetric pair of helpers —
+
+```
+utils.CaptureUserRequests            utils.CaptureParentMessages
+utils.FormatCheckpointUserRequests   utils.FormatCheckpointParentMessages
+```
+
+— feeding two parallel `CortexStepCheckpoint` fields
+(`captured_user_requests = 30`, `captured_parent_messages = 31`), and
+`ResumeBlock` emits **one or the other**: `ParentMessages` replaces the
+`# User Requests` section. The child's own half is the model-written
+`session_summary`.
+
+The parent's half is refreshed before **every** turn
+(`subagenttools/launch.go`), not once at spawn, so a message the parent sends
+after an earlier checkpoint still reaches the next one. System wakeup
+notifications are excluded (`From == "system"`), so a chatty board cannot
+crowd out the coordinator's instructions.
+
+The cap on the parent's messages bounds **the messages only, never the task**.
+The task is the delegation itself and it is the *oldest* thing the parent
+said, so a cap over the combined list would drop it first — exactly the defect
+agy 1.4.10 fixed. `ParentContext.Record` is the single place the cap is
+enforced.
+
+### Harness-level subagents have no compaction
+
+`internal/app/subagent/core` launches a *subprocess*; it does not run an
+in-process actor, so it never reaches `checkpoint.Policy` and never compacts.
+A long enough harness subagent therefore grows without bound. Measured on one
+that drifted off-task: 1.7 KB at turn 1, 13.3 KB at turn 3, 49.4 KB at turn 9,
+122.7 KB at turn 19, 214.7 KB at turn 34 — 126× growth, monotonic, with zero
+compaction records in its transcript. It did not crash and its JSON stayed
+valid; it simply kept reading files.
+
+That is a brief-design constraint, not something the engine can fix:
+
+- cap the files a subagent may read (~10) and make it report findings early
+- tell it to stop and report rather than keep reading when it has no edit yet
+- never give it a repo-wide `grep -rn`; name the packages
+- forbid leaving probe files behind
+- ask for a short report (≤40 lines), not a transcript
+
+## 10. Evidence
 
 - `docs/cycles/auto-compact-parity/captures.md` — live `/compact` captures,
   checkpoint proto, profile payloads, trigger decompilation.
@@ -358,3 +432,9 @@ resume block itself, so a rebuilt actor cannot mistake it for a request.
   config.
 - `docs/cycles/auto-compact-parity/parity-table.md` — every open behaviour,
   its observable surface, confidence, cost and next action.
+- `docs/guide/agent-loop.md` — the subagent's parent context, and why the two
+  halves stay apart.
+- `out/extracted-1.5.17/seeds/funcs.txt` — `utils.CaptureParentMessages`,
+  `utils.FormatCheckpointParentMessages`.
+- `out/extracted-1.5.17/protos/cortex_1.5.17.txt` — `CortexStepCheckpoint`,
+  fields 30/31 (`captured_user_requests`, `captured_parent_messages`).

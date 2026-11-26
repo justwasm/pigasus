@@ -66,6 +66,7 @@ import (
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
 	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
 	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
 	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
@@ -141,6 +142,22 @@ type Dispatcher struct {
 	// rc-permissions-grants adds the seam, tcpserver's
 	// NewTCPServer is the first caller.
 	broadcaster ConnBroadcaster
+
+	// turnErrMu guards turnErrObserver.
+	turnErrMu sync.RWMutex
+	// turnErrObserver is told about every failed turn, after the error
+	// envelope has been built and before it is returned to the caller.
+	//
+	// It exists so a host can react to a *specific* turn failure without
+	// the dispatcher having to know what a prepaid wallet is. The one
+	// caller today is the Remote Control web UI: rchost registers a
+	// closure that asks rcfrontend.Server.NotePrepaidBalanceError, which
+	// turns the notice on. Keeping it a plain `error` callback means this
+	// package stays free of the error taxonomy.
+	//
+	// nil means "nobody is watching", which is the in-process and
+	// Unix-socket case.
+	turnErrObserver func(error)
 
 	// allSinksMu guards allSinks. RWMutex so the hot-path
 	// (IsAllSink / AllSinkConnIDs) takes a read lock while
@@ -220,10 +237,13 @@ func applyDispatcherDefaults(cfg *Config) error {
 	return nil
 }
 
-// fabricateCoreDispatchFields sets the four pre-cycle seams
-// every dispatcher needs: Permissions / Agents / Reader /
-// Cascades.
+// fabricateCoreDispatchFields supplies the dispatcher-owned adapters and
+// defaults. The language-server file adapter preserves its existing OS access;
+// an explicitly supplied port is never replaced, even after an operation fails.
 func fabricateCoreDispatchFields(cfg *Config) {
+	if cfg.LanguageServerFS == nil {
+		cfg.LanguageServerFS = files.OSLanguageServerFS{}
+	}
 	if cfg.Permissions == 0 {
 		cfg.Permissions = DefaultPermissions
 	}

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 )
 
 func TestLanguageServer_GetLocalUserInfo(t *testing.T) {
@@ -30,7 +32,7 @@ func TestLanguageServer_GetLocalUserInfo(t *testing.T) {
 	if res["username"] == nil || res["username"] == "" {
 		t.Errorf("expected username, got %v", res["username"])
 	}
-	if res["homeDirUri"] == nil || !filepath.IsAbs(parseURIPath(res["homeDirUri"].(string))) {
+	if res["homeDirUri"] == nil || !filepath.IsAbs(files.ParseURIPath(res["homeDirUri"].(string))) {
 		t.Errorf("expected absolute homeDirUri, got %v", res["homeDirUri"])
 	}
 	if res["machineType"] != "local" {

@@ -364,12 +364,62 @@ func (s *Supervisor) TrajectoryCounts() (loaded int, calls int, seededLen int) {
 	return len(s.trajLoaded), len(s.trajCalls), s.trajSeededLen
 }
 
-// Save writes the conversation to disk using convstore.
-func (s *Supervisor) Save(conversationID, autoTitle string) error {
+// SavePlan is one prepared, self-contained conversation write.
+//
+// It carries everything the write needs, so the write can run on any
+// goroutine: the supervisor's live state was already snapshotted and its
+// durable boundary already advanced when the plan was built.
+type SavePlan struct {
+	// ConversationID is the conversation the steps belong to.
+	ConversationID string
+	// CWD is the workspace the conversation ran in.
+	CWD string
+	// Prev is the step list the store already holds; it is the diff base.
+	Prev []convstore.Step
+	// Next is the full step list to persist.
+	Next []convstore.Step
+	// AutoTitle is the generated title, when the session has one.
+	AutoTitle string
+}
+
+// Write persists the plan. It touches no supervisor state, so it is safe to
+// call from a goroutine other than the one that prepared it.
+func (p SavePlan) Write() error {
+	if p.ConversationID == "" || len(p.Next) == 0 {
+		return nil
+	}
+	// Write only what changed since the last save.
+	//
+	// Prev is the list the store holds, so it is the diff base: a turn that
+	// appended a few steps costs those steps instead of the whole
+	// conversation. The full list is still what the side caches and the
+	// summaries index see, so nothing downstream changes shape.
+	if err := convstore.SaveConversationDelta(p.ConversationID, p.CWD, p.Prev, p.Next); err != nil {
+		return err
+	}
+	if p.AutoTitle != "" {
+		_ = convstore.WriteSummariesTitle(p.ConversationID, p.AutoTitle)
+		_ = convstore.WriteCacheTitle(p.ConversationID, p.AutoTitle)
+	}
+	return nil
+}
+
+// PrepareSave snapshots the conversation for persistence and advances the
+// durable boundary.
+//
+// It is the half of Save that needs the supervisor's lock: it reads the live
+// trajectory, assembles the step list and records it as the new base. The
+// returned plan owns the write, which is the expensive half — the caller can
+// hand it to a background writer without holding anything.
+//
+// Preparing in order and writing in order is what keeps the delta base
+// honest: plan N's Prev is plan N-1's Next, so a later write's diff assumes
+// exactly what an earlier write stored.
+func (s *Supervisor) PrepareSave(conversationID, autoTitle string) (SavePlan, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if conversationID == "" || len(s.session) == 0 {
-		return nil
+		return SavePlan{}, false
 	}
 	facts := convstore.Trajectory{
 		Loaded:    s.trajLoaded,
@@ -379,20 +429,28 @@ func (s *Supervisor) Save(conversationID, autoTitle string) error {
 	}
 	steps := convstore.BuildSteps(facts)
 	if len(steps) == 0 {
-		return nil
+		return SavePlan{}, false
 	}
-	if err := convstore.SaveConversation(conversationID, s.cwd, steps); err != nil {
-		return err
+	plan := SavePlan{
+		ConversationID: conversationID,
+		CWD:            s.cwd,
+		Prev:           s.trajLoaded,
+		Next:           steps,
+		AutoTitle:      autoTitle,
 	}
 	// Advance durable seeded boundary so subsequent turns append cleanly without
 	// dumping their tool calls into Turn 1 or breaking causal step order.
 	s.trajLoaded = steps
 	s.trajCalls = nil
 	s.trajSeededLen = len(s.session)
+	return plan, true
+}
 
-	if autoTitle != "" {
-		_ = convstore.WriteSummariesTitle(conversationID, autoTitle)
-		_ = convstore.WriteCacheTitle(conversationID, autoTitle)
+// Save writes the conversation to disk using convstore.
+func (s *Supervisor) Save(conversationID, autoTitle string) error {
+	plan, ok := s.PrepareSave(conversationID, autoTitle)
+	if !ok {
+		return nil
 	}
-	return nil
+	return plan.Write()
 }

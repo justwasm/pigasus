@@ -690,7 +690,8 @@ func TestPanelChangelogLayout(t *testing.T) {
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", total)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Added Gemini 4 Neon") &&
+	if !strings.Contains(joined, "Added /thinking") &&
+		!strings.Contains(joined, "Added Gemini 4 Neon") &&
 		!strings.Contains(joined, "Added split view to the Remote Control browser view") &&
 		!strings.Contains(joined, "Added accept-edits mode to --remote-agent sessions") {
 		t.Errorf("missing opening bullet: %s", joined)
@@ -942,6 +943,13 @@ func TestSlashLogin_Handler(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("JETSKI_OAUTH_TOKEN", "")
 	t.Setenv("ANTIGRAVITY_REFRESH_TOKEN", "")
+	// backendselect.HasOAuthToken, which /login consults before opening the
+	// sign-in UI, also reads the account registry. That registry defaults to
+	// ~/.openagy/accounts.json, which is the *machine's* — not this temp home —
+	// so a developer signed in to pigasus would make /login answer "Already
+	// signed in" and the test would fail for a reason that has nothing to do
+	// with the handler. Point it at the test's own home.
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(home, "accounts.json"))
 
 	m := newSlashModel(t)
 	handled, cmd := m.handleSlashCommand("/login")
@@ -1239,9 +1247,14 @@ func TestCycle225QuotaCountdown(t *testing.T) {
 		d    time.Duration
 		want string
 	}{
-		{"1 week + 1s", 168*time.Hour + 1*time.Second, "168h 0m"},
-		{"167h 59m + 1s", 167*time.Hour + 59*time.Minute + 1*time.Second, "167h 59m"},
-		{"2 days 5 hours + 1s", 53*time.Hour + 1*time.Second, "53h 0m"},
+		// AGY 1.5.17 day form: "format quota refresh countdowns of 24
+		// hours or longer in days, hours, and minutes (such as
+		// `in 3d 3h 59m` instead of `in 75h 59m`)".
+		{"1 week + 1s", 168*time.Hour + 1*time.Second, "7d 0h 0m"},
+		{"167h 59m + 1s", 167*time.Hour + 59*time.Minute + 1*time.Second, "6d 23h 59m"},
+		{"2 days 5 hours + 1s", 53*time.Hour + 1*time.Second, "2d 5h 0m"},
+		{"exactly 24 hours", 24 * time.Hour, "1d 0h 0m"},
+		{"1 second below a day", 24*time.Hour - time.Second, "23h 59m"},
 		{"1 hour + 1s", 1*time.Hour + 1*time.Second, "1h 0m"},
 		{"40 minutes + 1s", 40*time.Minute + 1*time.Second, "40m"},
 		{"59 minutes + 999ms (one-second-truncation check)", 59*time.Minute + 999*time.Millisecond, "59m"},
@@ -1250,9 +1263,9 @@ func TestCycle225QuotaCountdown(t *testing.T) {
 		{"0 (clamp)", 0, "0s"},
 		{"negative (clamp)", -10 * time.Minute, "0s"},
 	} {
-		got := usagepanel.QuotaCountdown(time.Now().Add(tc.d))
+		got := usagepanel.QuotaCountdownFor(tc.d)
 		if got != tc.want {
-			t.Errorf("%s: usagepanel.QuotaCountdown(%v) = %q, want %q", tc.name, tc.d, got, tc.want)
+			t.Errorf("%s: usagepanel.QuotaCountdownFor(%v) = %q, want %q", tc.name, tc.d, got, tc.want)
 		}
 	}
 }
@@ -2818,7 +2831,8 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Added Gemini 4 Neon") &&
+	if !strings.Contains(text, "Added /thinking") &&
+		!strings.Contains(text, "Added Gemini 4 Neon") &&
 		!strings.Contains(text, "Added split view to the Remote Control browser view") &&
 		!strings.Contains(text, "Added accept-edits mode to --remote-agent sessions") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/vito/midterm"
 )
@@ -36,6 +37,19 @@ type Seams struct {
 
 	// Detach exits the modal panel without killing the underlying PTY session.
 	Detach func() tea.Cmd
+
+	// Quit terminates all terminal sessions and exits the standalone terminal app.
+	Quit func() tea.Cmd
+
+	// PassThroughEsc forwards Esc directly to the PTY when not in menu, copy, or scrollback mode.
+	PassThroughEsc bool
+
+	// Standalone indicates the panel owns the full terminal viewport (no outer status line).
+	Standalone bool
+
+	// OmniBar renders a borderless full-bleed terminal with a single top omni bar
+	// combining tabs, status, and menu trigger (maximizing usable screen area).
+	OmniBar bool
 
 	// Title returns the title or ID of the active terminal session.
 	Title func() string
@@ -140,6 +154,7 @@ type Panel struct {
 	mouseSGR         bool
 	cursorKeysApp    bool
 	bracketedPaste   bool
+	modifyOtherKeys  int
 	mousePressedBtn  tea.MouseButton
 	pendingResponses [][]byte
 
@@ -221,7 +236,9 @@ func (p *Panel) applyForwardedModeLocked(data []byte) {
 			return
 		}
 		data = data[idx+2:]
+		hasQuestion := false
 		if len(data) > 0 && data[0] == '?' {
+			hasQuestion = true
 			data = data[1:]
 		}
 		end := 0
@@ -234,7 +251,14 @@ func (p *Panel) applyForwardedModeLocked(data []byte) {
 		modeNum, err := strconv.Atoi(string(data[:end]))
 		op := data[end]
 		data = data[end+1:]
-		if err != nil || (op != 'h' && op != 'l') {
+		if err != nil {
+			continue
+		}
+		if !hasQuestion && op == 'm' {
+			p.modifyOtherKeys = modeNum
+			continue
+		}
+		if op != 'h' && op != 'l' {
 			continue
 		}
 		enabled := op == 'h'
@@ -541,6 +565,13 @@ func (p *Panel) Cursor() (x, y int) {
 	return 0, 0
 }
 
+// CursorKeysApp reports whether DECCKM application cursor keys mode is active.
+func (p *Panel) CursorKeysApp() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cursorKeysApp
+}
+
 // ScreenLines returns formatted text for each active row in the terminal.
 func (p *Panel) ScreenLines() []string {
 	p.mu.Lock()
@@ -560,6 +591,117 @@ func (p *Panel) ScreenLines() []string {
 	return lines
 }
 
+// ScreenLinesPlain returns plain-text (ANSI-stripped, right-trimmed) lines for each active row.
+func (p *Panel) ScreenLinesPlain() []string {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.term == nil {
+		return nil
+	}
+	rows := p.term.Height
+	lines := make([]string, rows)
+	lastNonEmpty := -1
+	for y := 0; y < rows; y++ {
+		var b strings.Builder
+		_ = p.term.RenderLine(&b, y)
+		line := strings.TrimRight(ansi.Strip(b.String()), " ")
+		lines[y] = line
+		if line != "" {
+			lastNonEmpty = y
+		}
+	}
+	if lastNonEmpty < 0 {
+		return nil
+	}
+	return lines[:lastNonEmpty+1]
+}
+
+// Snapshot captures the live screen, optional scrollback, cursor, and metadata atomically.
+type Snapshot struct {
+	Rows            int
+	Cols            int
+	CursorX         int
+	CursorY         int
+	Status          string
+	Title           string
+	Cwd             string
+	Exited          bool
+	ExitCode        int
+	ScrollbackLines int
+	Screen          []string
+	Scrollback      []string
+}
+
+// CaptureSnapshot returns a consistent snapshot of the panel's virtual terminal.
+func (p *Panel) CaptureSnapshot(scrollbackCount int, raw bool) Snapshot {
+	if p == nil {
+		return Snapshot{}
+	}
+	p.mu.Lock()
+	var snap Snapshot
+	snap.Rows = p.rows
+	snap.Cols = p.cols
+	snap.Status = p.status
+	snap.Title = p.title
+	if snap.Title == "" && p.seams.Title != nil {
+		snap.Title = p.seams.Title()
+	}
+	snap.Cwd = p.cwd
+	if snap.Cwd == "" && p.seams.Cwd != nil {
+		snap.Cwd = p.seams.Cwd()
+	}
+	if p.exitCode != nil {
+		snap.Exited = true
+		snap.ExitCode = *p.exitCode
+	}
+	if p.term != nil {
+		snap.Rows = p.term.Height
+		snap.Cols = p.term.Width
+		snap.CursorX = p.term.Cursor.X
+		snap.CursorY = p.term.Cursor.Y
+		lines := make([]string, snap.Rows)
+		lastNonEmpty := -1
+		for y := 0; y < snap.Rows; y++ {
+			var b strings.Builder
+			_ = p.term.RenderLine(&b, y)
+			line := b.String()
+			if !raw {
+				line = ansi.Strip(line)
+			}
+			line = strings.TrimRight(line, " ")
+			lines[y] = line
+			if line != "" {
+				lastNonEmpty = y
+			}
+		}
+		if lastNonEmpty >= 0 {
+			snap.Screen = lines[:lastNonEmpty+1]
+		}
+	}
+	p.mu.Unlock()
+
+	sb := p.copyScrollback()
+	snap.ScrollbackLines = len(sb)
+	if scrollbackCount > 0 && len(sb) > 0 {
+		start := len(sb) - scrollbackCount
+		if start < 0 {
+			start = 0
+		}
+		out := make([]string, 0, len(sb)-start)
+		for _, line := range sb[start:] {
+			if !raw {
+				line = ansi.Strip(line)
+			}
+			out = append(out, strings.TrimRight(line, " "))
+		}
+		snap.Scrollback = out
+	}
+	return snap
+}
+
 // Lines returns the full rendered frame as lines for panel display.
 func (p *Panel) Lines() []string {
 	if p == nil {
@@ -572,4 +714,63 @@ func (p *Panel) Lines() []string {
 // ViewerSpec returns false as the terminal panel owns its own rendering and scrollback.
 func (p *Panel) ViewerSpec() (tuiviewer.Spec, bool) {
 	return tuiviewer.Spec{}, false
+}
+
+// ExtractSelectionText extracts selected text from rendered panel lines,
+// stripping the outer box borders ("│ " and " │") and header/footer rows.
+func ExtractSelectionText(lines []string, sr, sc, er, ec int, hasTabs bool) string {
+	return ExtractSelectionTextWithOptions(lines, sr, sc, er, ec, hasTabs, false)
+}
+
+// ExtractSelectionTextWithOptions extracts selected text from rendered panel lines,
+// supporting both boxed mode and borderless OmniBar mode.
+func ExtractSelectionTextWithOptions(lines []string, sr, sc, er, ec int, hasTabs, omniBar bool) string {
+	if sr < 0 || sr >= len(lines) || er < 0 || er >= len(lines) {
+		return ""
+	}
+	firstBody := 1
+	if !omniBar && hasTabs {
+		firstBody = 2
+	}
+	lastBody := len(lines) - 2
+	if omniBar {
+		lastBody = len(lines) - 1
+	}
+	var out []string
+	for r := sr; r <= er; r++ {
+		if r < firstBody || r > lastBody {
+			continue
+		}
+		plain := ansi.Strip(lines[r])
+		rw := ansi.StringWidth(plain)
+		innerStart := 2
+		innerEnd := rw - 2
+		if omniBar {
+			innerStart = 0
+			innerEnd = rw
+		}
+		if innerEnd < innerStart {
+			continue
+		}
+		from := innerStart
+		to := innerEnd
+		if r == sr && sc > from {
+			from = sc
+		}
+		if r == er && ec+1 < to {
+			to = ec + 1
+		}
+		if from > innerEnd {
+			from = innerEnd
+		}
+		if to < innerStart {
+			to = innerStart
+		}
+		if from > to {
+			from = to
+		}
+		seg := ansi.Cut(plain, from, to)
+		out = append(out, strings.TrimRight(seg, " "))
+	}
+	return strings.Join(out, "\n")
 }

@@ -225,6 +225,38 @@ func (d *Dispatcher) runSendTurn(ctx context.Context, c *cascades.Cascade, casca
 	return d.renderSendTurnResult(res, start), nil
 }
 
+// SetTurnErrorObserver registers (or clears, when obs is nil) the callback told
+// about every failed turn.
+//
+// The observer takes the turn's raw error, not a classification, so this
+// package needs no opinion on what the failure means. The host decides: the
+// Remote Control web UI asks rcfrontend to turn on its prepaid-wallet notice
+// when the error is that specific one. nil is the default and means nobody is
+// watching.
+//
+// Safe to call concurrently with a turn in flight: the observer is read under a
+// read lock and invoked outside it, so a slow observer cannot block the
+// dispatcher.
+func (d *Dispatcher) SetTurnErrorObserver(obs func(error)) {
+	if d == nil {
+		return
+	}
+	d.turnErrMu.Lock()
+	d.turnErrObserver = obs
+	d.turnErrMu.Unlock()
+}
+
+// turnErrorObserver returns the currently registered observer, read under the
+// lock so a concurrent SetTurnErrorObserver cannot race with a turn.
+func (d *Dispatcher) turnErrorObserver() func(error) {
+	if d == nil {
+		return nil
+	}
+	d.turnErrMu.RLock()
+	defer d.turnErrMu.RUnlock()
+	return d.turnErrObserver
+}
+
 // renderSendTurnError normalises a SendStream error into a
 // JSON-RPC envelope, fans a cascade/state(error) notification
 // through the sink so streaming dashboards see it before the
@@ -232,6 +264,13 @@ func (d *Dispatcher) runSendTurn(ctx context.Context, c *cascades.Cascade, casca
 // the cascade's bounded error ring.
 func (d *Dispatcher) renderSendTurnError(c *cascades.Cascade, cascadeID string, err error, sink cascades.EventSink) (any, *rpc.ErrorBody) {
 	sink.OnError(c, err)
+	// Tell the host before the envelope goes back, so a notice raised here is
+	// already in place when the dashboard's next poll lands. The observer is
+	// invoked outside the mutex: it may touch the web server's state and must
+	// not hold the dispatcher's lock while doing so.
+	if obs := d.turnErrorObserver(); obs != nil {
+		obs(err)
+	}
 	var envelope *rpc.ErrorBody
 	switch {
 	case errors.Is(err, cascades.ErrNotFound):

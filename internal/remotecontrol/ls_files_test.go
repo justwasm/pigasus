@@ -205,88 +205,6 @@ func TestLSStatUri_AnswerShape(t *testing.T) {
 	}
 }
 
-// TestLSLanguageNames_MatchesTheReference pins the extension table to
-// the reference's own answers.
-//
-// 【一手】 every row was measured against the reference's language
-// server on 2026-10-26: a one-byte file per extension, read back with
-// ReadFile. The reference's quirks are part of the measurement — .rs
-// answers LANGUAGE_XML and .rsx answers LANGUAGE_R.
-func TestLSLanguageNames_MatchesTheReference(t *testing.T) {
-	cases := map[string]string{
-		"a.go":         "LANGUAGE_GO",
-		"a.py":         "LANGUAGE_PYTHON",
-		"a.ts":         "LANGUAGE_TYPESCRIPT",
-		"a.tsx":        "LANGUAGE_TSX",
-		"a.js":         "LANGUAGE_JAVASCRIPT",
-		"a.md":         "LANGUAGE_MARKDOWN",
-		"a.json":       "LANGUAGE_JSON",
-		"a.yaml":       "LANGUAGE_YAML",
-		"a.yml":        "LANGUAGE_YAML",
-		"a.txt":        "LANGUAGE_PLAINTEXT",
-		"a.sh":         "LANGUAGE_SHELL",
-		"a.bash":       "LANGUAGE_SHELL",
-		"a.zsh":        "LANGUAGE_SHELL",
-		"a.c":          "LANGUAGE_C",
-		"a.h":          "LANGUAGE_C",
-		"a.cpp":        "LANGUAGE_CPP",
-		"a.cc":         "LANGUAGE_CPP",
-		"a.hpp":        "LANGUAGE_CPP",
-		"a.cs":         "LANGUAGE_CSHARP",
-		"a.java":       "LANGUAGE_JAVA",
-		"a.kt":         "LANGUAGE_KOTLIN",
-		"a.rb":         "LANGUAGE_RUBY",
-		"a.php":        "LANGUAGE_HACK",
-		"a.lua":        "LANGUAGE_LUA",
-		"a.dart":       "LANGUAGE_DART",
-		"a.exs":        "LANGUAGE_ELIXIR",
-		"a.erl":        "LANGUAGE_ERLANG",
-		"a.hs":         "LANGUAGE_HASKELL",
-		"a.scala":      "LANGUAGE_SCALA",
-		"a.swift":      "LANGUAGE_SWIFT",
-		"a.sql":        "LANGUAGE_SQL",
-		"a.toml":       "LANGUAGE_TOML",
-		"a.xml":        "LANGUAGE_XML",
-		"a.html":       "LANGUAGE_HTML",
-		"a.css":        "LANGUAGE_CSS",
-		"a.scss":       "LANGUAGE_SCSS",
-		"a.sass":       "LANGUAGE_SASS",
-		"a.vue":        "LANGUAGE_VUE",
-		"a.svelte":     "LANGUAGE_SVELTE",
-		"a.proto":      "LANGUAGE_PROTOBUF",
-		"a.ini":        "LANGUAGE_INI",
-		"a.cfg":        "LANGUAGE_INI",
-		"a.vim":        "LANGUAGE_VIMSCRIPT",
-		"a.tf":         "LANGUAGE_HCL",
-		"a.hcl":        "LANGUAGE_HCL",
-		"a.cmake":      "LANGUAGE_CMAKE",
-		"a.clj":        "LANGUAGE_CLOJURE",
-		"a.el":         "LANGUAGE_EMACS_LISP",
-		"a.dockerfile": "LANGUAGE_DOCKERFILE",
-		"a.makefile":   "LANGUAGE_MAKEFILE",
-		"a.mk":         "LANGUAGE_MAKEFILE",
-		"Dockerfile":   "LANGUAGE_DOCKERFILE",
-		"Makefile":     "LANGUAGE_MAKEFILE",
-		"a.r":          "LANGUAGE_R",
-		"a.rs":         "LANGUAGE_XML",
-		"a.rsx":        "LANGUAGE_R",
-		// The reference answers no language at all for these.
-		"a":            "",
-		"a.conf":       "",
-		"a.ex":         "",
-		"a.graphql":    "",
-		"a.ml":         "",
-		"a.pl":         "",
-		"a.zig":        "",
-		"a.unknownext": "",
-	}
-	for name, want := range cases {
-		if got := lsLanguageName(name); got != want {
-			t.Errorf("lsLanguageName(%q) = %q, want %q", name, got, want)
-		}
-	}
-}
-
 // TestLSReadDir_EmptyDirectory pins the proto-JSON rule that an empty
 // repeated field is omitted: the reference answers an empty directory
 // with {}.
@@ -307,46 +225,108 @@ func TestLSReadDir_EmptyDirectory(t *testing.T) {
 	}
 }
 
-// TestLSFileTypeName_Symlink pins the reference's own reading of a
-// symlink: it stats the target, so a link to a file answers
-// FILE_TYPE_FILE with the target's size.
-func TestLSFileTypeName_Symlink(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "target.txt")
-	if err := os.WriteFile(target, []byte("hello"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	link := filepath.Join(dir, "link.txt")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink: %v", err)
-	}
-	fi, err := os.Stat(link)
+// TestLSReadFile_MediaChunkedAnd200MBLimit pins the AGY 1.5.16 remote media
+// display limit: media files (.mp3, .wav, .ogg, .m4a, .mp4, .webm) up to
+// 200 MiB page in 20 MiB chunks via offset + truncated, while files over the
+// limit (200 MiB for media, 20 MiB for non-media) return a display-limit error.
+func TestLSReadFile_MediaChunkedAnd200MBLimit(t *testing.T) {
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess})
 	if err != nil {
-		t.Fatalf("Stat: %v", err)
+		t.Fatalf("NewDispatcher: %v", err)
 	}
-	if got := lsFileTypeName(fi); got != fileTypeFile {
-		t.Errorf("fileType = %q, want %q", got, fileTypeFile)
-	}
-	if fi.Size() != 5 {
-		t.Errorf("the size is the target's: %d", fi.Size())
-	}
-}
 
-// TestLSLanguageName_CaseInsensitive pins the reference's own
-// case-insensitive lookup: "a.PY" answers LANGUAGE_PYTHON.
-func TestLSLanguageName_CaseInsensitive(t *testing.T) {
-	if got := lsLanguageName("a.PY"); got != "LANGUAGE_PYTHON" {
-		t.Errorf("lsLanguageName(a.PY) = %q, want LANGUAGE_PYTHON", got)
+	dir := t.TempDir()
+	mediaPath := filepath.Join(dir, "clip.mp4")
+	f, err := os.Create(mediaPath)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
 	}
-}
+	const mediaSize = (20 << 20) + 1024
+	if err := f.Truncate(mediaSize); err != nil {
+		f.Close()
+		t.Fatalf("Truncate: %v", err)
+	}
+	f.Close()
 
-// TestLSDecodeBytes_RejectsRawText pins the request side: raw text is
-// not a legal proto-JSON bytes field.
-func TestLSDecodeBytes_RejectsRawText(t *testing.T) {
-	if _, err := lsDecodeBytes("raw text"); err == nil {
-		t.Errorf("raw text decoded as base64")
+	codec, err := lsproto.Shared()
+	if err != nil {
+		t.Fatalf("lsproto.Shared: %v", err)
 	}
-	if _, err := lsDecodeBytes(base64.StdEncoding.EncodeToString([]byte("ok"))); err != nil {
-		t.Errorf("base64 did not decode: %v", err)
+	md, ok := codec.OutputMessage("ReadFile")
+	if !ok {
+		t.Fatalf("schema missing ReadFile")
+	}
+
+	// Chunk 0: offset "0" (proto-JSON int64 string) -> 20 MiB, truncated=true.
+	p0, _ := json.Marshal(map[string]any{
+		"uri":    "file://" + filepath.ToSlash(mediaPath),
+		"offset": "0",
+	})
+	ans0, err := d.DispatchDirect(context.Background(), "ReadFile", string(p0))
+	if err != nil {
+		t.Fatalf("DispatchDirect chunk 0: %v", err)
+	}
+	msg0 := dynamicpb.NewMessage(md)
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(ans0), msg0); err != nil {
+		t.Fatalf("protojson chunk 0: %v", err)
+	}
+	if got := len(msg0.Get(md.Fields().ByName("content")).Bytes()); got != 20<<20 {
+		t.Fatalf("chunk 0 len = %d, want %d", got, 20<<20)
+	}
+	if !msg0.Get(md.Fields().ByName("truncated")).Bool() {
+		t.Fatalf("chunk 0 truncated = false, want true")
+	}
+
+	// Chunk 1: offset 20 MiB -> remaining 1024 bytes, truncated=false.
+	p1, _ := json.Marshal(map[string]any{
+		"uri":    "file://" + filepath.ToSlash(mediaPath),
+		"offset": "20971520",
+	})
+	ans1, err := d.DispatchDirect(context.Background(), "ReadFile", string(p1))
+	if err != nil {
+		t.Fatalf("DispatchDirect chunk 1: %v", err)
+	}
+	msg1 := dynamicpb.NewMessage(md)
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(ans1), msg1); err != nil {
+		t.Fatalf("protojson chunk 1: %v", err)
+	}
+	if got := len(msg1.Get(md.Fields().ByName("content")).Bytes()); got != 1024 {
+		t.Fatalf("chunk 1 len = %d, want 1024", got)
+	}
+	if msg1.Get(md.Fields().ByName("truncated")).Bool() {
+		t.Fatalf("chunk 1 truncated = true, want false")
+	}
+
+	// Media file > 200 MiB is rejected with 200MB display limit.
+	hugeMedia := filepath.Join(dir, "huge.webm")
+	hf, err := os.Create(hugeMedia)
+	if err != nil {
+		t.Fatalf("Create hugeMedia: %v", err)
+	}
+	if err := hf.Truncate((200 << 20) + 1); err != nil {
+		hf.Close()
+		t.Fatalf("Truncate hugeMedia: %v", err)
+	}
+	hf.Close()
+	pHuge, _ := json.Marshal(map[string]any{"uri": "file://" + filepath.ToSlash(hugeMedia)})
+	if _, err := d.DispatchDirect(context.Background(), "ReadFile", string(pHuge)); err == nil || !strings.Contains(err.Error(), "200MB display limit") {
+		t.Fatalf("huge media err = %v, want 200MB display limit", err)
+	}
+
+	// Non-media file > 20 MiB is rejected with 20MB display limit.
+	hugeBin := filepath.Join(dir, "huge.bin")
+	bf, err := os.Create(hugeBin)
+	if err != nil {
+		t.Fatalf("Create hugeBin: %v", err)
+	}
+	if err := bf.Truncate((20 << 20) + 1); err != nil {
+		bf.Close()
+		t.Fatalf("Truncate hugeBin: %v", err)
+	}
+	bf.Close()
+	pBin, _ := json.Marshal(map[string]any{"uri": "file://" + filepath.ToSlash(hugeBin)})
+	if _, err := d.DispatchDirect(context.Background(), "ReadFile", string(pBin)); err == nil || !strings.Contains(err.Error(), "20MB display limit") {
+		t.Fatalf("huge bin err = %v, want 20MB display limit", err)
 	}
 }

@@ -206,7 +206,7 @@ func TestBuildStatusLinePayload_VimMember(t *testing.T) {
 		t.Errorf("vim must be absent while vim editor mode is off: %s", raw)
 	}
 
-	m.prompt.vimOn = true
+	m.prompt.SetVimEnabled(true)
 	raw, err = json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)

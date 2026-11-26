@@ -115,9 +115,15 @@ func newWriteInInput() tas.Model {
 	ta := tas.New()
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
+	ta.SetVirtualCursor(false)
 	ta.SetWidth(60)
 	ta.SetHeight(3)
 	return ta
+}
+
+// WriteInActive reports whether the inline write-in textarea is currently focused.
+func (p *Panel) WriteInActive() bool {
+	return p != nil && p.open && p.writeInActive
 }
 
 // New builds the picker. The scope starts at the parent's.

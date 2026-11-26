@@ -104,9 +104,9 @@ func TestSlashVoice_Subcommands(t *testing.T) {
 func TestSlashVoice_ThinkerHandoffDispatch(t *testing.T) {
 	m := diffTestModel()
 	mockBackend := voicebackend.NewMockLiveBackend()
-	handler := &tuiLiveHandler{m: m}
+	handler := m.NewLiveHandler()
 	liveSess := voicebackend.NewNativeLiveSession(mockBackend, handler)
-	m.audio.liveSession = liveSess
+	m.setLiveSession(liveSess)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -114,7 +114,6 @@ func TestSlashVoice_ThinkerHandoffDispatch(t *testing.T) {
 	if err := liveSess.Start(ctx, voicebackend.LiveSessionConfig{Voice: "Finn"}); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	defer liveSess.HangUp()
 
 	handler.OnThinkerHandoff("call_thinker_test_1", "Inspect code changes")
 
@@ -405,9 +404,7 @@ func TestVoice_DictationTranscribeAndInsert(t *testing.T) {
 	}
 
 	// Simulate recording some audio
-	m.audio.dictMu.Lock()
-	m.audio.dictPCM = []byte{0x01, 0x02, 0x03, 0x04}
-	m.audio.dictMu.Unlock()
+	m.voiceBridge().SetDictationPCM([]byte{0x01, 0x02, 0x03, 0x04})
 
 	// Confirm dictation (Enter or F5)
 	handled, finishCmd := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEnter})
@@ -457,9 +454,7 @@ func TestVoice_DictationCancelOnEsc(t *testing.T) {
 	}
 
 	// Esc cancels session and clears buffer
-	m.audio.dictMu.Lock()
-	m.audio.dictPCM = []byte{0x01, 0x02}
-	m.audio.dictMu.Unlock()
+	m.voiceBridge().SetDictationPCM([]byte{0x01, 0x02})
 
 	handled, _ := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if !handled {
@@ -468,8 +463,8 @@ func TestVoice_DictationCancelOnEsc(t *testing.T) {
 	if m.audio.Surface.Active() {
 		t.Fatal("expected surface to be inactive after Esc")
 	}
-	if len(m.audio.dictPCM) != 0 {
-		t.Fatal("expected dictation PCM buffer to be cleared on Esc")
+	if got := m.voiceBridge().DictationPCM(); len(got) != 0 {
+		t.Fatalf("expected dictation PCM buffer to be cleared on Esc, got %d bytes", len(got))
 	}
 	if m.prompt.input.Value() != "" {
 		t.Fatalf("expected empty prompt input, got %q", m.prompt.input.Value())

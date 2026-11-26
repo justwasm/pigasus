@@ -17,6 +17,7 @@ const (
 	menuItemClose
 	menuItemCopyMode
 	menuItemDetach
+	menuItemQuit
 	menuItemSwitchTab
 )
 
@@ -80,7 +81,12 @@ func (p *Panel) menuItemsLocked() []menuItem {
 		{kind: menuItemRename, label: "Rename Session", shortcut: ""},
 		{kind: menuItemClose, label: "Close Session", shortcut: "Alt+W"},
 		{kind: menuItemCopyMode, label: "Copy Mode", shortcut: "Alt+C"},
-		{kind: menuItemDetach, label: "Detach Panel", shortcut: "Esc"},
+	}
+	if !p.seams.PassThroughEsc && (p.seams.Detach != nil || p.seams.Close != nil) {
+		items = append(items, menuItem{kind: menuItemDetach, label: "Detach Panel", shortcut: "Esc"})
+	}
+	if p.seams.Quit != nil {
+		items = append(items, menuItem{kind: menuItemQuit, label: "Quit Terminal", shortcut: "Alt+Q"})
 	}
 	tabs := p.tabsLocked()
 	for i, tab := range tabs {
@@ -215,6 +221,12 @@ func (p *Panel) executeMenuItemLocked(item menuItem) func() tea.Cmd {
 		if closeFn != nil {
 			return closeFn
 		}
+	case menuItemQuit:
+		p.menuOpen = false
+		quitFn := p.seams.Quit
+		if quitFn != nil {
+			return quitFn
+		}
 	case menuItemSwitchTab:
 		p.menuOpen = false
 		switchFn := p.seams.SwitchTab
@@ -258,7 +270,44 @@ func (p *Panel) overlayMenuLocked(lines []string, bodyStartRow, width int) []str
 	}
 	boxRows = append(boxRows, ansiCyan+"┌"+ansiBold+title+ansiReset+ansiCyan+strings.Repeat("─", topFill)+"┐"+ansiReset)
 
+	// Session info header inside menu (holds metadata moved out of borders in OmniBar mode)
+	if !p.menuRenaming && len(lines) >= 8 {
+		sessTitle := p.title
+		if sessTitle == "" && p.seams.Title != nil {
+			sessTitle = p.seams.Title()
+		}
+		if sessTitle == "" {
+			sessTitle = "Terminal"
+		}
+		curX, curY := 0, 0
+		if p.term != nil {
+			curX, curY = p.term.Cursor.X, p.term.Cursor.Y
+		}
+		infoLine1 := fmt.Sprintf(" %s · %s · %dx%d (%d,%d)", sessTitle, p.status, p.cols, p.rows, curX, curY)
+		infoLine1 = ansi.Truncate(infoLine1, innerW, "…")
+		if pad := innerW - ansi.StringWidth(infoLine1); pad > 0 {
+			infoLine1 += strings.Repeat(" ", pad)
+		}
+		boxRows = append(boxRows, ansiCyan+"│"+ansiReset+ansiDim+infoLine1+ansiReset+ansiCyan+"│"+ansiReset)
+
+		cwd := p.cwd
+		if cwd == "" && p.seams.Cwd != nil {
+			cwd = p.seams.Cwd()
+		}
+		if cwd != "" {
+			cwdLine := " cwd: " + cwd
+			cwdLine = ansi.Truncate(cwdLine, innerW, "…")
+			if pad := innerW - ansi.StringWidth(cwdLine); pad > 0 {
+				cwdLine += strings.Repeat(" ", pad)
+			}
+			boxRows = append(boxRows, ansiCyan+"│"+ansiReset+ansiDim+cwdLine+ansiReset+ansiCyan+"│"+ansiReset)
+		}
+		boxRows = append(boxRows, ansiCyan+"├"+strings.Repeat("─", innerW)+"┤"+ansiReset)
+	}
+
 	itemRowIndices := make([]int, len(items))
+	startItem := 0
+	endItem := len(items)
 	if p.menuRenaming {
 		prompt := " Rename: " + p.menuRenameBuf + "█"
 		prompt = ansi.Truncate(prompt, innerW, "…")
@@ -275,14 +324,27 @@ func (p *Panel) overlayMenuLocked(lines []string, bodyStartRow, width int) []str
 		}
 		boxRows = append(boxRows, ansiCyan+"│"+ansiReset+hint+strings.Repeat(" ", hPad)+ansiCyan+"│"+ansiReset)
 	} else {
-		maxItems := len(lines) - 2
+		maxItems := len(lines) - len(boxRows) - 1
 		if maxItems < 1 {
 			maxItems = 1
 		}
 		if len(items) > maxItems {
-			items = items[:maxItems]
+			if p.menuCursor >= maxItems {
+				startItem = p.menuCursor - maxItems + 1
+			}
+			if startItem+maxItems > len(items) {
+				startItem = len(items) - maxItems
+			}
+			if startItem < 0 {
+				startItem = 0
+			}
+			endItem = startItem + maxItems
+			if endItem > len(items) {
+				endItem = len(items)
+			}
 		}
-		for i, item := range items {
+		for i := startItem; i < endItem; i++ {
+			item := items[i]
 			itemRowIndices[i] = len(boxRows)
 			prefix := "  "
 			if item.kind == menuItemSwitchTab {
@@ -328,23 +390,27 @@ func (p *Panel) overlayMenuLocked(lines []string, bodyStartRow, width int) []str
 	if boxLeft < 0 {
 		boxLeft = 0
 	}
+	leftOffset := 2
+	if p.seams.OmniBar {
+		leftOffset = 0
+	}
 
 	p.menuBox = menuBoxRect{
 		valid:  true,
 		top:    bodyStartRow + boxTop,
 		bottom: bodyStartRow + boxTop + boxH,
-		left:   2 + boxLeft,
-		right:  2 + boxLeft + boxW,
+		left:   leftOffset + boxLeft,
+		right:  leftOffset + boxLeft + boxW,
 	}
 
 	if !p.menuRenaming {
-		for i := range items {
+		for i := startItem; i < endItem; i++ {
 			r := itemRowIndices[i]
 			if r > 0 && r < boxH-1 {
 				p.hits = append(p.hits, hitRect{
 					row:    bodyStartRow + boxTop + r,
-					startX: 2 + boxLeft + 1,
-					endX:   2 + boxLeft + boxW - 1,
+					startX: leftOffset + boxLeft + 1,
+					endX:   leftOffset + boxLeft + boxW - 1,
 					kind:   hitActionMenuItem,
 					index:  i,
 				})

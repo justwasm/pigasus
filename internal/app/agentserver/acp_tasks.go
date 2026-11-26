@@ -75,3 +75,39 @@ func stopSessionTasks(sessID string) {
 		}
 	}
 }
+
+func stopSessionWork(sessID string, sess *Session) {
+	stopSessionTasks(sessID)
+	if sess != nil {
+		if sess.ConversationID != "" && sess.ConversationID != sessID {
+			stopSessionTasks(sess.ConversationID)
+		}
+		if sess.SubagentRegistry != nil {
+			for _, c := range sess.SubagentRegistry.List() {
+				if c.IsRunning() {
+					c.Kill()
+				}
+			}
+		}
+	}
+}
+
+// hasNonDaemonBackgroundWork reports whether the session has any active
+// non-daemon background tasks (commands or timers) or running subagents.
+// Daemon tasks do not keep an ACP prompt turn open.
+func hasNonDaemonBackgroundWork(sess *Session) bool {
+	if sess == nil {
+		return false
+	}
+	if sess.SubagentRegistry != nil && sess.SubagentRegistry.Busy() {
+		return true
+	}
+	if sess.ConversationID != "" {
+		for _, snap := range shell.RunningTaskSnapshots(sess.ConversationID) {
+			if !snap.IsDaemon {
+				return true
+			}
+		}
+	}
+	return false
+}

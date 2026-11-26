@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/voice"
@@ -406,40 +408,47 @@ func TestLiveChatModel_InputQueuedDuringReconnecting(t *testing.T) {
 
 func TestExtractShellCommand(t *testing.T) {
 	tests := []struct {
-		task string
-		want string
+		task   string
+		want   string
+		wantOK bool
 	}{
 		{
-			task: "run the cal command in the terminal and report the output.",
-			want: "cal",
+			task:   "run the cal command in the terminal and report the output.",
+			want:   "cal",
+			wantOK: true,
 		},
 		{
-			task: "what is the result of running cal",
-			want: "cal",
+			task:   "what is the result of running cal",
+			want:   "cal",
+			wantOK: true,
 		},
 		{
-			task: "run `cal` in terminal",
-			want: "cal",
+			task:   "run `cal` in terminal",
+			want:   "cal",
+			wantOK: true,
 		},
 		{
-			task: "check git status",
-			want: "git status -s",
+			task:   "check git status",
+			want:   "git status -s",
+			wantOK: true,
 		},
 		{
-			task: "git diff",
-			want: "git diff --stat",
+			task:   "git diff",
+			want:   "git diff --stat",
+			wantOK: true,
 		},
 		{
 			task: "https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md",
 			// Must NOT be mistaken for git status just because it contains "github"
-			want: "https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md",
+			want:   "",
+			wantOK: false,
 		},
 	}
 
 	for _, tt := range tests {
-		got := extractShellCommand("/tmp", tt.task)
-		if got != tt.want {
-			t.Errorf("extractShellCommand(%q) = %q, want %q", tt.task, got, tt.want)
+		got, ok := extractExplicitShellCommand("/tmp", tt.task)
+		if ok != tt.wantOK || got != tt.want {
+			t.Errorf("extractExplicitShellCommand(%q) = (%q, %v), want (%q, %v)", tt.task, got, ok, tt.want, tt.wantOK)
 		}
 	}
 }
@@ -530,6 +539,35 @@ func TestExtractSearchQuery(t *testing.T) {
 			wantOK:    true,
 		},
 		{
+			task:      "什么叫格林斯潘第一定律?",
+			wantQuery: "格林斯潘第一定律",
+			wantOK:    true,
+		},
+		{
+			task:      "格林斯潘第一定律 定义",
+			wantQuery: "格林斯潘第一定律 定义",
+			wantOK:    true,
+		},
+		{
+			task:      "what is Greenspan's First Law",
+			wantQuery: "Greenspan's First Law",
+			wantOK:    true,
+		},
+		{
+			task:      "查一查什么叫格林斯潘第一定律?",
+			wantQuery: "格林斯潘第一定律",
+			wantOK:    true,
+		},
+		{
+			task:      "who is Alan Greenspan?",
+			wantQuery: "Alan Greenspan",
+			wantOK:    true,
+		},
+		{
+			task:   "what is the result of running cal",
+			wantOK: false,
+		},
+		{
 			task:   "run the cal command in the terminal",
 			wantOK: false,
 		},
@@ -553,6 +591,66 @@ func TestExtractSearchQuery(t *testing.T) {
 				t.Errorf("extractSearchQuery(%q) domain = %q, want %q", tc.task, d, tc.wantDomain)
 			}
 		}
+	}
+}
+
+func TestExecuteThinkerTask_NaturalLanguageRoutesToSearchNotShell(t *testing.T) {
+	origSearch := performWebSearch
+	defer func() { performWebSearch = origSearch }()
+
+	var searched []string
+	performWebSearch = func(ctx context.Context, query, domain string) (string, error) {
+		searched = append(searched, query)
+		return "search result for: " + query, nil
+	}
+
+	cases := []struct {
+		task      string
+		wantQuery string
+	}{
+		{task: "什么叫格林斯潘第一定律?", wantQuery: "格林斯潘第一定律"},
+		{task: "格林斯潘第一定律 定义", wantQuery: "格林斯潘第一定律 定义"},
+		{task: "what is Greenspan's First Law", wantQuery: "Greenspan's First Law"},
+		{task: "who is Alan Greenspan?", wantQuery: "Alan Greenspan"},
+		{task: "what is a unit test?", wantQuery: "a unit test"},
+		{task: "time in tokyo", wantQuery: "time in tokyo"},
+		{task: "Greenspan's First Law", wantQuery: "Greenspan's First Law"},
+	}
+
+	for _, tc := range cases {
+		if cmd, isShell := extractExplicitShellCommand("/tmp", tc.task); isShell {
+			t.Fatalf("extractExplicitShellCommand(%q) unexpectedly matched shell command %q", tc.task, cmd)
+		}
+		out, err := executeThinkerTask("/tmp", tc.task)
+		if err != nil {
+			t.Fatalf("executeThinkerTask(%q) failed: %v", tc.task, err)
+		}
+		wantOut := "search result for: " + tc.wantQuery
+		if out != wantOut {
+			t.Fatalf("executeThinkerTask(%q) = %q, want %q", tc.task, out, wantOut)
+		}
+	}
+
+	if len(searched) != len(cases) {
+		t.Fatalf("expected %d web searches, got %d (%v)", len(cases), len(searched), searched)
+	}
+
+	// Explicit shell commands must still execute via shell, not web search.
+	out, err := executeThinkerTask("/tmp", "run `echo shell-ok`")
+	if err != nil {
+		t.Fatalf("executeThinkerTask(echo) failed: %v", err)
+	}
+	if out != "shell-ok" {
+		t.Fatalf("executeThinkerTask(echo) = %q, want %q", out, "shell-ok")
+	}
+
+	// Explicit "run <unknown>" must fail cleanly without invoking zsh or web search.
+	beforeCount := len(searched)
+	if _, err := executeThinkerTask("/tmp", "run nonexistent_binary_xyz_123"); err == nil {
+		t.Fatalf("expected error for unknown run command")
+	}
+	if len(searched) != beforeCount {
+		t.Fatalf("unknown run command should not trigger web search")
 	}
 }
 
@@ -1753,5 +1851,283 @@ func TestLiveChatHandlerBridge_OnThinkerCancel(t *testing.T) {
 	respMap, ok := resp.(map[string]any)
 	if !ok || respMap["cancelled"] != true {
 		t.Fatalf("expected cancelled=true tool response, got %+v", resp)
+	}
+}
+
+func TestLiveChatSystemPromptMatchesVoiceDirectTools(t *testing.T) {
+	prompt := liveChatSystemPrompt("/tmp/ws")
+	toolNames := voice.GeminiLiveToolNames(true)
+	if len(toolNames) == 0 {
+		t.Fatal("expected non-empty voice.GeminiLiveToolNames(true)")
+	}
+
+	declared := make(map[string]bool, len(toolNames))
+	for _, name := range toolNames {
+		declared[name] = true
+		if !strings.Contains(prompt, "'"+name+"'") {
+			t.Errorf("liveChatSystemPrompt missing declared direct tool %q", name)
+		}
+	}
+
+	for _, required := range []string{"search_web", "fetch_url", "run_command", "read_file", "call_thinker_agent"} {
+		if !declared[required] {
+			t.Errorf("voice.GeminiLiveToolNames(true) missing expected tool %q", required)
+		}
+	}
+
+	// Reverse check: every tool name token mentioned in liveChatSystemPrompt must be declared
+	// in voice.GeminiLiveToolNames(true) so nobody can add an undeclared tool name to the prompt.
+	bulletToolRe := regexp.MustCompile(`(?m)^\s*-\s*'([a-z][a-z0-9_]+)'`)
+	for _, m := range bulletToolRe.FindAllStringSubmatch(prompt, -1) {
+		if !declared[m[1]] {
+			t.Errorf("liveChatSystemPrompt lists undeclared bullet tool %q", m[1])
+		}
+	}
+	snakeToolRe := regexp.MustCompile(`'([a-z][a-z0-9]*_[a-z0-9_]+)'`)
+	for _, m := range snakeToolRe.FindAllStringSubmatch(prompt, -1) {
+		if !declared[m[1]] {
+			t.Errorf("liveChatSystemPrompt references undeclared tool %q", m[1])
+		}
+	}
+
+	mockB := voice.NewMockLiveBackend()
+	bridge := &liveChatHandlerBridge{workspace: "/tmp/ws"}
+	sess := voice.NewNativeLiveSession(mockB, bridge)
+	bridge.sess = sess
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voice.LiveSessionConfig{Voice: "Aoede", DirectTools: true}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	directTools := []string{"search_web", "fetch_url", "run_command", "read_file"}
+	for _, toolName := range directTools {
+		callID := "empty-" + toolName
+		bridge.OnToolCall(voice.LiveToolCall{
+			ID:   callID,
+			Name: toolName,
+			Args: map[string]any{},
+		})
+
+		resps := mockB.LastSession().ToolResponses()
+		resp, ok := resps[callID]
+		if !ok {
+			t.Fatalf("OnToolCall(%q) with empty args did not send a validation error response", toolName)
+		}
+		respMap, ok := resp.(map[string]any)
+		if !ok {
+			t.Fatalf("OnToolCall(%q) response = %T, want map[string]any", toolName, resp)
+		}
+		errMsg, _ := respMap["error"].(string)
+		if errMsg == "" {
+			t.Fatalf("OnToolCall(%q) with empty args returned empty error in %+v", toolName, respMap)
+		}
+	}
+}
+
+func TestLiveChatHandlerBridge_ThinkerBridge_SearchWebAndFinalAnswer(t *testing.T) {
+	origSearch := performWebSearch
+	var searchedQueries []string
+	performWebSearch = func(ctx context.Context, query, domain string) (string, error) {
+		searchedQueries = append(searchedQueries, query)
+		return "1. Go 1.24 Release Notes\n   Generic type aliases are now fully supported.", nil
+	}
+	defer func() { performWebSearch = origSearch }()
+
+	mockProv := actor.NewMockProvider()
+	mockProv.EnqueueChunks([]actor.StreamChunk{
+		{
+			ToolCalls: []actor.ToolCall{
+				{ID: "tc-search-1", Name: "search_web", Input: `{"query":"go 1.24 release notes"}`},
+			},
+		},
+	})
+	mockProv.EnqueueChunks([]actor.StreamChunk{
+		{Delta: "Go 1.24 adds full support for generic type aliases.", FinishReason: "stop"},
+	})
+
+	mockB := voice.NewMockLiveBackend()
+	ws := t.TempDir()
+	bridge := &liveChatHandlerBridge{workspace: ws}
+	sess := voice.NewNativeLiveSession(mockB, bridge)
+	bridge.sess = sess
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voice.LiveSessionConfig{Voice: "Aoede", DirectTools: true}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	sess.SetConversationHistory([]voice.LiveTurnRecord{
+		{Role: "User", Content: "Tell me about the latest Go release."},
+	})
+
+	act, tb, err := newLiveChatThinkerWithProvider(ws, "test-model", mockProv, bridge.thinkerBridgeOptions()...)
+	if err != nil {
+		t.Fatalf("newLiveChatThinkerWithProvider failed: %v", err)
+	}
+	defer act.Close()
+	bridge.thinkerBridge = tb
+
+	bridge.OnThinkerHandoff("inv-thinker-search", "Look up Go 1.24 release notes")
+
+	last := mockB.LastSession()
+	if last == nil {
+		t.Fatal("expected mock live session")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(last.InAnswers()) > 0 {
+			if _, ok := last.ToolResponses()["inv-thinker-search"]; ok {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if len(searchedQueries) != 1 || searchedQueries[0] != "go 1.24 release notes" {
+		t.Fatalf("searchedQueries = %v, want [go 1.24 release notes]", searchedQueries)
+	}
+
+	answers := last.InAnswers()
+	if len(answers) == 0 || !strings.Contains(answers[0], "generic type aliases") {
+		t.Fatalf("expected Thinker answer in live session, got %v", answers)
+	}
+
+	resp, ok := last.ToolResponses()["inv-thinker-search"]
+	if !ok {
+		t.Fatalf("expected tool response for inv-thinker-search, got %+v", last.ToolResponses())
+	}
+	respMap, ok := resp.(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(respMap["answer"]), "generic type aliases") {
+		t.Fatalf("unexpected tool response payload: %+v", resp)
+	}
+
+	notes := last.InNotes()
+	if len(notes) == 0 {
+		t.Fatalf("expected progress notes in live session")
+	}
+
+	if len(mockProv.Requests) == 0 {
+		t.Fatal("expected mock provider to receive at least one request")
+	}
+	firstReq := mockProv.Requests[0]
+	if len(firstReq.Messages) == 0 || !strings.Contains(firstReq.Messages[len(firstReq.Messages)-1].Content, "Tell me about the latest Go release.") {
+		t.Fatalf("expected conversation history in Thinker prompt, got messages: %+v", firstReq.Messages)
+	}
+}
+
+func TestLiveChatHandlerBridge_ThinkerBridge_OnThinkerCancel(t *testing.T) {
+	origSearch := performWebSearch
+	started := make(chan struct{})
+	performWebSearch = func(ctx context.Context, query, domain string) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	defer func() { performWebSearch = origSearch }()
+
+	mockProv := actor.NewMockProvider()
+	mockProv.EnqueueChunks([]actor.StreamChunk{
+		{
+			ToolCalls: []actor.ToolCall{
+				{ID: "tc-slow-search", Name: "search_web", Input: `{"query":"slow query"}`},
+			},
+		},
+	})
+
+	mockB := voice.NewMockLiveBackend()
+	ws := t.TempDir()
+	bridge := &liveChatHandlerBridge{workspace: ws}
+	sess := voice.NewNativeLiveSession(mockB, bridge)
+	bridge.sess = sess
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := sess.Start(ctx, voice.LiveSessionConfig{Voice: "Aoede", DirectTools: true}); err != nil {
+		t.Fatalf("sess.Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	act, tb, err := newLiveChatThinkerWithProvider(ws, "test-model", mockProv, bridge.thinkerBridgeOptions()...)
+	if err != nil {
+		t.Fatalf("newLiveChatThinkerWithProvider failed: %v", err)
+	}
+	defer act.Close()
+	bridge.thinkerBridge = tb
+
+	bridge.OnThinkerHandoff("inv-thinker-active", "run slow search")
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for search_web tool to start")
+	}
+
+	bridge.OnThinkerCancel("inv-cancel-call")
+
+	last := mockB.LastSession()
+	if last == nil {
+		t.Fatal("expected mock live session")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		resps := last.ToolResponses()
+		if last.TaskStoppedCount() >= 1 && resps["inv-thinker-active"] != nil && resps["inv-cancel-call"] != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if last.TaskStoppedCount() != 1 {
+		t.Fatalf("expected TaskStoppedCount == 1, got %d", last.TaskStoppedCount())
+	}
+	resps := last.ToolResponses()
+	if cancelResp, ok := resps["inv-cancel-call"].(map[string]any); !ok || cancelResp["cancelled"] != true {
+		t.Fatalf("expected cancelled=true for inv-cancel-call, got %+v", resps["inv-cancel-call"])
+	}
+	if handoffResp, ok := resps["inv-thinker-active"].(map[string]any); !ok || handoffResp["cancelled"] != true {
+		t.Fatalf("expected cancelled=true for inv-thinker-active, got %+v", resps["inv-thinker-active"])
+	}
+}
+
+func TestLiveChatThinker_MockAndWorkspaceBoundedReadFile(t *testing.T) {
+	act, tb, err := newLiveChatThinker(t.TempDir(), "", true)
+	if err != nil {
+		t.Fatalf("newLiveChatThinker(mock=true) returned error: %v", err)
+	}
+	if act != nil || tb != nil {
+		t.Fatalf("expected nil actor and bridge in mock mode, got (%v, %v)", act, tb)
+	}
+
+	ws := t.TempDir()
+	outsideDir := t.TempDir()
+	insideFile := filepath.Join(ws, "hello.txt")
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(insideFile, []byte("hello workspace"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsideFile, []byte("top secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	symlinkEscape := filepath.Join(ws, "escape.txt")
+	if err := os.Symlink(outsideFile, symlinkEscape); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readWorkspaceFile(ws, "hello.txt")
+	if err != nil || got != "hello workspace" {
+		t.Fatalf("readWorkspaceFile(hello.txt) = (%q, %v), want ('hello workspace', nil)", got, err)
+	}
+	if _, err := readWorkspaceFile(ws, outsideFile); err == nil {
+		t.Fatal("expected error reading file outside workspace")
+	}
+	if _, err := readWorkspaceFile(ws, "escape.txt"); err == nil {
+		t.Fatal("expected error reading symlink escaping workspace")
 	}
 }

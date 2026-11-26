@@ -15,19 +15,14 @@ import (
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/testguard"
 )
 
 func TestMain(m *testing.M) {
-	// The server reads the session's own configuration — the permission
-	// rules, the MCP servers — so the tests must not read the user's.
-	dir, err := os.MkdirTemp("", "agentserver-test")
-	if err != nil {
-		panic(err)
-	}
-	_ = os.Setenv("ANTIGRAVITY_HOME", dir)
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
+	// Session configuration, credentials, and login-shell startup all belong
+	// to the fixture. Preserve the Go caches, but never source the operator's
+	// HOME or pass their account configuration into an integration scenario.
+	os.Exit(testguard.Run(m))
 }
 
 // startServer brings a server up on a loopback listener.

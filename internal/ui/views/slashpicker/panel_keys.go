@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/internal/ui/slashcomplete"
 )
 
 // UpdateKey handles a key while the popup is up in Elm single-direction
@@ -43,9 +45,57 @@ func (p *Panel) UpdateKey(key tea.Key) (bool, tea.Cmd) {
 		if p.Selected() == nil {
 			return false, nil
 		}
+		// Before committing one highlighted row, try to advance the
+		// composer to the longest prefix every match shares. This is
+		// the shell-style first-Tab behaviour: push the user as far as
+		// the candidates agree, leaving the popup open so the second
+		// Tab still commits the highlighted row. It only applies to
+		// the plain command list; the model/voice/terminal/resume
+		// sub-modes complete a row's argument, where a shared prefix
+		// would be meaningless.
+		if handled, cmd, advanced := p.completeSharedPrefix(); advanced {
+			return handled, cmd
+		}
 		return p.CommitSelectionCmd()
 	}
 	return false, nil
+}
+
+// completeSharedPrefix advances the composer to the longest common
+// prefix of the currently matching rows.
+//
+// advanced is false when the caller must fall back to committing the
+// highlighted row: no popup, a sub-mode, a single match, or a shared
+// prefix that adds nothing to what the user already typed. In that
+// last case returning false is what preserves the long-standing
+// behaviour where Tab on an ambiguous buffer picks the highlighted
+// row.
+func (p *Panel) completeSharedPrefix() (handled bool, cmd tea.Cmd, advanced bool) {
+	if p == nil || !p.Visible() || len(p.all) < 2 {
+		return false, nil, false
+	}
+	if p.modelMode || p.voiceMode || p.terminalMode || p.resumeMode {
+		return false, nil, false
+	}
+	if p.commandSource != nil {
+		// A host-supplied source owns its own rows; the shared-prefix
+		// rule is only defined over the real command catalogue.
+		return false, nil, false
+	}
+	buf := p.buffer()
+	res := slashcomplete.Complete(buf, p.all)
+	if res.Kind != slashcomplete.Multiple || res.Text == "" {
+		return false, nil, false
+	}
+	if res.Text == buf {
+		// Nothing new to add; let the caller commit the highlight.
+		return false, nil, false
+	}
+	p.setBuffer(res.Text)
+	// Re-filter against the longer prefix so the popup shows the
+	// narrowed candidate set and the highlight stays on a valid row.
+	p.Update([]rune(res.Text))
+	return true, CompletedCmd(res.Text, false, ""), true
 }
 
 // HandleKey handles a key while the popup is up.

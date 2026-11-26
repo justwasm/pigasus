@@ -136,7 +136,7 @@ func (s *Server) serveAccountsList(w http.ResponseWriter, r *http.Request) {
 		writeAccountsError(w, http.StatusForbidden, "the accounts token is missing or wrong")
 		return
 	}
-	payload, err := accountsPayloadFor()
+	payload, err := s.accountsPayloadFor()
 	if err != nil {
 		writeAccountsError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -312,7 +312,7 @@ func (s *Server) continueOnAnotherAccount(ctx context.Context) {
 
 // answerAccountsList writes the current account list.
 func (s *Server) answerAccountsList(w http.ResponseWriter) {
-	payload, err := accountsPayloadFor()
+	payload, err := s.accountsPayloadFor()
 	if err != nil {
 		writeAccountsError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -325,6 +325,13 @@ type accountsPayload struct {
 	Accounts []accountPayload `json:"accounts"`
 	Active   string           `json:"active"`
 	Registry string           `json:"registryPath"`
+
+	// PrepaidBalanceExhausted carries the sticky
+	// `Organization prepaid wallet is empty` notice. It rides on the
+	// account list because the widget already reads that list on mount
+	// and after every switch, so the notice appears (and survives a
+	// re-render) without a second endpoint or a page reload.
+	PrepaidBalanceExhausted bool `json:"prepaidBalanceExhausted,omitempty"`
 }
 
 // accountPayload is one row of the widget's list.
@@ -404,7 +411,11 @@ func usagePayloadFor(acc accounts.Account) *accountUsagePayload {
 // The credential is the truth about which account is active: the
 // reference can change it too, so the registry's own Active field is
 // only a hint.
-func accountsPayloadFor() (accountsPayload, error) {
+//
+// The prepaid-wallet notice is added here rather than at each call site: the
+// list endpoint, the switch and the remove all answer the same payload, and a
+// notice that only one of them carried would disappear on the next switch.
+func (s *Server) accountsPayloadFor() (accountsPayload, error) {
 	st, err := accounts.Load()
 	if err != nil {
 		return accountsPayload{}, err
@@ -414,9 +425,10 @@ func accountsPayloadFor() (accountsPayload, error) {
 		active = st.Active
 	}
 	out := accountsPayload{
-		Active:   active,
-		Registry: accounts.Path(),
-		Accounts: make([]accountPayload, 0, len(st.Accounts)),
+		Active:                  active,
+		Registry:                accounts.Path(),
+		PrepaidBalanceExhausted: s.PrepaidBalanceExhausted(),
+		Accounts:                make([]accountPayload, 0, len(st.Accounts)),
 	}
 	for _, acc := range st.Accounts {
 		out.Accounts = append(out.Accounts, accountPayload{

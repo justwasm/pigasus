@@ -28,6 +28,10 @@ func (p *Panel) MouseAllMotion() bool {
 func (p *Panel) bodyOriginLocked() (bodyTopRow, bodyLeftCol, bodyH, bodyW int) {
 	bodyH, bodyW = p.bodyDimensionsLocked()
 	bodyTopRow = 1
+	if p.seams.OmniBar {
+		bodyLeftCol = 0
+		return bodyTopRow, bodyLeftCol, bodyH, bodyW
+	}
 	if len(p.tabsLocked()) > 1 {
 		bodyTopRow = 2
 	}

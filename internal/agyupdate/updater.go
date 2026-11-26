@@ -127,6 +127,64 @@ func extractBinary(payload []byte, binName string) ([]byte, error) {
 	return payload, nil
 }
 
+// Status glyphs. The reference's printStatus selects one of two: the
+// in-progress "⟳" for a step that is still running, and the settled "✓".
+const (
+	statusGlyphWorking = "\u27f3 "
+	statusGlyphDone    = "\u2713 "
+)
+
+// isTerminalWriter reports whether w is a character device — the condition
+// the reference's updater.isTerminalWriter tests. It type-asserts the
+// concrete *os.File (not a wrapped writer), calls Stat, and checks
+// os.ModeCharDevice, so a bytes.Buffer or an os.Pipe is not a terminal.
+func isTerminalWriter(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// statusIsTerminal is the TTY-detection seam statusTerminator reads. It is a
+// variable so tests can drive both branches without a pty; production always
+// leaves it at isTerminalWriter.
+var statusIsTerminal = isTerminalWriter
+
+// statusTerminator returns the line ending for a status line written to w.
+//
+// A terminal in raw output mode has no OPOST/ONLCR, so a bare "\n" moves the
+// cursor down without returning it to column 0 — every status line would then
+// start where the previous one ended, printing a staircase. The reference
+// therefore emits an explicit "\r\n" for a terminal, and a plain "\n" when the
+// output is piped or redirected to a file, where a stray "\r" would end up in
+// the bytes the caller keeps. This mirrors updater.printStatus, which selects
+// between the two with an isTerminalWriter call.
+func statusTerminator(w io.Writer) string {
+	if statusIsTerminal(w) {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// statusLine renders one complete status line, terminator included.
+func statusLine(glyph, format, terminator string, args ...any) string {
+	return glyph + fmt.Sprintf(format, args...) + terminator
+}
+
+// printStatus writes one status line to w, terminated the way w wants.
+//
+// The terminator is decided per write rather than once up front so a caller
+// that swaps writers keeps the right behaviour, and so the decision is a
+// pure function of the writer under test.
+func printStatus(w io.Writer, glyph, format string, args ...any) {
+	fmt.Fprint(w, statusLine(glyph, format, statusTerminator(w), args...))
+}
+
 // Run executes the agy update check replicating the exact behavior, formatting,
 // and exit codes of the reference binary.
 func Run(ctx context.Context, stdout, stderr io.Writer, opts Options) int {
@@ -161,7 +219,7 @@ func Run(ctx context.Context, stdout, stderr io.Writer, opts Options) int {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
 
-	fmt.Fprintf(stdout, "\u27f3 Checking for updates... (current version %s)\n", currentVersion)
+	printStatus(stdout, statusGlyphWorking, "Checking for updates... (current version %s)", currentVersion)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
 	if err != nil {
@@ -196,12 +254,12 @@ func Run(ctx context.Context, stdout, stderr io.Writer, opts Options) int {
 	}
 
 	if !IsNewerVersion(manifest.Version, currentVersion) {
-		fmt.Fprintln(stdout, "\u2713 You are already on the latest version.")
+		printStatus(stdout, statusGlyphDone, "You are already on the latest version.")
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "\u2713 Found new version %s.\n", manifest.Version)
-	fmt.Fprintln(stdout, "\u27f3 Downloading update...")
+	printStatus(stdout, statusGlyphDone, "Found new version %s.", manifest.Version)
+	printStatus(stdout, statusGlyphWorking, "Downloading update...")
 
 	downloadURL := manifest.PackageURL
 	if downloadURL == "" {
@@ -287,6 +345,6 @@ func Run(ctx context.Context, stdout, stderr io.Writer, opts Options) int {
 		}
 	}
 
-	fmt.Fprintln(stdout, "\u2713 Update successful! Please restart agy.")
+	printStatus(stdout, statusGlyphDone, "Update successful! Please restart agy.")
 	return 0
 }

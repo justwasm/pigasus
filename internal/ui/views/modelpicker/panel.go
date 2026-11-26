@@ -65,6 +65,38 @@ type Panel struct {
 	window int
 	// variantChoices records the chosen variant index for rows with Variants.
 	variantChoices map[string]int
+	// orchestrator holds the interactive Planner/Executor state for the
+	// Orchestrator composite row.
+	orchestrator *OrchestratorRowState
+}
+
+func (p *Panel) ensureOrchestratorState(row Row) *OrchestratorRowState {
+	if p == nil || !row.HasOrchestrator() {
+		return nil
+	}
+	if p.orchestrator == nil {
+		p.orchestrator = row.Orchestrator.Clone()
+	}
+	return p.orchestrator
+}
+
+func (p *Panel) cycleOrchestratorFocus(delta int) {
+	row, ok := p.currentRow()
+	if !ok || !row.HasOrchestrator() {
+		return
+	}
+	st := p.ensureOrchestratorState(row)
+	st.CycleFocus(delta)
+}
+
+func (p *Panel) stepOrchestrator(delta int) {
+	row, ok := p.currentRow()
+	if !ok || !row.HasOrchestrator() {
+		return
+	}
+	st := p.ensureOrchestratorState(row)
+	st.StepFocused(delta)
+	p.persistOrchestrator(st)
 }
 
 // cycleVariant steps the active variant for rows with Variants (e.g. Carbon <-> Argon).

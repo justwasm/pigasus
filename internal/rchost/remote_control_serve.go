@@ -372,12 +372,20 @@ func startServeServer(disp *remotecontrol.Dispatcher, addr, token string) (*remo
 	seed := originpolicy.LoadOriginPolicyFromEnv()
 	_, activeAccount := accounts.Current()
 	cwd, _ := os.Getwd()
-	webUI := rcfrontend.Handler(rcfrontend.Options{
+	webSrv := rcfrontend.NewServerHandler(rcfrontend.Options{
 		EnableTouchPatches: true,
 		WorkspaceRoot:      cwd,
 		AccountEmail:       activeAccount,
 		CSRFToken:          token,
 	})
+	// The browser's accounts widget has to learn that the organization's
+	// prepaid wallet is empty, and the only place that error is observed is
+	// the dispatcher's turn loop. NotePrepaidBalanceError takes the raw error
+	// and returns false for everything that is not that failure, so this hook
+	// is inert until the specific 402/429 combination shows up.
+	// The adapter drops the bool: the observer reports, it does not decide.
+	disp.SetTurnErrorObserver(func(err error) { webSrv.NotePrepaidBalanceError(err) })
+	webUI := http.Handler(webSrv)
 	voiceSvc := buildHostVoiceService(cwd, token)
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,

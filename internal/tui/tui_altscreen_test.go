@@ -2,11 +2,13 @@ package tui
 
 import (
 	"flag"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // cycle294AltScreenFlags builds the two clone-only rendering flags the
@@ -145,5 +147,99 @@ func TestCycle294_AltScreenModeValue(t *testing.T) {
 		if got := altScreenModeValue(c.stored); got != c.want {
 			t.Errorf("altScreenModeValue(%v) = %v, want %v", c.stored, got, c.want)
 		}
+	}
+}
+
+func TestConfigRenderingModeAltScreenHint(t *testing.T) {
+	cycle196TestHome(t, map[string]any{})
+
+	t.Run("unset TERM without terminal name omits unknown", func(t *testing.T) {
+		t.Setenv("TERM", "")
+		t.Setenv("TERM_PROGRAM", "")
+		t.Setenv("WT_SESSION", "")
+		t.Setenv("VTE_VERSION", "")
+		t.Setenv("SSH_CLIENT", "")
+		t.Setenv("SSH_TTY", "")
+		t.Setenv("SSH_CONNECTION", "")
+		t.Setenv("OS", "")
+
+		m := &RootModel{viewport: uiState{width: 80, height: 24}}
+		m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+		m.overlays.panel.cfg = m.newConfigPanel()
+		m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Rendering Mode"))
+
+		lines := m.panelLines()
+		joined := strings.Join(lines, "\n")
+		if !strings.Contains(joined, "⚠ terminal does not support alt screen") {
+			t.Fatalf("expected generic alt screen warning, got:\n%s", joined)
+		}
+		if strings.Contains(joined, `"unknown"`) {
+			t.Fatalf("warning must not say terminal \"unknown\":\n%s", joined)
+		}
+	})
+
+	t.Run("ssh session warning uses WarningOpen separate from SubtleOpen", func(t *testing.T) {
+		t.Setenv("TERM", "dumb")
+		t.Setenv("SSH_CONNECTION", "10.0.0.1 1234 10.0.0.2 22")
+
+		m := &RootModel{viewport: uiState{width: 80, height: 24}}
+		m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+		m.overlays.panel.cfg = m.newConfigPanel()
+		m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Rendering Mode"))
+
+		lines := m.panelLines()
+		var foundWarn bool
+		for _, l := range lines {
+			if strings.Contains(l, "⚠ alt screen unavailable — run ssh -t") {
+				foundWarn = true
+				if !strings.Contains(l, palette.WarningOpen) || strings.Contains(l, palette.SubtleOpen) {
+					t.Errorf("warning line should use WarningOpen without SubtleOpen: %q", l)
+				}
+			}
+		}
+		if !foundWarn {
+			t.Fatalf("expected ssh -t warning in panel lines:\n%s", strings.Join(lines, "\n"))
+		}
+	})
+
+	t.Run("WT_SESSION with unset TERM produces no warning", func(t *testing.T) {
+		t.Setenv("TERM", "")
+		t.Setenv("WT_SESSION", "wt-1")
+		t.Setenv("SSH_CLIENT", "")
+		t.Setenv("SSH_TTY", "")
+		t.Setenv("SSH_CONNECTION", "")
+
+		m := &RootModel{viewport: uiState{width: 80, height: 24}}
+		if got := m.AltScreenHint(); got != "" {
+			t.Errorf("AltScreenHint() = %q, want empty", got)
+		}
+	})
+}
+
+func TestAltScreen_PromptAnchoredAtBottom(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.viewport.width = 80
+	m.viewport.height = 30
+
+	v := m.View()
+	lines := strings.Split(v.Content, "\n")
+	if len(lines) != 30 {
+		t.Fatalf("altscreen view rows = %d, want 30 (full terminal height)", len(lines))
+	}
+	if v.Cursor == nil {
+		t.Fatal("expected visible cursor in altscreen prompt")
+	}
+	// Prompt bar + bottom rule + status line sit at the bottom of the 30-row terminal.
+	if v.Cursor.Y < 25 {
+		t.Fatalf("altscreen prompt cursor Y = %d, want anchored near bottom (>= 25)", v.Cursor.Y)
+	}
+
+	// Inline mode must NOT pad short conversations to terminal height.
+	m.viewport.altScreen = false
+	m.viewport.viewCacheValid = false
+	vInline := m.View()
+	inlineLines := strings.Split(vInline.Content, "\n")
+	if len(inlineLines) >= 30 {
+		t.Fatalf("inline view rows = %d, want < 30 (no bottom padding)", len(inlineLines))
 	}
 }

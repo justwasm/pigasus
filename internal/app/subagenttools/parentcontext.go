@@ -17,12 +17,28 @@
 //
 // The clone therefore keeps the parent's half itself: the ParentContext
 // below is the record the clone maintains of what the parent said, and
-// it is what the subagent's compaction summary carries (see
-// compaction.go).
+// Lines is what its checkpoints carry.
+//
+// 【一手】 agy 1.5.17 keeps the two halves strictly apart rather than
+// composing them:
+//
+//	utils.CaptureUserRequests / utils.FormatCheckpointUserRequests
+//	utils.CaptureParentMessages / utils.FormatCheckpointParentMessages
+//
+// both render into repeated CapturedUserRequest fields of
+// CortexStepCheckpoint (captured_user_requests = 30, captured_parent_messages
+// = 31), and ResumeBlock emits one *or* the other — ParentMessages replaces
+// the "# User Requests" section. The child's own half is the model-written
+// session_summary, never a Go-side digest of its tool results.
+//
+// So there is nothing here that combines "the parent's half plus my own
+// work": the parent's half travels through Lines into
+// checkpoint.Snapshot.ParentMessages, and the child's half is summarized by
+// checkpoint.Policy. A SubagentSummary/CompactionPreparation pair that
+// modelled the combined shape was removed — see this file's history.
 package subagenttools
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -30,7 +46,7 @@ import (
 )
 
 // MaxParentMessages is the number of the parent agent's most recent
-// messages a subagent's summary keeps.
+// messages a subagent's checkpoint keeps.
 //
 // 【一手】 the 1.4.10 note: "a subagent's summary now keeps the parent
 // agent's 10 most recent messages".
@@ -48,7 +64,7 @@ type ParentMessage struct {
 // task the parent agent gave the subagent, the parent's own id, and the
 // messages the parent sent afterwards.
 //
-// The zero value is usable: an empty context renders an empty summary.
+// The zero value is usable: an empty context renders no lines.
 type ParentContext struct {
 	// ID is the parent agent's conversation id — the id the subagent
 	// answers on, and the sender the parent's messages carry.
@@ -67,8 +83,10 @@ type ParentContext struct {
 
 // Record notes a message the parent agent sent.
 //
-// Only the most recent MaxParentMessages are kept: the older ones are
-// what the summary drops, exactly as the reference's does.
+// Only the most recent MaxParentMessages are kept, exactly as the
+// reference's summary does. This is the only place the cap is applied: the
+// task is not a message the parent "sent afterwards", and it must never be
+// one of the entries the cap drops (see Lines).
 func (p *ParentContext) Record(content string, at time.Time) {
 	if p == nil || strings.TrimSpace(content) == "" {
 		return
@@ -119,6 +137,12 @@ func parentIDOf(deps Deps) string {
 //
 // The bool is true when the cap hid older messages, which selects the
 // reference's "most recent messages" preamble.
+//
+// The task is never capped. It is the delegation itself, not one of the
+// parent's "most recent messages", and a checkpoint that dropped it would
+// recreate the exact defect agy 1.4.10 fixed. Only the messages the parent
+// sent afterwards are capped, and Record applies that cap — one place, so
+// the retained count and the retained lines cannot disagree.
 func (p *ParentContext) Lines() ([]string, bool) {
 	if p == nil {
 		return nil, false
@@ -133,41 +157,5 @@ func (p *ParentContext) Lines() ([]string, bool) {
 		}
 		out = append(out, agentmessage.RenderLine(p.ID, msg.Content, msg.At, agentmessage.PriorityHigh))
 	}
-	if len(out) > MaxParentMessages {
-		return out[len(out)-MaxParentMessages:], true
-	}
 	return out, p.truncated
-}
-
-// Summary renders the parent's half for the subagent's compaction
-// summary.
-//
-// The three things the 1.4.10 note names are all here: the task, the
-// parent's id, and the parent's most recent messages. The task is
-// rendered in the reference's own envelope — it is the very message the
-// parent sent, so the child recognises it — while the later messages are
-// rendered in the reference's own one-line message format, which is
-// compact enough for a summary to carry ten of them.
-func (p *ParentContext) Summary() string {
-	if p == nil {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("# The task your parent agent gave you\n\n")
-	if strings.TrimSpace(p.Task) != "" {
-		b.WriteString(agentmessage.Render(p.ID, p.Task, p.TaskAt, agentmessage.PriorityHigh))
-		b.WriteString("\n\n")
-	}
-	b.WriteString("# Your parent agent\n\n")
-	b.WriteString("id: ")
-	b.WriteString(p.ID)
-	b.WriteString("\n")
-	if len(p.Messages) == 0 {
-		return strings.TrimRight(b.String(), "\n")
-	}
-	b.WriteString("\n# The most recent messages from your parent agent\n\n")
-	for i, msg := range p.Messages {
-		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, agentmessage.RenderLine(p.ID, msg.Content, msg.At, agentmessage.PriorityHigh)))
-	}
-	return strings.TrimRight(b.String(), "\n")
 }

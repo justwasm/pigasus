@@ -126,7 +126,7 @@ func TestRootModel_WireHUD_VoiceTelemetryRendered(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	m.audio.liveSession = sess
+	m.setLiveSession(sess)
 	m.overlays.wireHUD.SetVisible(true)
 
 	clean := ansi.Strip(m.View().Content)

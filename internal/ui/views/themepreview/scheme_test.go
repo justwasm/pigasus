@@ -11,7 +11,7 @@ func TestColorsFor(t *testing.T) {
 	// The prompt wears the scheme's accent and the placeholder its dim
 	// foreground.
 	p, ph := ColorsFor("Tokyo Night")
-	if p != "#7aa2f7" || ph != "#9aa5ce" {
+	if p != "#7aa2f7" || ph != "#7e86ad" {
 		t.Errorf("ColorsFor(Tokyo Night) = (%s, %s)", p, ph)
 	}
 

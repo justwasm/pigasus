@@ -285,18 +285,20 @@ if $WATCH; then
     # The release run starts a moment after the tag lands. The main-branch
     # push queued a CI run too, so filter by workflow *and* by the tag —
     # otherwise the watch lands on the wrong run.
+    RELEASE_SHA=$(git -C "$TARGET_DIR" rev-parse HEAD)
     RUN_ID=""
     for _ in $(seq 1 20); do
       RUN_ID=$(gh run list --repo "$REPO" --workflow release.yml --limit 10 \
-        --json databaseId,headBranch \
-        -q ".[] | select(.headBranch == \"${TAG}\") | .databaseId" 2>/dev/null | head -1)
+        --json databaseId,headBranch,headSha \
+        -q ".[] | select(.headBranch == \"${TAG}\" and .headSha == \"${RELEASE_SHA}\") | .databaseId" 2>/dev/null | head -1)
       [[ -n "$RUN_ID" ]] && break
       sleep 3
     done
     if [[ -n "$RUN_ID" ]]; then
-      gh run watch "$RUN_ID" --repo "$REPO"
+      gh run watch "$RUN_ID" --repo "$REPO" --exit-status
     else
-      log_warn "No release run for ${TAG} yet — check ${REPO}/actions manually."
+      log_err "No release run for ${TAG} at ${RELEASE_SHA}; inspect ${REPO}/actions."
+      exit 1
     fi
   fi
 fi

@@ -28,7 +28,6 @@ import (
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
-	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
@@ -1179,8 +1178,19 @@ func TestRemoteControl_FailsUnderADC(t *testing.T) {
 // the host's real config tree.
 func slashRemoteControlRootModel(t *testing.T) *RootModel {
 	t.Helper()
+	// Building a root model reads the colour scheme and installs it
+	// process-globally, so a test that leaves the scheme changed makes every
+	// later rendering assertion compare against the wrong palette. Restore it
+	// on cleanup so the remote-control scenarios can run in any order.
+	restorePalette(t)
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	// The /remote-control card wraps its deep link in the account chooser
+	// when an account is resolvable, and prints the bare deep link when it is
+	// not. Which one happens must not depend on whether the developer running
+	// the suite happens to be signed in, so the account registry is pointed at
+	// this test's own empty home.
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(t.TempDir(), "accounts.json"))
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	return m
 }
@@ -1313,13 +1323,21 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		// to the deep link. With no account signed in it falls back to
 		// the bare deep link, so the test asserts on the deep link
 		// either way.
+		// The card prints whatever form BrowserURL produced at handler
+		// time, which depends on whether an account happens to be
+		// resolvable. Ask the same question rather than hard-coding the
+		// chooser form, so the assertion holds either way.
 		instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
-		wantURL := rclink.BrowserURL(instanceID, "p=c%2F45fde9e1-76d5-4b87-bd23-1b2c626bbf26")
-		if !strings.Contains(joined, wantURL) {
+		wantURL := renderedBrowserURL(m, instanceID, "p=c%2F45fde9e1-76d5-4b87-bd23-1b2c626bbf26")
+		// The card hard-wraps the URL into one row per urlchunk chunk, so
+		// a raw Contains on the newline-joined transcript can only match
+		// a URL short enough to fit one row. Compare against the same
+		// wrapping the card used.
+		if !transcriptContainsURL(t, joined, wantURL, m.viewport.width) {
 			t.Errorf("expected URL %q in:\n%s", wantURL, joined)
 		}
-		if !strings.Contains(joined, "/r/"+instanceID) {
-			t.Errorf("expected the deep link to name the instance id %q in:\n%s", instanceID, joined)
+		if got := linkText(m.conversation.response); !strings.Contains(got, "/r/"+instanceID) {
+			t.Errorf("expected the deep link to name the instance id %q in %q", instanceID, got)
 		}
 		// The link gets a line of its own. It is the account chooser
 		// wrapping the deep link, so it is long enough that it is cut
@@ -1359,7 +1377,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		}
 		joined := strings.Join(clean, "\n")
 		instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
-		wantURL := rclink.BrowserURL(instanceID, "")
+		wantURL := renderedBrowserURL(m, instanceID, "")
 		wantMsg := "     Open on another device to take over:"
 		if !strings.Contains(joined, wantMsg) {
 			t.Errorf("expected %q in:\n%s", wantMsg, joined)

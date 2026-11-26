@@ -64,10 +64,6 @@ func (p *Panel) Lines(height, width int) []string {
 	if cursor < 0 || cursor >= len(rows) {
 		cursor = 0
 	}
-	p.adjustWindow(cursor, visible)
-	for i := p.window; i < p.window+visible && i < len(rows); i++ {
-		lines = append(lines, p.renderItemRow(rows[i], p.Value(rows[i]), i == cursor))
-	}
 	desc := rows[cursor].Description
 	currVal := p.rawDisplayValue(rows[cursor])
 	for _, v := range rows[cursor].Values {
@@ -79,7 +75,27 @@ func (p *Panel) Lines(height, width int) []string {
 	if IsTelemetryRow(rows[cursor]) && auth.IsBusinessAccount() {
 		desc = auth.TelemetryBusinessDescription()
 	}
-	lines = append(lines, p.descriptionLines(desc, width)...)
+	var hint string
+	if rows[cursor].Name == "Rendering Mode" {
+		hint = p.altScreenHint()
+	}
+	summary := p.summaryLines(desc, hint, width)
+	if height > 0 && visible > 3 {
+		const chromeLines = 8 // 5 header + 1 counter + 2 footer
+		if maxVisible := height - chromeLines - len(summary); maxVisible < visible {
+			if maxVisible < 3 {
+				maxVisible = 3
+			}
+			if maxVisible < visible {
+				visible = maxVisible
+			}
+		}
+	}
+	p.adjustWindow(cursor, visible)
+	for i := p.window; i < p.window+visible && i < len(rows); i++ {
+		lines = append(lines, p.renderItemRow(rows[i], p.Value(rows[i]), i == cursor))
+	}
+	lines = append(lines, summary...)
 	if visible < len(rows) {
 		lines = append(lines,
 			palette.DimGrayOpen+fmt.Sprintf("  [%d-%d of %d items]",
@@ -134,6 +150,13 @@ func (p *Panel) submenuLines(rows []Row, height, width int) []string {
 	lines = append(lines, "")
 	for _, wrapped := range WrapText(desc, width) {
 		lines = append(lines, "  "+palette.SubtleOpen+wrapped+"\x1b[39m")
+	}
+	if row.Name == "Rendering Mode" {
+		if hint := p.altScreenHint(); hint != "" {
+			for _, wrapped := range WrapText(hint, width) {
+				lines = append(lines, "  "+palette.WarningOpen+wrapped+palette.WarningClose)
+			}
+		}
 	}
 	lines = append(lines, "", "", tuilib.PanelKeyboardHint("↑/↓", "Navigate", "enter", "Save", "esc", "Cancel"))
 	return lines
@@ -200,9 +223,21 @@ func (p *Panel) renderItemRow(row Row, value string, isCursor bool) string {
 // descriptionLines renders the selected row's help text, wrapped to the
 // terminal's width.
 func (p *Panel) descriptionLines(desc string, width int) []string {
+	return p.summaryLines(desc, "", width)
+}
+
+// summaryLines renders the selected row's help text in dim style and any
+// optional warning hint as a separate warning-styled block, wrapped to the
+// terminal's width without truncating multi-line descriptions.
+func (p *Panel) summaryLines(desc, hint string, width int) []string {
 	lines := []string{""}
 	for _, wrapped := range WrapText(desc, width) {
 		lines = append(lines, "  "+palette.SubtleOpen+wrapped+"\x1b[39m")
+	}
+	if hint != "" {
+		for _, wrapped := range WrapText(hint, width) {
+			lines = append(lines, "  "+palette.WarningOpen+wrapped+palette.WarningClose)
+		}
 	}
 	return append(lines, "")
 }

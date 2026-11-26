@@ -16,6 +16,7 @@ import (
 	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/geminicode"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
+	"github.com/justwasm/pigasus/internal/infra/livevoice"
 )
 
 type ChatRequest struct {
@@ -133,8 +134,8 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 	}
 	sandboxEndpoint := strings.TrimSpace(endpoints.Current().CloudCodeSandbox)
 
-	router := getAggregateRouter()
-	policy := effectiveAggregatePolicy()
+	router := livevoice.SharedRouter()
+	policy := livevoice.EffectivePolicy()
 	maxAttempts := policy.MaxAttempts
 	if maxAttempts < 3 {
 		maxAttempts = 3
@@ -148,7 +149,7 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 	var lastErr error
 	var lastToken string
 	var lastEmail string
-	var lastKind aggregateFailureKind
+	var lastKind livevoice.FailureKind
 	var lastReason string
 	triedExplicit := false
 	failedTokens := make(map[string]bool)
@@ -163,8 +164,8 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 			if routeErr == nil && strings.TrimSpace(res.AccessToken) != "" {
 				candTok := strings.TrimSpace(res.AccessToken)
 				candEmail := strings.TrimSpace(res.Email)
-				if failedTokens[candTok] && candEmail != "" && lastKind != aggFailureNone {
-					applyAggregateFailure(router, candEmail, family, lastKind, lastReason)
+				if failedTokens[candTok] && candEmail != "" && lastKind != livevoice.FailureNone {
+					livevoice.ApplyFailure(router, candEmail, family, lastKind, lastReason)
 					if res2, err2 := router.RouteTurn(ctx, family); err2 == nil && strings.TrimSpace(res2.AccessToken) != "" {
 						candTok = strings.TrimSpace(res2.AccessToken)
 						candEmail = strings.TrimSpace(res2.Email)
@@ -193,7 +194,7 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 		if reqErr != nil {
 			lastErr = fmt.Errorf("cloudcode request failed: %w", reqErr)
 			if attempt+1 < maxAttempts {
-				if waitErr := waitAggregateBackoff(ctx, attempt, ""); waitErr != nil {
+				if waitErr := livevoice.WaitBackoff(ctx, attempt, ""); waitErr != nil {
 					return waitErr
 				}
 				continue
@@ -207,17 +208,17 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 			resp.Body.Close()
 
 			lastErr = fmt.Errorf("cloudcode error HTTP %d: %s", resp.StatusCode, string(raw))
-			kind, reason := classifyAggregateFailure(resp.StatusCode, raw)
-			if kind != aggFailureNone {
+			kind, reason := livevoice.ClassifyHTTPFailure(resp.StatusCode, raw)
+			if kind != livevoice.FailureNone {
 				lastKind = kind
 				lastReason = reason
 				failedTokens[token] = true
-				applyAggregateFailure(router, email, family, kind, reason)
+				livevoice.ApplyFailure(router, email, family, kind, reason)
 				if attempt+1 < maxAttempts {
 					log.Printf("[livechat-web] aggregate failover (%s, HTTP %d, account=%q, attempt %d/%d): %s",
 						reason, resp.StatusCode, email, attempt+1, maxAttempts, model)
-					if kind == aggFailureCapacityOrQuota {
-						if waitErr := waitAggregateBackoff(ctx, attempt, retryAfter); waitErr != nil {
+					if kind == livevoice.FailureCapacityOrQuota {
+						if waitErr := livevoice.WaitBackoff(ctx, attempt, retryAfter); waitErr != nil {
 							return waitErr
 						}
 					}
@@ -225,27 +226,27 @@ func handleAggregateChat(ctx context.Context, w http.ResponseWriter, req *ChatRe
 				}
 			}
 			// Non-account error (e.g. 400 Bad Request) or final attempt
-			if kind == aggFailureNone {
+			if kind == livevoice.FailureNone {
 				return lastErr
 			}
 			break
 		}
 
 		canRetry := attempt+1 < maxAttempts
-		retryKind, retryReason, streamErr := streamCloudCodeSSEResponseWithFailover(w, resp.Body, canRetry, func(kind aggregateFailureKind, reason string) {
-			applyAggregateFailure(router, email, family, kind, reason)
+		retryKind, retryReason, streamErr := streamCloudCodeSSEResponseWithFailover(w, resp.Body, canRetry, func(kind livevoice.FailureKind, reason string) {
+			livevoice.ApplyFailure(router, email, family, kind, reason)
 		})
 		resp.Body.Close()
-		if retryKind != aggFailureNone && canRetry {
+		if retryKind != livevoice.FailureNone && canRetry {
 			lastErr = streamErr
 			lastKind = retryKind
 			lastReason = retryReason
 			failedTokens[token] = true
-			applyAggregateFailure(router, email, family, retryKind, retryReason)
+			livevoice.ApplyFailure(router, email, family, retryKind, retryReason)
 			log.Printf("[livechat-web] aggregate stream failover (%s, account=%q, attempt %d/%d): %s",
 				retryReason, email, attempt+1, maxAttempts, model)
-			if retryKind == aggFailureCapacityOrQuota {
-				if waitErr := waitAggregateBackoff(ctx, attempt, ""); waitErr != nil {
+			if retryKind == livevoice.FailureCapacityOrQuota {
+				if waitErr := livevoice.WaitBackoff(ctx, attempt, ""); waitErr != nil {
 					return waitErr
 				}
 			}
@@ -437,8 +438,8 @@ func streamCloudCodeSSEResponseWithFailover(
 	w http.ResponseWriter,
 	r io.Reader,
 	canRetry bool,
-	onMidStreamErr func(kind aggregateFailureKind, reason string),
-) (aggregateFailureKind, string, error) {
+	onMidStreamErr func(kind livevoice.FailureKind, reason string),
+) (livevoice.FailureKind, string, error) {
 	br := bufio.NewReader(r)
 	var firstLines []string
 	var firstData strings.Builder
@@ -470,7 +471,7 @@ func streamCloudCodeSSEResponseWithFailover(
 		if err != nil {
 			if err != io.EOF {
 				if canRetry && !hasEventData {
-					return aggFailureCapacityOrQuota, "stream read error", err
+					return livevoice.FailureCapacityOrQuota, "stream read error", err
 				}
 			}
 			break
@@ -479,8 +480,8 @@ func streamCloudCodeSSEResponseWithFailover(
 
 	if firstData.Len() > 0 {
 		if sErr := geminicode.ParseFrameError(firstData.String()); sErr != nil {
-			kind, reason := classifyAggregateStreamError(sErr)
-			if kind != aggFailureNone {
+			kind, reason := livevoice.ClassifyStreamError(sErr)
+			if kind != livevoice.FailureNone {
 				if canRetry {
 					return kind, reason, fmt.Errorf("cloudcode stream error %d (%s): %s", sErr.Code, sErr.Status, sErr.Message)
 				}
@@ -524,7 +525,7 @@ func streamCloudCodeSSEResponseWithFailover(
 		if line == "" {
 			if midData.Len() > 0 {
 				if sErr := geminicode.ParseFrameError(midData.String()); sErr != nil && onMidStreamErr != nil {
-					if kind, reason := classifyAggregateStreamError(sErr); kind != aggFailureNone {
+					if kind, reason := livevoice.ClassifyStreamError(sErr); kind != livevoice.FailureNone {
 						onMidStreamErr(kind, reason)
 					}
 				}
@@ -546,7 +547,7 @@ func streamCloudCodeSSEResponseWithFailover(
 	if flusher != nil {
 		flusher.Flush()
 	}
-	return aggFailureNone, "", scanner.Err()
+	return livevoice.FailureNone, "", scanner.Err()
 }
 
 func streamGeminiSSEResponse(w http.ResponseWriter, r io.Reader) error {

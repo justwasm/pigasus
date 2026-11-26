@@ -82,7 +82,7 @@ func TestPasteWithNothingDeliveredProbesTheClipboard(t *testing.T) {
 // TestPasteMediaMsgAttachesTheImage covers the probe's answer.
 func TestPasteMediaMsgAttachesTheImage(t *testing.T) {
 	m := pasteRootModel(t)
-	mod, _ := m.updatePasteMedia(pasteMediaMsg{media: clipboard.Media{
+	mod, _ := m.updatePasteMedia(pasteMediaMsg{Media: clipboard.Media{
 		Data:     pastePNG(t),
 		Format:   1,
 		Filename: "pasted-image-1.png",
@@ -104,7 +104,7 @@ func TestPasteMediaMsgAttachesTheImage(t *testing.T) {
 // clipboard` when there is nothing to attach".
 func TestPasteMediaMsgSaysTheReferencesSentence(t *testing.T) {
 	m := pasteRootModel(t)
-	mod, _ := m.updatePasteMedia(pasteMediaMsg{err: clipboard.ErrNoMedia})
+	mod, _ := m.updatePasteMedia(pasteMediaMsg{Err: clipboard.ErrNoMedia})
 	rm := mod.(*RootModel)
 	want := "No image or video found in the clipboard"
 	if rm.viewport.inputNotice != want {
@@ -116,7 +116,7 @@ func TestPasteMediaMsgSaysTheReferencesSentence(t *testing.T) {
 // sentence: a missing clipboard tool is named.
 func TestPasteMediaMsgNamesTheMissingTool(t *testing.T) {
 	m := pasteRootModel(t)
-	mod, _ := m.updatePasteMedia(pasteMediaMsg{err: &clipboard.ToolMissingError{
+	mod, _ := m.updatePasteMedia(pasteMediaMsg{Err: &clipboard.ToolMissingError{
 		Tool:    "wl-paste",
 		Package: "wl-clipboard",
 	}})
@@ -133,7 +133,7 @@ func TestPasteMediaMsgNamesTheMissingTool(t *testing.T) {
 // the model as an image part of the user message.
 func TestAttachedImageRidesWithTheUserTurn(t *testing.T) {
 	m := pasteRootModel(t)
-	m.attachMedia(clipboard.Media{Data: pastePNG(t), Format: 1, Filename: "pasted-image-1.png"})
+	pasteMediaAttachPort{m: m}.AddMedia(clipboard.Media{Data: pastePNG(t), Format: 1, Filename: "pasted-image-1.png"})
 	m.appendUserTurn("what is this?")
 	if len(m.SessionMessages()) != 1 {
 		t.Fatalf("session = %d messages, want 1", len(m.SessionMessages()))
@@ -164,9 +164,9 @@ func TestClipboardReadMediaSeamIsReplaceable(t *testing.T) {
 		return clipboard.Media{}, errors.New("boom")
 	}
 	m := pasteRootModel(t)
-	cmd := m.probeClipboardMedia()
+	cmd := m.pasteMediaModel().ProbeClipboardMedia()
 	if cmd == nil {
-		t.Fatalf("probeClipboardMedia = nil")
+		t.Fatalf("ProbeClipboardMedia = nil")
 	}
 	msg := cmd()
 	_, ok := msg.(pasteMediaMsg)
@@ -209,7 +209,7 @@ func TestPasteMultipleImagesViaDragAndDrop(t *testing.T) {
 // TestCtrlOTogglesMediaExpanded verifies ctrl+o key toggling.
 func TestCtrlOTogglesMediaExpanded(t *testing.T) {
 	m := pasteRootModel(t)
-	m.attachMedia(clipboard.Media{Filename: "shot.png", Format: 1, Data: pastePNG(t)})
+	pasteMediaAttachPort{m: m}.AddMedia(clipboard.Media{Filename: "shot.png", Format: 1, Data: pastePNG(t)})
 
 	if m.prompt.mediaExpanded {
 		t.Fatalf("initially expanded = true, want false")
@@ -231,8 +231,8 @@ func TestCtrlOTogglesMediaExpanded(t *testing.T) {
 // TestBackspaceRemovesLastPendingMediaWhenInputEmpty covers backspace deleting attachments.
 func TestBackspaceRemovesLastPendingMediaWhenInputEmpty(t *testing.T) {
 	m := pasteRootModel(t)
-	m.attachMedia(clipboard.Media{Filename: "1.png", Format: 1, Data: pastePNG(t)})
-	m.attachMedia(clipboard.Media{Filename: "2.png", Format: 1, Data: pastePNG(t)})
+	pasteMediaAttachPort{m: m}.AddMedia(clipboard.Media{Filename: "1.png", Format: 1, Data: pastePNG(t)})
+	pasteMediaAttachPort{m: m}.AddMedia(clipboard.Media{Filename: "2.png", Format: 1, Data: pastePNG(t)})
 
 	if len(m.prompt.pendingMedia) != 2 {
 		t.Fatalf("pendingMedia = %d, want 2", len(m.prompt.pendingMedia))

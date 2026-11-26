@@ -135,29 +135,23 @@ func runServer(j *cli.JetskiCLI, args cli.ServerArgs) error {
 // the next start-up). The clone re-reads it instead — the superset the
 // /accounts panel promises.
 
-// syncAccountIdentity re-reads the shared credential and updates the
-// session's account identity when it changed outside the TUI.
+// syncAccountIdentity brings the session's account identity in step with the
+// shared credential.
+//
+// It never blocks on the credential: the answer is the cached read, and a
+// read that has aged out is refreshed by a command (refreshCredentialCmd)
+// whose result is applied by applyCredentialRead. That split is what keeps
+// the credential read — a keychain syscall on macOS — off the Update
+// goroutine, on the path the user's Enter key drives.
 //
 // It returns a command that refreshes the plan tier when the account
-// changed, and nil when nothing changed. The credential read is the
-// same one auth.LoadTokenUnified does — the login keychain first, the
-// on-disk copies after it.
+// changed, and nil when nothing changed.
 func (m *RootModel) syncAccountIdentity() tea.Cmd {
-	_, email := accounts.Current()
+	_, email := m.credentialState()
 	if email == "" || email == m.session.email {
 		return nil
 	}
-	m.session.email = email
-	// The session's tier belonged to the previous account.
-	m.forgetSessionTier()
-	// The transport caches the keychain token it read, so it has to be
-	// rebuilt for the session to talk as the new account.
-	if m.turn.backendFor != nil {
-		if b := m.turn.backendFor(m.session.model); b != nil {
-			m.turn.backend = b
-		}
-	}
-	return m.fetchPlanTierCmd()
+	return m.adoptCredentialAccount(email)
 }
 
 // ---- merged from account_quota.go ----

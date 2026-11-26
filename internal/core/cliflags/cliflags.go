@@ -237,3 +237,20 @@ func ResolveBoolAliasGetter(fs *flag.FlagSet, canonical, alias string) bool {
 	}
 	return false
 }
+
+// ResolveStringAlias reads the first non-empty string flag value among names
+// (e.g. "conversation", "resume", "r").
+func ResolveStringAlias(fs *flag.FlagSet, names ...string) string {
+	if fs == nil {
+		return ""
+	}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if v := StringValue(fs, name); v != "" {
+			return v
+		}
+	}
+	return ""
+}

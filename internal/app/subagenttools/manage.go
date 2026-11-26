@@ -70,7 +70,8 @@ func (t *manageSubagentsTool) Definition() actor.ToolDefinition {
 //
 // 【反编译】 agy 1.4.8 — the jsonschema_description tag on the CLI-side
 // field reads this sentence verbatim (file offset 0x9404b5a).
-const manageSubagentsActionDescription = "'kill' terminates the subagents named in ConversationIds; " +
+const manageSubagentsActionDescription = "'list' lists active direct subagents; " +
+	"'kill' terminates the subagents named in ConversationIds; " +
 	"'kill_all' terminates all."
 
 const manageSubagentsDescription = "Manage the direct subagents of this conversation. " +

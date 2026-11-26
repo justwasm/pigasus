@@ -1,4 +1,4 @@
-// Package remotecontrol — ls_files.go: the language server's file
+// Package files — ls_wire.go: the language server's file
 // answers, in the shape the schema declares.
 //
 // The four file methods of exa.language_server_pb.LanguageServerService
@@ -36,7 +36,7 @@
 //
 // The `language` enum the reference answers with is measured, not
 // guessed: see lsLanguageNames below.
-package remotecontrol
+package files
 
 import (
 	"encoding/base64"
@@ -70,10 +70,10 @@ func lsFileTypeName(fi os.FileInfo) string {
 	return fileTypeFile
 }
 
-// lsNormalizedURI returns the `file://` URI of a path, in the shape the
+// NormalizedURI returns the `file://` URI of a path, in the shape the
 // reference answers with: the absolute path, slashed, and percent-free
 // for the characters the reference leaves alone.
-func lsNormalizedURI(path string) string {
+func NormalizedURI(path string) string {
 	return "file://" + filepath.ToSlash(path)
 }
 

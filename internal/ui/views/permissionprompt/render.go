@@ -9,323 +9,381 @@ import (
 )
 
 const (
-	// DefaultBoxWidth is the standard width for the permission approval dialog box.
-	DefaultBoxWidth = 62
-	// MinBoxWidth is the minimum width required to display options on a single row.
-	MinBoxWidth = 62
+	// DefaultBoxWidth is the standard width for the permission confirmation area.
+	DefaultBoxWidth = 80
+	// MinBoxWidth is the minimum width required to render the confirmation prompt cleanly.
+	MinBoxWidth = 50
 )
 
-// RenderPlain produces the unstyled ASCII / Unicode box representation.
+// RenderPlain produces the unstyled ASCII / Unicode text representation.
 func (m *Model) RenderPlain(width int) string {
 	return strings.Join(m.RenderPlainLines(width), "\n")
 }
 
-// RenderPlainLines returns the box rendered row by row without ANSI escape codes.
+// RenderPlainLines returns the prompt rendered row by row without ANSI escape codes.
 func (m *Model) RenderPlainLines(width int) []string {
-	if width < MinBoxWidth {
-		width = MinBoxWidth
-	}
-	innerWidth := width - 4 // inner text width between "│ " and " │"
-
-	var lines []string
-
-	// Top border: ┌─ <Title> ───...──┐
-	title := m.req.TitleStr()
-	titleLen := ansi.StringWidth(title)
-	dashes := width - (titleLen + 5)
-	if dashes < 1 {
-		dashes = 1
-	}
-	top := fmt.Sprintf("┌─ %s %s┐", title, strings.Repeat("─", dashes))
-	lines = append(lines, top)
-
-	// Body content lines
-	contentRows := m.plainBodyRows(innerWidth)
-	for _, row := range contentRows {
-		visLen := ansi.StringWidth(row)
-		pad := innerWidth - visLen
-		if pad < 0 {
-			pad = 0
-		}
-		lines = append(lines, fmt.Sprintf("│ %s%s │", row, strings.Repeat(" ", pad)))
-	}
-
-	// Bottom border: └──────...─────┘
-	bottom := fmt.Sprintf("└%s┘", strings.Repeat("─", width-2))
-	lines = append(lines, bottom)
-
-	return lines
+	return m.renderLines(width, false)
 }
 
-func (m *Model) plainBodyRows(innerWidth int) []string {
-	var rows []string
-
-	if m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate {
-		if path := m.req.PathStr(); path != "" {
-			rows = append(rows, fmt.Sprintf("File: %s", truncateText(path, innerWidth-6)))
-		}
-		if m.req.OutsideWS {
-			rows = append(rows, "Reason: outside workspace")
-		} else if desc := m.req.Description; desc != "" {
-			rows = append(rows, fmt.Sprintf("Reason: %s", truncateText(desc, innerWidth-8)))
-		}
-		if q := m.req.PromptQuestionStr(); q != "" {
-			rows = append(rows, q)
-		}
-		if m.feedbackMode {
-			rows = append(rows, "Feedback (Esc to cancel, Enter to submit):")
-			rows = append(rows, fmt.Sprintf("> %s█", m.feedbackText))
-		} else {
-			rows = append(rows, plainFileOptionsBar(m.req, m.selectedOption))
-		}
-		return rows
-	}
-
-	// Tool name row
-	rows = append(rows, fmt.Sprintf("Tool: %s", m.req.Tool))
-
-	// Command row (if present)
-	if cmd := m.req.CommandStr(); cmd != "" {
-		rows = append(rows, fmt.Sprintf("Command: %s", truncateText(cmd, innerWidth-9)))
-	}
-
-	// Path row (if present)
-	if path := m.req.PathStr(); path != "" {
-		rows = append(rows, fmt.Sprintf("Path: %s", truncateText(path, innerWidth-6)))
-	}
-
-	// Description row (if present)
-	if desc := m.req.Description; desc != "" {
-		rows = append(rows, fmt.Sprintf("Reason: %s", truncateText(desc, innerWidth-8)))
-	}
-
-	// Action options or feedback input row
-	if m.feedbackMode {
-		rows = append(rows, "Feedback (Esc to cancel, Enter to submit):")
-		rows = append(rows, fmt.Sprintf("> %s█", m.feedbackText))
-	} else {
-		rows = append(rows, plainOptionsBar(m.selectedOption))
-	}
-
-	return rows
-}
-
-func plainFileOptionsBar(req Request, selected Option) string {
-	var parts []string
-	if req.Kind == KindFileCreate {
-		parts = append(parts, "[1] Yes, allow creation")
-		if req.OutsideWS {
-			parts = append(parts, "[a] Yes, and always allow non-workspace access")
-		}
-		parts = append(parts, "[2] No, deny creation")
-	} else {
-		parts = append(parts, "[1] Yes, accept this change")
-		if req.OutsideWS {
-			parts = append(parts, "[a] Yes, and always allow non-workspace access")
-		}
-		parts = append(parts, "[2] No, reject this change")
-	}
-	parts = append(parts, "[f] Full diff", "[Tab] Feedback")
-	return strings.Join(parts, "  ")
-}
-
-func plainOptionsBar(selected Option) string {
-	// Standard: [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback
-	parts := []string{
-		"[y] Approve once",
-		"[a] Always allow",
-		"[n] Deny",
-		"[d] Feedback",
-	}
-	return strings.Join(parts, "  ")
-}
-
-// Render produces the ANSI true-color styled box representation.
+// Render produces the ANSI true-color styled representation.
 func (m *Model) Render(width int) string {
 	return strings.Join(m.Lines(width), "\n")
 }
 
 // Lines returns the ANSI styled rows for terminal display.
 func (m *Model) Lines(width int) []string {
+	return m.renderLines(width, true)
+}
+
+func (m *Model) renderLines(width int, styled bool) []string {
 	if width < MinBoxWidth {
 		width = MinBoxWidth
 	}
-	innerWidth := width - 4
 
 	var lines []string
 
-	// Top border with colored title and dim border
+	// 1. Title line
 	title := m.req.TitleStr()
-	titleLen := ansi.StringWidth(title)
-	dashes := width - (titleLen + 5)
-	if dashes < 1 {
-		dashes = 1
+	if styled {
+		lines = append(lines, palette.BoldOpen+title+palette.SeparatorClose)
+	} else {
+		lines = append(lines, title)
 	}
 
-	top := fmt.Sprintf("%s┌─ %s%s%s%s %s%s┐%s",
-		palette.DimGrayOpen,
-		palette.WarningOpen, title, palette.SeparatorClose,
-		palette.DimGrayOpen,
-		strings.Repeat("─", dashes),
-		palette.DimGrayOpen,
-		palette.SeparatorClose,
-	)
-	lines = append(lines, top)
+	// 2. Divider line: full width rule
+	rule := strings.Repeat("─", width)
+	if styled {
+		lines = append(lines, palette.DimGrayOpen+rule+palette.SeparatorClose)
+	} else {
+		lines = append(lines, rule)
+	}
 
-	// Body content
-	bodyRows := m.styledBodyRows(innerWidth)
-	for _, row := range bodyRows {
-		visLen := ansi.StringWidth(row)
-		pad := innerWidth - visLen
-		if pad < 0 {
-			pad = 0
+	// 3. Blank line
+	lines = append(lines, "")
+
+	// 4. Details / Diff / Target
+	if m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate {
+		diff := extractDiffPreview(m.req, width, m.expandedView)
+		pathText := diff.Path
+		if pathText == "" {
+			pathText = m.req.PathStr()
 		}
-		lines = append(lines, fmt.Sprintf("%s│%s %s%s %s│%s",
-			palette.DimGrayOpen, palette.SeparatorClose,
-			row, strings.Repeat(" ", pad),
-			palette.DimGrayOpen, palette.SeparatorClose,
-		))
+
+		var statParts []string
+		if diff.Additions > 0 {
+			if styled {
+				statParts = append(statParts, fmt.Sprintf("%s+%d%s", palette.ToolAddOpen, diff.Additions, palette.SeparatorClose))
+			} else {
+				statParts = append(statParts, fmt.Sprintf("+%d", diff.Additions))
+			}
+		}
+		if diff.Deletions > 0 {
+			if styled {
+				statParts = append(statParts, fmt.Sprintf("%s-%d%s", palette.ToolRemoveOpen, diff.Deletions, palette.SeparatorClose))
+			} else {
+				statParts = append(statParts, fmt.Sprintf("-%d", diff.Deletions))
+			}
+		}
+
+		pathLine := pathText
+		if len(statParts) > 0 {
+			pathLine += "  " + strings.Join(statParts, " ")
+		}
+		if styled {
+			lines = append(lines, palette.BoldOpen+pathText+palette.SeparatorClose+"  "+strings.Join(statParts, " "))
+		} else {
+			lines = append(lines, pathLine)
+		}
+
+		// Diff lines
+		for _, dl := range diff.Lines {
+			linePrefix := fmt.Sprintf("  %d  %c  ", dl.Num, dl.Type)
+			fullText := linePrefix + dl.Text
+			if styled {
+				if dl.Type == '-' {
+					lines = append(lines, palette.ToolRemoveOpen+fullText+palette.SeparatorClose)
+				} else if dl.Type == '+' {
+					lines = append(lines, palette.ToolAddOpen+fullText+palette.SeparatorClose)
+				} else {
+					lines = append(lines, fullText)
+				}
+			} else {
+				lines = append(lines, fullText)
+			}
+		}
+
+		if m.req.OutsideWS {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sReason:%s %soutside workspace%s",
+					palette.DimGrayOpen, palette.SeparatorClose,
+					palette.WarningOpen, palette.SeparatorClose))
+			} else {
+				lines = append(lines, "  Reason: outside workspace")
+			}
+		} else if desc := m.req.Description; desc != "" {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sReason:%s %s",
+					palette.DimGrayOpen, palette.SeparatorClose, desc))
+			} else {
+				lines = append(lines, "  Reason: "+desc)
+			}
+		}
+
+		if m.req.Kind == KindFileEdit {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sshift+tab to auto-approve file edits%s",
+					palette.DimGrayOpen, palette.SeparatorClose))
+			} else {
+				lines = append(lines, "  shift+tab to auto-approve file edits")
+			}
+		}
+	} else {
+		// Command / Tool
+		if styled {
+			lines = append(lines, fmt.Sprintf("%sRequesting permission for:%s", palette.DimGrayOpen, palette.SeparatorClose))
+		} else {
+			lines = append(lines, "Requesting permission for:")
+		}
+
+		cmd := m.req.CommandStr()
+		if cmd != "" {
+			if styled {
+				lines = append(lines, fmt.Sprintf("   %s%s%s", palette.BoldOpen, cmd, palette.SeparatorClose))
+			} else {
+				lines = append(lines, "   "+cmd)
+			}
+		} else if m.req.Tool != "" {
+			if styled {
+				lines = append(lines, fmt.Sprintf("   %sTool:%s %s", palette.DimGrayOpen, palette.SeparatorClose, m.req.Tool))
+			} else {
+				lines = append(lines, "   Tool: "+m.req.Tool)
+			}
+		}
+
+		if m.req.PathStr() != "" {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sPath:%s %s",
+					palette.DimGrayOpen, palette.SeparatorClose, m.req.PathStr()))
+			} else {
+				lines = append(lines, "  Path: "+m.req.PathStr())
+			}
+		}
+
+		if m.req.OutsideWS {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sReason:%s %soutside workspace%s",
+					palette.DimGrayOpen, palette.SeparatorClose,
+					palette.WarningOpen, palette.SeparatorClose))
+			} else {
+				lines = append(lines, "  Reason: outside workspace")
+			}
+		} else if desc := m.req.Description; desc != "" {
+			if styled {
+				lines = append(lines, fmt.Sprintf("  %sReason:%s %s",
+					palette.DimGrayOpen, palette.SeparatorClose, desc))
+			} else {
+				lines = append(lines, "  Reason: "+desc)
+			}
+		}
 	}
 
-	// Bottom border
-	bottom := fmt.Sprintf("%s└%s┘%s",
-		palette.DimGrayOpen,
-		strings.Repeat("─", width-2),
-		palette.SeparatorClose,
-	)
-	lines = append(lines, bottom)
+	// 5. Blank line
+	lines = append(lines, "")
+
+	// 6. Question line
+	q := m.req.PromptQuestionStr()
+	if q != "" {
+		if styled {
+			lines = append(lines, palette.BoldOpen+q+palette.SeparatorClose)
+		} else {
+			lines = append(lines, q)
+		}
+	}
+
+	// 7. Choices / Feedback / Amend
+	if m.amendMode {
+		promptHint := "Amend command (Esc to cancel, Enter to submit):"
+		if styled {
+			lines = append(lines, palette.WarningOpen+promptHint+palette.SeparatorClose)
+			lines = append(lines, fmt.Sprintf("%s>%s %s%s█%s",
+				palette.BlueOpen, palette.SeparatorClose,
+				m.amendText,
+				palette.DimGrayOpen, palette.SeparatorClose))
+		} else {
+			lines = append(lines, promptHint)
+			lines = append(lines, fmt.Sprintf("> %s█", m.amendText))
+		}
+	} else if m.feedbackMode {
+		promptHint := "Feedback (Esc to cancel, Enter to submit):"
+		if styled {
+			lines = append(lines, palette.WarningOpen+promptHint+palette.SeparatorClose)
+			lines = append(lines, fmt.Sprintf("%s>%s %s%s█%s",
+				palette.BlueOpen, palette.SeparatorClose,
+				m.feedbackText,
+				palette.DimGrayOpen, palette.SeparatorClose))
+		} else {
+			lines = append(lines, promptHint)
+			lines = append(lines, fmt.Sprintf("> %s█", m.feedbackText))
+		}
+	} else {
+		choices := m.Choices()
+		for i, c := range choices {
+			if i == m.selectedIndex {
+				if styled {
+					lines = append(lines, fmt.Sprintf("%s> %d. %s%s",
+						palette.BlueBoldOpen, c.Number, c.Title, palette.SeparatorClose))
+				} else {
+					lines = append(lines, fmt.Sprintf("> %d. %s", c.Number, c.Title))
+				}
+			} else {
+				if styled {
+					lines = append(lines, fmt.Sprintf("  %s%d. %s%s",
+						palette.DimGrayOpen, c.Number, c.Title, palette.SeparatorClose))
+				} else {
+					lines = append(lines, fmt.Sprintf("  %d. %s", c.Number, c.Title))
+				}
+			}
+		}
+	}
+
+	// 8. Blank line
+	lines = append(lines, "")
+
+	// 9. Hints line
+	hint := "  ↑/↓ Navigate"
+	if m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate {
+		hint = "  ↑/↓ Navigate · f full diff"
+	} else if m.req.CommandStr() != "" || m.req.Tool == "run_command" || m.req.Tool == "run_shell_command" {
+		hint = "  ↑/↓ Navigate · tab Amend · ctrl+g edit/expand command"
+	}
+
+	if styled {
+		lines = append(lines, palette.DimGrayOpen+hint+palette.SeparatorClose)
+	} else {
+		lines = append(lines, hint)
+	}
 
 	return lines
 }
 
-func (m *Model) styledBodyRows(innerWidth int) []string {
-	var rows []string
-
-	if m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate {
-		if path := m.req.PathStr(); path != "" {
-			rows = append(rows, fmt.Sprintf("%sFile:%s %s",
-				palette.DimGrayOpen, palette.SeparatorClose,
-				truncateText(path, innerWidth-6)))
-		}
-		if m.req.OutsideWS {
-			rows = append(rows, fmt.Sprintf("%sReason:%s %soutside workspace%s",
-				palette.DimGrayOpen, palette.SeparatorClose,
-				palette.WarningOpen, palette.SeparatorClose))
-		} else if desc := m.req.Description; desc != "" {
-			rows = append(rows, fmt.Sprintf("%sReason:%s %s",
-				palette.DimGrayOpen, palette.SeparatorClose,
-				truncateText(desc, innerWidth-8)))
-		}
-		if q := m.req.PromptQuestionStr(); q != "" {
-			rows = append(rows, fmt.Sprintf("%s%s%s", palette.BlueBoldOpen, q, palette.SeparatorClose))
-		}
-		if m.feedbackMode {
-			rows = append(rows, fmt.Sprintf("%sFeedback (Esc to cancel, Enter to submit):%s",
-				palette.WarningOpen, palette.SeparatorClose))
-			rows = append(rows, fmt.Sprintf("%s>%s %s%s█%s",
-				palette.WarningBlueOpen, palette.SeparatorClose,
-				m.feedbackText,
-				palette.DimGrayOpen, palette.SeparatorClose))
-		} else {
-			rows = append(rows, styledFileOptionsBar(m.req, m.selectedOption))
-		}
-		return rows
-	}
-
-	// Tool name
-	rows = append(rows, fmt.Sprintf("%sTool:%s %s%s%s",
-		palette.DimGrayOpen, palette.SeparatorClose,
-		palette.BlueBoldOpen, m.req.Tool, palette.SeparatorClose))
-
-	// Command
-	if cmd := m.req.CommandStr(); cmd != "" {
-		rows = append(rows, fmt.Sprintf("%sCommand:%s %s",
-			palette.DimGrayOpen, palette.SeparatorClose,
-			truncateText(cmd, innerWidth-9)))
-	}
-
-	// Path
-	if path := m.req.PathStr(); path != "" {
-		rows = append(rows, fmt.Sprintf("%sPath:%s %s",
-			palette.DimGrayOpen, palette.SeparatorClose,
-			truncateText(path, innerWidth-6)))
-	}
-
-	// Reason / Description
-	if desc := m.req.Description; desc != "" {
-		rows = append(rows, fmt.Sprintf("%sReason:%s %s",
-			palette.DimGrayOpen, palette.SeparatorClose,
-			truncateText(desc, innerWidth-8)))
-	}
-
-	// Action row
-	if m.feedbackMode {
-		rows = append(rows, fmt.Sprintf("%sFeedback (Esc to cancel, Enter to submit):%s",
-			palette.WarningOpen, palette.SeparatorClose))
-		rows = append(rows, fmt.Sprintf("%s>%s %s%s█%s",
-			palette.WarningBlueOpen, palette.SeparatorClose,
-			m.feedbackText,
-			palette.DimGrayOpen, palette.SeparatorClose))
-	} else {
-		rows = append(rows, styledOptionsBar(m.selectedOption))
-	}
-
-	return rows
+type diffPreview struct {
+	Path      string
+	Additions int
+	Deletions int
+	Lines     []diffLine
 }
 
-func styledOptionsBar(selected Option) string {
-	renderBtn := func(key string, label string, opt Option) string {
-		if selected == opt {
-			return fmt.Sprintf("%s[%s]%s %s%s%s",
-				palette.WarningBlueOpen, key, palette.SeparatorClose,
-				palette.BlueBoldOpen, label, palette.SeparatorClose)
-		}
-		return fmt.Sprintf("%s[%s]%s %s",
-			palette.BlueBoldOpen, key, palette.SeparatorClose,
-			label)
-	}
-
-	b1 := renderBtn("y", "Approve once", OptionApproveOnce)
-	b2 := renderBtn("a", "Always allow", OptionAlwaysAllow)
-	b3 := renderBtn("n", "Deny", OptionDeny)
-	b4 := renderBtn("d", "Feedback", OptionFeedback)
-
-	return fmt.Sprintf("%s  %s  %s  %s", b1, b2, b3, b4)
+type diffLine struct {
+	Num  int
+	Type rune // '-' or '+'
+	Text string
 }
 
-func styledFileOptionsBar(req Request, selected Option) string {
-	renderBtn := func(key string, label string, opt Option) string {
-		if selected == opt {
-			return fmt.Sprintf("%s[%s]%s %s%s%s",
-				palette.WarningBlueOpen, key, palette.SeparatorClose,
-				palette.BlueBoldOpen, label, palette.SeparatorClose)
-		}
-		return fmt.Sprintf("%s[%s]%s %s",
-			palette.BlueBoldOpen, key, palette.SeparatorClose,
-			label)
+func extractDiffPreview(req Request, maxW int, expanded bool) diffPreview {
+	dp := diffPreview{
+		Path: req.PathStr(),
 	}
 
-	var parts []string
-	if req.Kind == KindFileCreate {
-		parts = append(parts, renderBtn("1", "Yes, allow creation", OptionApproveOnce))
-		if req.OutsideWS {
-			parts = append(parts, renderBtn("a", "Yes, and always allow non-workspace access", OptionAlwaysAllow))
-		}
-		parts = append(parts, renderBtn("2", "No, deny creation", OptionDeny))
-	} else {
-		parts = append(parts, renderBtn("1", "Yes, accept this change", OptionApproveOnce))
-		if req.OutsideWS {
-			parts = append(parts, renderBtn("a", "Yes, and always allow non-workspace access", OptionAlwaysAllow))
-		}
-		parts = append(parts, renderBtn("2", "No, reject this change", OptionDeny))
+	limit := 6
+	if expanded {
+		limit = 100
 	}
-	parts = append(parts, renderBtn("f", "Full diff", OptionFeedback))
-	return strings.Join(parts, "  ")
+
+	// If explicit diff string is provided
+	if req.Diff != "" {
+		parseUnifiedDiff(req.Diff, &dp, limit)
+		return dp
+	}
+
+	// If args contain Target and Replacement (from edit_file)
+	if req.Args != nil {
+		target, _ := req.Args["Target"].(string)
+		if target == "" {
+			target, _ = req.Args["target"].(string)
+		}
+		replacement, _ := req.Args["Replacement"].(string)
+		if replacement == "" {
+			replacement, _ = req.Args["replacement"].(string)
+		}
+
+		if target != "" || replacement != "" {
+			targetLines := splitCleanLines(target)
+			replacementLines := splitCleanLines(replacement)
+			dp.Deletions = len(targetLines)
+			dp.Additions = len(replacementLines)
+
+			lineNum := 1
+			for _, l := range targetLines {
+				if len(dp.Lines) >= limit {
+					break
+				}
+				dp.Lines = append(dp.Lines, diffLine{Num: lineNum, Type: '-', Text: l})
+			}
+			for _, l := range replacementLines {
+				if len(dp.Lines) >= limit {
+					break
+				}
+				dp.Lines = append(dp.Lines, diffLine{Num: lineNum, Type: '+', Text: l})
+			}
+			return dp
+		}
+
+		// If args contain Content (from write_file)
+		content, _ := req.Args["Content"].(string)
+		if content == "" {
+			content, _ = req.Args["content"].(string)
+		}
+		if content != "" {
+			contentLines := splitCleanLines(content)
+			dp.Additions = len(contentLines)
+			for i, l := range contentLines {
+				if len(dp.Lines) >= limit {
+					break
+				}
+				dp.Lines = append(dp.Lines, diffLine{Num: i + 1, Type: '+', Text: l})
+			}
+			return dp
+		}
+	}
+
+	return dp
 }
 
-func truncateText(text string, maxLen int) string {
-	if maxLen <= 0 || ansi.StringWidth(text) <= maxLen {
-		return text
+func splitCleanLines(s string) []string {
+	if s == "" {
+		return nil
 	}
-	return ansi.Truncate(text, maxLen, "…")
+	s = strings.TrimSuffix(s, "\n")
+	return strings.Split(s, "\n")
+}
+
+func parseUnifiedDiff(diff string, dp *diffPreview, limit int) {
+	lines := strings.Split(diff, "\n")
+	lineNum := 1
+	for _, l := range lines {
+		if strings.HasPrefix(l, "---") || strings.HasPrefix(l, "+++") || strings.HasPrefix(l, "@@") {
+			continue
+		}
+		if strings.HasPrefix(l, "-") {
+			dp.Deletions++
+			if len(dp.Lines) < limit {
+				dp.Lines = append(dp.Lines, diffLine{Num: lineNum, Type: '-', Text: l[1:]})
+			}
+		} else if strings.HasPrefix(l, "+") {
+			dp.Additions++
+			if len(dp.Lines) < limit {
+				dp.Lines = append(dp.Lines, diffLine{Num: lineNum, Type: '+', Text: l[1:]})
+			}
+			lineNum++
+		} else if strings.HasPrefix(l, " ") {
+			lineNum++
+		}
+	}
+}
+
+func truncateText(s string, maxLen int) string {
+	if maxLen <= 3 || ansi.StringWidth(s) <= maxLen {
+		return s
+	}
+	return ansi.Truncate(s, maxLen-3, "...")
 }

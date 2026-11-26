@@ -78,8 +78,17 @@ func ClassifyAPIError(err error) (*APIError, bool) {
 	}
 	status := statusName(he.StatusCode)
 	msg := he.Message()
-	if he.KindError() == KindAuthExpired {
+	retryable := retryableStatus[he.StatusCode]
+	switch he.KindError() {
+	case KindAuthExpired:
 		msg = AuthExpiredMessage
+	case KindPrepaidBalanceExhausted:
+		// AGY 1.5.17: the enterprise prepaid wallet is empty. The turn
+		// stops right away, so the structured report must not claim the
+		// failure is retryable — even when it arrived as a 429, which
+		// retryableStatus marks true.
+		msg = PrepaidBalanceMessage
+		retryable = false
 	}
 	out := &APIError{
 		Message:    msg,
@@ -87,7 +96,7 @@ func ClassifyAPIError(err error) (*APIError, bool) {
 		Status:     status,
 		ErrorCode:  he.StatusCode,
 		CodeKind:   "http",
-		Retryable:  retryableStatus[he.StatusCode],
+		Retryable:  retryable,
 		ErrorID:    NewErrorID(),
 	}
 	if he.IsScopeMismatch() {

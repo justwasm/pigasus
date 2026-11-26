@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -81,7 +82,7 @@ func (d *Dispatcher) handleLSCreateDebugBundle(params json.RawMessage) (any, *rp
 
 	// 4. extra_files
 	for _, ef := range req.ExtraFiles {
-		p := parseURIPath(ef)
+		p := files.ParseURIPath(ef)
 		if data, err := os.ReadFile(p); err == nil {
 			if w, err := zw.Create(filepath.Base(p)); err == nil {
 				_, _ = w.Write(data)
@@ -90,7 +91,7 @@ func (d *Dispatcher) handleLSCreateDebugBundle(params json.RawMessage) (any, *rp
 	}
 
 	return map[string]any{
-		"bundleUri": lsNormalizedURI(zipPath),
+		"bundleUri": files.NormalizedURI(zipPath),
 	}, nil, true
 }
 
@@ -106,9 +107,9 @@ func (d *Dispatcher) handleLSCreateWorktree(params json.RawMessage) (any, *rpc.E
 		_ = json.Unmarshal(params, &req)
 	}
 
-	repoPath := parseURIPath(req.RepoURI)
+	repoPath := files.ParseURIPath(req.RepoURI)
 	if repoPath == "" {
-		repoPath = parseURIPath(req.RepoPath)
+		repoPath = files.ParseURIPath(req.RepoPath)
 	}
 	if repoPath == "" {
 		repoPath = d.lsWorkspace()
@@ -155,8 +156,90 @@ func (d *Dispatcher) handleLSCreateWorktree(params json.RawMessage) (any, *rpc.E
 	}
 
 	return map[string]any{
-		"worktreeDirUri": lsNormalizedURI(wtDir),
+		"worktreeDirUri": files.NormalizedURI(wtDir),
 		"worktreeName":   wtName,
+	}, nil, true
+}
+
+// handleLSCloneGitHubRepo clones a GitHub repository (or local/URL repo) into parentDirUri.
+func (d *Dispatcher) handleLSCloneGitHubRepo(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	var req struct {
+		RepoSlug     string `json:"repoSlug"`
+		ParentDirURI string `json:"parentDirUri"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &req)
+	}
+
+	slug := strings.TrimSpace(req.RepoSlug)
+	if slug == "" || strings.Contains(slug, "..") {
+		errID := newErrorID()
+		return nil, &rpc.ErrorBody{
+			Code:    -32602,
+			Status:  3,
+			Message: "invalid_argument",
+			Data:    fmt.Sprintf("invalid repo_slug %q (error ID: %s)", req.RepoSlug, errID),
+		}, true
+	}
+
+	parentDir := files.ParseURIPath(req.ParentDirURI)
+	if parentDir == "" {
+		parentDir = d.lsWorkspace()
+	}
+	if parentDir == "" {
+		errID := newErrorID()
+		return nil, &rpc.ErrorBody{
+			Code:    -32602,
+			Status:  3,
+			Message: "invalid_argument",
+			Data:    fmt.Sprintf("missing parent_dir_uri (error ID: %s)", errID),
+		}, true
+	}
+
+	cloneURL := slug
+	if !strings.Contains(slug, "://") && !strings.HasPrefix(slug, "git@") {
+		cloneURL = "https://github.com/" + strings.TrimPrefix(slug, "/")
+		if !strings.HasSuffix(cloneURL, ".git") {
+			cloneURL += ".git"
+		}
+	}
+
+	trimmed := strings.TrimSuffix(strings.TrimRight(slug, "/"), ".git")
+	repoName := filepath.Base(trimmed)
+	if repoName == "" || repoName == "." || repoName == "/" {
+		repoName = "repo"
+	}
+	targetDir := filepath.Join(parentDir, repoName)
+	if isGitRepo(targetDir) {
+		return map[string]any{
+			"folderUri": files.NormalizedURI(targetDir),
+		}, nil, true
+	}
+
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		errID := newErrorID()
+		return nil, &rpc.ErrorBody{
+			Code:    -32603,
+			Status:  2,
+			Message: "unknown",
+			Data:    fmt.Sprintf("mkdir %s: %v (error ID: %s)", parentDir, err, errID),
+		}, true
+	}
+
+	cmd := exec.Command("git", "clone", cloneURL, targetDir)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		errID := newErrorID()
+		return nil, &rpc.ErrorBody{
+			Code:    -32603,
+			Status:  2,
+			Message: "unknown",
+			Data:    fmt.Sprintf("%s: %v (error ID: %s)", strings.TrimSpace(string(out)), err, errID),
+		}, true
+	}
+
+	return map[string]any{
+		"folderUri": files.NormalizedURI(targetDir),
 	}, nil, true
 }
 
@@ -177,8 +260,8 @@ func (d *Dispatcher) handleLSDeleteWorktree(params json.RawMessage) (any, *rpc.E
 		}, nil, true
 	}
 
-	wtPath := parseURIPath(rawURI)
-	repoPath := parseURIPath(req.RepoURI)
+	wtPath := files.ParseURIPath(rawURI)
+	repoPath := files.ParseURIPath(req.RepoURI)
 	if repoPath == "" {
 		repoPath = d.lsWorkspace()
 	}
@@ -213,8 +296,8 @@ func (d *Dispatcher) handleLSCheckoutWorktree(params json.RawMessage) (any, *rpc
 		}, nil, true
 	}
 
-	wtPath := parseURIPath(rawURI)
-	targetPath := parseURIPath(req.TargetWorkspaceURI)
+	wtPath := files.ParseURIPath(rawURI)
+	targetPath := files.ParseURIPath(req.TargetWorkspaceURI)
 	if targetPath == "" {
 		targetPath = d.lsWorkspace()
 	}
@@ -261,8 +344,8 @@ func (d *Dispatcher) handleLSGetWorktreeDiff(params json.RawMessage) (any, *rpc.
 		}, true
 	}
 
-	wtPath := parseURIPath(rawURI)
-	targetPath := parseURIPath(req.TargetWorkspaceURI)
+	wtPath := files.ParseURIPath(rawURI)
+	targetPath := files.ParseURIPath(req.TargetWorkspaceURI)
 	if targetPath == "" {
 		targetPath = d.lsWorkspace()
 	}

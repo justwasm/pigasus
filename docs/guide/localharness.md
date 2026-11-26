@@ -19,14 +19,7 @@ agent engine the `agy` CLI uses. That is why this repository's
 `internal/app/tools`, `internal/core/compaction` and friends line up with the
 reference at all.
 
-The evidence for everything below lives in
-[`out/localharness/`](../../out/localharness/):
-[`FINDINGS.md`](../../out/localharness/FINDINGS.md) is the protocol report,
-[`PARITY.md`](../../out/localharness/PARITY.md) is the byte-parity gap
-report (zh-CN),
-[`README.md`](../../out/localharness/README.md) is the reproduction recipe,
-[`decompile-summary.md`](../../out/localharness/decompile-summary.md) is the
-run's statistics.
+The 0.1.22 write-up (`FINDINGS.md`, `PARITY.md`, `README.md`, `decompile-summary.md`, `captures/`) is retired to git history (see [`out/RETIRED.md`](../../out/RETIRED.md)); active extraction for `0.1.24` (`126,012,434 B`, SHA-256 `0d8af6f390cea71a125b87bfecc51228bf9649e5a8e4f45116624f315e4c7fa3`, 145,510 functions, 8 `.proto` files) lives at [`out/localharness-0.1.24/`](../../out/localharness-0.1.24/), aliased by [`out/localharness/`](../../out/localharness/).
 
 ## The transport — two dialects, one pipe
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,9 @@ import (
 	"sync"
 	"time"
 )
+
+//go:embed fixtures/models.json
+var embeddedModelsJSON []byte
 
 // CapturedExchange records one captured HTTP request and optional response.
 type CapturedExchange struct {
@@ -162,7 +166,27 @@ func (ps *ProxyServer) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(DefaultMockAvailableModels())
 	case strings.Contains(path, "listExperiments"):
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"experiments":[]}`))
+		resp := map[string]any{
+			"flags": []map[string]any{
+				{
+					"name":        "invoke-subagent-config",
+					"stringValue": `{"enabled": true, "always_inherit_model": false}`,
+				},
+				{
+					"name":      "enable-subagent-user-messaging",
+					"boolValue": true,
+				},
+				{
+					"name":      "enable-auto-permission-preset",
+					"boolValue": true,
+				},
+				{
+					"name":      "generic-system-prompt",
+					"boolValue": true,
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{}`))
@@ -263,13 +287,8 @@ func DefaultMockCodeAssist() []byte {
 
 // DefaultMockAvailableModels returns standard CloudCode models catalog.
 func DefaultMockAvailableModels() []byte {
-	resp := map[string]any{
-		"models": []map[string]any{
-			{"id": "gemini-3.8-flash-high", "displayName": "Gemini 3.8 Flash"},
-			{"id": "gemini-3-pro", "displayName": "Gemini 3 Pro"},
-			{"id": "claude-sonnet-4-6", "displayName": "Claude 3.5 Sonnet"},
-		},
+	if len(embeddedModelsJSON) > 0 {
+		return embeddedModelsJSON
 	}
-	b, _ := json.Marshal(resp)
-	return b
+	return []byte(`{"models":{"gemini-3.8-flash-high":{"name":"models/gemini-3.8-flash-high","displayName":"Gemini 3.8 Flash (High)"}},"defaultAgentModelId":"gemini-3.8-flash-high"}`)
 }

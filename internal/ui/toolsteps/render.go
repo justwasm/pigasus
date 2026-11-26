@@ -42,10 +42,11 @@ import (
 // The palette's colours follow the selected colour scheme, so the
 // bullets are refreshed whenever the scheme changes.
 var (
-	stepBulletOpen        = palette.ToolBulletOpen + "●" + palette.ToolBulletClose
-	stepBulletErrOpen     = palette.ToolBulletErrOpen + "●" + palette.ToolBulletClose
-	thoughtBulletOpen     = palette.ThoughtBulletOpen + "▸" + palette.ThoughtBulletClose
-	stepBulletRunningOpen = palette.ToolBulletRunningOpen + "●" + palette.ToolBulletClose
+	stepBulletOpen         = palette.ToolBulletOpen + "●" + palette.ToolBulletClose
+	stepBulletErrOpen      = palette.ToolBulletErrOpen + "●" + palette.ToolBulletClose
+	stepBulletCanceledOpen = palette.ThoughtBulletOpen + "●" + palette.ThoughtBulletClose
+	thoughtBulletOpen      = palette.ThoughtBulletOpen + "▸" + palette.ThoughtBulletClose
+	stepBulletRunningOpen  = palette.ToolBulletRunningOpen + "●" + palette.ToolBulletClose
 )
 
 func init() {
@@ -57,15 +58,16 @@ func init() {
 func refreshBullets() {
 	stepBulletOpen = palette.ToolBulletOpen + "●" + palette.ToolBulletClose
 	stepBulletErrOpen = palette.ToolBulletErrOpen + "●" + palette.ToolBulletClose
+	stepBulletCanceledOpen = palette.ThoughtBulletOpen + "●" + palette.ThoughtBulletClose
 	thoughtBulletOpen = palette.ThoughtBulletOpen + "▸" + palette.ThoughtBulletClose
 	stepBulletRunningOpen = palette.ToolBulletRunningOpen + "●" + palette.ToolBulletClose
 }
 
 // styledStepBullet is the bullet the transcript paints for a call in the
-// given state. 1.4.3 only reddens the bullet in the *collapsed* summary
-// ("● Ran (… ) failed"); once expanded the head is "● Bash(…)" with the
-// success green bullet even for a non-zero exit (measured raw:
-// \x1b[38;2;133;153;0m● with the red left to the detail text).
+// given state. Reference behaviour since 1.5.16, unchanged in 1.5.17: failed
+// and timed-out commands show a red status dot
+// across low/high verbosity, /thinking, and expanded (Ctrl+O) views, while
+// canceled commands stay gray.
 func styledStepBullet(s Step, expanded bool) string {
 	if s.Kind == KindThought {
 		return thoughtBulletOpen
@@ -73,7 +75,10 @@ func styledStepBullet(s Step, expanded bool) string {
 	if s.Running {
 		return stepBulletRunningOpen
 	}
-	if s.Err && !expanded {
+	if s.Canceled {
+		return stepBulletCanceledOpen
+	}
+	if s.Err {
 		return stepBulletErrOpen
 	}
 	return stepBulletOpen
@@ -213,7 +218,18 @@ func CollapsedLowVerbosityGroup(steps []Step, metrics TokenMetrics, width int) [
 	// the 1.5.8 screen — see groupLines.
 	if len(tools) > 0 {
 		last := tools[len(tools)-1]
-		out = append(out, styledStepBullet(last, false)+" "+styledCallTitle(last))
+		headerStep := last
+		for _, s := range tools {
+			if s.Err {
+				headerStep.Err = true
+				headerStep.Canceled = false
+				break
+			}
+			if s.Canceled {
+				headerStep.Canceled = true
+			}
+		}
+		out = append(out, styledStepBullet(headerStep, false)+" "+styledCallTitle(last))
 	}
 	if len(out) == 0 {
 		return nil
@@ -292,15 +308,22 @@ func groupLines(tools []Step, expanded bool, width int) []string {
 	// including red status markers on failed runs, instead of dimming it to gray,
 	// and indents the expanded tool calls behind a │ gutter.
 	hasErr := false
+	hasCanceled := false
 	for _, s := range tools {
 		if s.Err {
 			hasErr = true
 			break
 		}
+		if s.Canceled {
+			hasCanceled = true
+		}
 	}
 	headerStep := last
 	if hasErr {
 		headerStep.Err = true
+		headerStep.Canceled = false
+	} else if hasCanceled {
+		headerStep.Canceled = true
 	}
 	header := styledStepBullet(headerStep, false) + " " + styledCallTitle(last)
 	var out []string

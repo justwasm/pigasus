@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 )
 
@@ -167,35 +166,6 @@ func Describe(t Tool) string {
 // was getting stray `[N] https://...` footnotes appended. The model never
 // asked for them and they polluted the transcript.
 func (r *Registry) Dispatch(ctx context.Context, name string, args json.RawMessage) (string, error) {
-	t, ok := r.Get(name)
-	if !ok {
-		return "", fmt.Errorf("unknown tool %q", name)
-	}
-	out, err := t.Run(ctx, args)
-	if err != nil {
-		return "", err
-	}
-	var resText string
-	switch v := out.(type) {
-	case nil:
-		return "", nil
-	case string:
-		if ShouldStripCitations(name) {
-			v = StripCitationFootnotes(v)
-		}
-		resText = v
-	default:
-		b, mErr := json.Marshal(v)
-		if mErr != nil {
-			resText = fmt.Sprint(v)
-		} else {
-			s := string(b)
-			if ShouldStripCitations(name) {
-				s = StripCitationFootnotes(s)
-			}
-			resText = s
-		}
-	}
-	budget := ApplyOutputBudget(resText, "", DefaultMaxResultTokens)
-	return budget.Content, nil
+	out, err := r.DispatchMedia(ctx, name, args)
+	return out.Text, err
 }

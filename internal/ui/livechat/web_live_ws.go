@@ -15,15 +15,14 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/justwasm/pigasus/endpoints"
-	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
+	"github.com/justwasm/pigasus/internal/infra/livevoice"
 	"github.com/justwasm/pigasus/internal/voice"
 )
 
 // oauthLiveBackendFactory creates the LiveBackend used when bridging OAuth Bearer
 // tokens over /api/live-ws without an external proxy. Overridden in unit tests.
 var oauthLiveBackendFactory = func(token string) voice.LiveBackend {
-	fallback := voice.NewGeminiLiveBackendWithBearer(token)
-	return voice.NewAICodeLiveBackendWithFallback(token, fallback)
+	return voice.NewAICodeLiveBackend(token)
 }
 
 // currentGeminiAPIKeyFn resolves the machine's configured Gemini API key.
@@ -69,17 +68,10 @@ func handleLiveWebSocketWithDefaultProxy(defaultProxy string) http.HandlerFunc {
 		}
 
 		// Aggregate mode (or unspecified mode with no explicit client credentials):
-		// Route transparently via backend credentials (machine API key if configured,
-		// or quota-aware multi-account OAuth pool with automatic failover & backoff).
+		// Route transparently via the shared quota-aware multi-account OAuth pool
+		// with automatic failover & backoff, falling back to proxy or Gemini API key.
 		if mode == "aggregate" || mode == "auto" || (mode == "" && token == "" && apiKey == "" && proxyURL == "") {
-			if machineKey := currentGeminiAPIKeyFn(); machineKey != "" {
-				if upstreamURL, reqHeaders, err := resolveUpstream("", "", machineKey); err == nil {
-					if bridgeRawWebSocket(r.Context(), clientConn, upstreamURL, reqHeaders, nil) {
-						return
-					}
-				}
-			}
-			bridgeAggregateLiveSession(r.Context(), clientConn, defaultProxy)
+			bridgeAggregateLiveSession(r.Context(), clientConn, defaultProxy, token, apiKey)
 			return
 		}
 
@@ -282,42 +274,7 @@ func readInitialLiveSetup(ctx context.Context, clientConn *websocket.Conn) ([]by
 	return rawSetup, cfg, true
 }
 
-func createLiveSessionWithTimeout(ctx context.Context, token string, cfg voice.LiveSessionConfig) (voice.LiveSession, error) {
-	backend := oauthLiveBackendFactory(token)
-	type createSessResult struct {
-		sess voice.LiveSession
-		err  error
-	}
-	createCh := make(chan createSessResult, 1)
-	sessCtx, sessCancel := context.WithCancel(ctx)
-	go func() {
-		s, e := backend.CreateSession(sessCtx, cfg)
-		createCh <- createSessResult{sess: s, err: e}
-	}()
-
-	createTimer := time.NewTimer(20 * time.Second)
-	defer createTimer.Stop()
-	select {
-	case res := <-createCh:
-		if res.err != nil {
-			sessCancel()
-		}
-		return res.sess, res.err
-	case <-createTimer.C:
-		sessCancel()
-		go func() {
-			if res := <-createCh; res.sess != nil {
-				_ = res.sess.Close()
-			}
-		}()
-		return nil, context.DeadlineExceeded
-	case <-ctx.Done():
-		sessCancel()
-		return nil, ctx.Err()
-	}
-}
-
-func bridgeAggregateLiveSession(parentCtx context.Context, clientConn *websocket.Conn, defaultProxy string) {
+func bridgeAggregateLiveSession(parentCtx context.Context, clientConn *websocket.Conn, defaultProxy string, fallbackToken string, fallbackAPIKey string) {
 	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
 
@@ -326,67 +283,28 @@ func bridgeAggregateLiveSession(parentCtx context.Context, clientConn *websocket
 		return
 	}
 
-	router := getAggregateRouter()
-	policy := effectiveAggregatePolicy()
-	maxAttempts := policy.MaxAttempts
-	if maxAttempts < 3 {
-		maxAttempts = 3
-	}
-	if cands, err := router.CandidateAccounts(ctx); err == nil && len(cands) > maxAttempts {
-		maxAttempts = len(cands)
-	}
-
-	family := accountrouting.ModelFamily(cfg.Model)
-	var lastErr error
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		var token, email string
-		res, routeErr := router.RouteTurn(ctx, family)
-		if routeErr == nil && strings.TrimSpace(res.AccessToken) != "" {
-			token = strings.TrimSpace(res.AccessToken)
-			email = strings.TrimSpace(res.Email)
-		} else if tok, tokErr := GetExistingActiveToken(ctx); tokErr == nil && tok != nil && strings.TrimSpace(tok.Token.AccessToken) != "" {
-			token = strings.TrimSpace(tok.Token.AccessToken)
-			email = strings.TrimSpace(tok.UserEmail())
-		} else if routeErr != nil && lastErr == nil {
-			lastErr = routeErr
-		}
-
-		if token == "" {
-			break
-		}
-
-		liveSess, err := createLiveSessionWithTimeout(ctx, token, cfg)
-		if err != nil {
-			lastErr = err
-			kind, reason := classifyAggregateErr(err)
-			if kind != aggFailureNone {
-				applyAggregateFailure(router, email, family, kind, reason)
-			}
-			if attempt+1 < maxAttempts && kind != aggFailureNone {
-				log.Printf("[live-ws] aggregate live failover (%s, account=%q, attempt %d/%d): %v",
-					reason, email, attempt+1, maxAttempts, err)
-				if kind == aggFailureCapacityOrQuota {
-					if waitErr := waitAggregateBackoff(ctx, attempt, ""); waitErr != nil {
-						return
-					}
-				}
-				continue
-			}
-			break
-		}
-
-		bridgeLiveSessionLoop(ctx, cancel, clientConn, liveSess, cfg, func(recvErr error) {
-			if kind, reason := classifyAggregateErr(recvErr); kind != aggFailureNone {
-				applyAggregateFailure(router, email, family, kind, reason)
-			}
-		})
+	liveSess, lastErr := livevoice.OpenPoolOAuthSession(ctx, cfg, livevoice.Options{
+		BearerToken:  fallbackToken,
+		OAuthFactory: oauthLiveBackendFactory,
+		Logf:         log.Printf,
+	})
+	if liveSess != nil {
+		bridgeLiveSessionLoop(ctx, cancel, clientConn, liveSess, cfg, nil)
 		return
 	}
 
 	// Fallback to defaultProxy if configured
 	if strings.TrimSpace(defaultProxy) != "" {
 		if upstreamURL, reqHeaders, err := resolveUpstream(defaultProxy, "", ""); err == nil {
+			if bridgeRawWebSocket(ctx, clientConn, upstreamURL, reqHeaders, rawSetup) {
+				return
+			}
+		}
+	}
+
+	// Fallback to client-provided Gemini API key if given
+	if clientKey := strings.TrimSpace(fallbackAPIKey); clientKey != "" {
+		if upstreamURL, reqHeaders, err := resolveUpstream("", "", clientKey); err == nil {
 			if bridgeRawWebSocket(ctx, clientConn, upstreamURL, reqHeaders, rawSetup) {
 				return
 			}
@@ -406,7 +324,11 @@ func bridgeAggregateLiveSession(parentCtx context.Context, clientConn *websocket
 		lastErr = fmt.Errorf("no healthy accounts or credentials available in aggregate pool")
 	}
 	log.Printf("[live-ws] aggregate live session failed: %v", lastErr)
-	_ = clientConn.Close(websocket.StatusBadGateway, truncateWSReason(fmt.Sprintf("Aggregate live session failed: %v", lastErr)))
+	reason := fmt.Sprintf("Aggregate live session failed: %v", lastErr)
+	if strings.Contains(reason, "PermissionDenied") || strings.Contains(reason, "permission denied") || strings.Contains(reason, "insufficient authentication scopes") {
+		reason = "OAuth accounts lack Gemini Live voice permission; configure gemini_api_key in Settings -> Gemini API Key or ~/.openagy/config.json"
+	}
+	_ = clientConn.Close(websocket.StatusPolicyViolation, truncateWSReason(reason))
 }
 
 func bridgeOAuthLiveSession(parentCtx context.Context, clientConn *websocket.Conn, token string) {
@@ -418,7 +340,13 @@ func bridgeOAuthLiveSession(parentCtx context.Context, clientConn *websocket.Con
 		return
 	}
 
-	liveSess, err := createLiveSessionWithTimeout(ctx, token, cfg)
+	liveSess, err := livevoice.CreateSessionWithProbe(
+		ctx,
+		oauthLiveBackendFactory(token),
+		cfg,
+		livevoice.DefaultCreateTimeout,
+		livevoice.DefaultHandshakeProbe,
+	)
 	if err != nil {
 		log.Printf("[live-ws] OAuth live backend CreateSession failed: %v", err)
 		_ = clientConn.Close(websocket.StatusBadGateway, truncateWSReason(fmt.Sprintf("OAuth live session failed: %v", err)))

@@ -60,7 +60,8 @@ func (c *conptyDevice) Close() error {
 }
 
 // spawn starts an interactive shell (PowerShell) on a fresh ConPTY pseudo console.
-func spawn(dir string) (*Session, error) {
+func spawn(dir string, extraEnv []string) (*Session, error) {
+	_ = extraEnv
 	shell := defaultWindowsShell()
 
 	// 1. Create communication pipes for ConPTY
@@ -225,28 +226,34 @@ func (s *Session) resize(cols, rows int) error {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.exited || s.closed {
+	if s.exited || s.closed || s.ptmx == nil {
+		s.mu.Unlock()
 		return ErrClosed
 	}
-	if s.ptmx == nil {
-		return ErrClosed
-	}
-	return s.ptmx.Resize(cols, rows)
+	ptmx := s.ptmx
+	s.mu.Unlock()
+	return ptmx.Resize(cols, rows)
 }
 
 // close ends the terminal.
 func (s *Session) close(force bool) {
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
 	s.closed = true
 	proc := s.cmd
+	ptmx := s.ptmx
 	s.mu.Unlock()
+
+	s.closeWriteQueue()
 
 	if proc != nil {
 		_ = proc.Kill()
 	}
-	if s.ptmx != nil {
-		_ = s.ptmx.Close()
+	if ptmx != nil {
+		_ = ptmx.Close()
 	}
 	s.closeSubscribers()
 	close(s.done)

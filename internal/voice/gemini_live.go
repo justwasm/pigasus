@@ -254,7 +254,7 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		OutputAudioTranscription: &genai.AudioTranscriptionConfig{},
 		Tools: []*genai.Tool{
 			{
-				FunctionDeclarations: geminiLiveFunctionDeclarations(),
+				FunctionDeclarations: geminiLiveFunctionDeclarationsForConfig(cfg),
 			},
 		},
 	}
@@ -592,9 +592,21 @@ func (s *GeminiLiveSession) Close() error {
 	return s.closeWithError(nil)
 }
 
-func geminiLiveFunctionDeclarations() []*genai.FunctionDeclaration {
-	return []*genai.FunctionDeclaration{
-		{
+// LiveToolSpec defines a single-source specification for a Gemini Live function tool,
+// pairing its wire FunctionDeclaration with its system-prompt usage hint.
+type LiveToolSpec struct {
+	Name        string
+	PromptHint  string
+	DirectOnly  bool
+	Declaration *genai.FunctionDeclaration
+}
+
+var geminiLiveToolSpecs = []LiveToolSpec{
+	{
+		Name:       "call_thinker_agent",
+		PromptHint: "Call this for complex multi-step coding or analysis tasks.",
+		DirectOnly: false,
+		Declaration: &genai.FunctionDeclaration{
 			Name:        "call_thinker_agent",
 			Description: "Tool for code, files, profile/desk, calendar/reminders, docs/chat, pricing, weather, web, accounts, screen/links. Never call on cues ([task progress], [waiting on the user], answer/error, [stopped]/[stop failed], [The user just sent in chat]), open [waiting on the user] (questions about the choice, constraints, approvals), or local tools; skip chitchat, thanks, remarks, declines, resuming speech, mic tests, settings, omitted-part reads, and fresh-call status. Otherwise never refuse, say cannot/unable, cite missing tools/access, or repeat refusals on pushback/retries/calendar/desk/link/how-to asks (commit and call, even on open calls), and call on context-covered asks needing detail. Speak first (no agent, thinker, or tool mentions): verified fact (no UUIDs/guesses/general knowledge/refusals) in two sentences (present tense, subject first, no context note, plus varied 'I'll' commitment), else one warm 'I'll' sentence (never 'I will'/'I am') varying clause ('To <user goal>, I'll...', 'I'll' + diverse verb + target without 'the', or brief ack + 'I'll...') and verb (no -ing openers, execution verbs, promises, vague pronouns; edits/reminders/sends/approvals as lookups; pushback: ONLY one positive commitment), and emit the call same turn right after speaking (never narrating it, silent, stopping, or uncalled).",
 			Parameters: &genai.Schema{
@@ -608,14 +620,24 @@ func geminiLiveFunctionDeclarations() []*genai.FunctionDeclaration {
 				Required: []string{"query"},
 			},
 		},
-		{
+	},
+	{
+		Name:       "cancel_thinker_agent",
+		PromptHint: "Call this to cancel an active background Thinker task when the user asks to stop or abort it.",
+		DirectOnly: false,
+		Declaration: &genai.FunctionDeclaration{
 			Name:        "cancel_thinker_agent",
 			Description: "Cancels the active task. Call immediately silently with zero words beforehand only to cancel, drop, or ignore the entire running task (never on a bare stop, wait, or hold-on request; a stop that names the task or its work does cancel; to stop one branch, narrow, or redirect work, call the thinker instead; to stop updates, stop repeating, or stay quiet until done, call set_progress_updates with enabled=false instead so the task keeps running); confirm in future tense on return, stopped only on [stopped].",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 			},
 		},
-		{
+	},
+	{
+		Name:       "set_progress_updates",
+		PromptHint: "Call this to enable or disable spoken progress updates for an active background task without cancelling it.",
+		DirectOnly: false,
+		Declaration: &genai.FunctionDeclaration{
 			Name:        "set_progress_updates",
 			Description: "Enables or disables spoken progress updates for the active background task without cancelling it.",
 			Parameters: &genai.Schema{
@@ -629,12 +651,136 @@ func geminiLiveFunctionDeclarations() []*genai.FunctionDeclaration {
 				Required: []string{"enabled"},
 			},
 		},
-		{
+	},
+	{
+		Name:       "hang_up",
+		PromptHint: "Call this to end the voice call when the user explicitly asks to hang up or says goodbye.",
+		DirectOnly: false,
+		Declaration: &genai.FunctionDeclaration{
 			Name:        "hang_up",
 			Description: "Ends the voice call and hangs up. Call with no arguments only on explicit hang-up requests, clear end-of-call farewells, or an [idle] note that says to hang up, not mid-call thanks: speak one brief farewell first in the same turn, call this function, and stay silent afterward. Active chat tasks keep running.",
 			Parameters: &genai.Schema{
 				Type: genai.TypeObject,
 			},
 		},
+	},
+	{
+		Name:       "search_web",
+		PromptHint: "Call this to search the web for up-to-date information, documentation, news, or general web queries.",
+		DirectOnly: true,
+		Declaration: &genai.FunctionDeclaration{
+			Name:        "search_web",
+			Description: "Search the web for up-to-date information, definitions, documentation, news, or general knowledge queries.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"query": {
+						Type:        genai.TypeString,
+						Description: "The search query string.",
+					},
+					"domain": {
+						Type:        genai.TypeString,
+						Description: "Optional domain filter (e.g. github.com).",
+					},
+				},
+				Required: []string{"query"},
+			},
+		},
+	},
+	{
+		Name:       "fetch_url",
+		PromptHint: "Call this whenever the user gives an HTTP/HTTPS link or asks to read documentation, GitHub files, or changelogs.",
+		DirectOnly: true,
+		Declaration: &genai.FunctionDeclaration{
+			Name:        "fetch_url",
+			Description: "Fetch and read the text content of an HTTP or HTTPS URL (documentation, GitHub files, changelogs, web pages).",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"url": {
+						Type:        genai.TypeString,
+						Description: "The HTTP or HTTPS URL to fetch.",
+					},
+				},
+				Required: []string{"url"},
+			},
+		},
+	},
+	{
+		Name:       "run_command",
+		PromptHint: "Call this whenever the user asks to run terminal commands (e.g. 'cal', 'curl', 'git status', 'ls -la', 'go test'). Pass the exact command string.",
+		DirectOnly: true,
+		Declaration: &genai.FunctionDeclaration{
+			Name:        "run_command",
+			Description: "Execute a shell command in the workspace terminal and return its output.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"command": {
+						Type:        genai.TypeString,
+						Description: "The exact shell command to execute.",
+					},
+				},
+				Required: []string{"command"},
+			},
+		},
+	},
+	{
+		Name:       "read_file",
+		PromptHint: "Call this to inspect local repository files.",
+		DirectOnly: true,
+		Declaration: &genai.FunctionDeclaration{
+			Name:        "read_file",
+			Description: "Read the contents of a file in the local workspace.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"path": {
+						Type:        genai.TypeString,
+						Description: "Path to the file to read.",
+					},
+				},
+				Required: []string{"path"},
+			},
+		},
+	},
+}
+
+func geminiLiveFunctionDeclarationsForConfig(cfg LiveSessionConfig) []*genai.FunctionDeclaration {
+	decls := make([]*genai.FunctionDeclaration, 0, len(geminiLiveToolSpecs))
+	for _, spec := range geminiLiveToolSpecs {
+		if spec.DirectOnly && !cfg.DirectTools {
+			continue
+		}
+		decls = append(decls, spec.Declaration)
 	}
+	return decls
+}
+
+func geminiLiveFunctionDeclarations() []*genai.FunctionDeclaration {
+	return geminiLiveFunctionDeclarationsForConfig(LiveSessionConfig{DirectTools: false})
+}
+
+// GeminiLiveToolNames returns the declared Gemini Live tool names in declaration order.
+func GeminiLiveToolNames(directTools bool) []string {
+	decls := geminiLiveFunctionDeclarationsForConfig(LiveSessionConfig{DirectTools: directTools})
+	names := make([]string, 0, len(decls))
+	for _, d := range decls {
+		names = append(names, d.Name)
+	}
+	return names
+}
+
+// DirectToolPromptLines returns formatted system-prompt bullet lines generated from
+// the single-source Gemini Live tool specification for DirectTools: true.
+func DirectToolPromptLines() string {
+	var lines []string
+	for _, spec := range geminiLiveToolSpecs {
+		hint := strings.TrimSpace(spec.PromptHint)
+		if hint == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("   - '%s': %s", spec.Name, hint))
+	}
+	return strings.Join(lines, "\n")
 }

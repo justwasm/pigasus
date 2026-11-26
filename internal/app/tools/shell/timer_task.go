@@ -107,6 +107,7 @@ func StartScheduledTask(opts ScheduledTaskOptions) (*BackgroundTask, error) {
 			State:      taskregistry.StateRunning,
 			StartedAt:  opts.CreatedAt,
 			TargetTime: opts.TargetTime,
+			ExitCode:   taskregistry.ExitCodeUnset,
 			Command:    cmdName,
 		})
 		reg.RegisterHandle(fullID, &taskregistry.TaskHandle{
@@ -149,6 +150,7 @@ func runOneShotTimer(ctx context.Context, t *BackgroundTask, record *activeTimer
 		t.killed = true
 		t.mu.Unlock()
 		t.finish()
+		markRegistryState(t.id, taskregistry.StateKilled)
 		return
 
 	case <-timer.C:
@@ -157,6 +159,7 @@ func runOneShotTimer(ctx context.Context, t *BackgroundTask, record *activeTimer
 		t.completed = true
 		t.mu.Unlock()
 		t.finish()
+		markRegistryState(t.id, taskregistry.StateDone)
 
 		_ = appendTaskLogFile(opts.LogPath, fmt.Sprintf("Timer fired at %s\n", time.Now().Format(time.RFC3339)))
 
@@ -176,6 +179,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 		schedTimersMu.Lock()
 		delete(schedTimers, t.id)
 		schedTimersMu.Unlock()
+		_ = RemoveActiveSchedule(opts.Home, opts.ConvID, opts.TaskID)
 	}()
 
 	iterations := 0
@@ -189,6 +193,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 			t.completed = true
 			t.mu.Unlock()
 			t.finish()
+			markRegistryState(t.id, taskregistry.StateFailed)
 			return
 		}
 
@@ -207,10 +212,21 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 			t.killed = true
 			t.mu.Unlock()
 			t.finish()
+			markRegistryState(t.id, taskregistry.StateKilled)
 			return
 
 		case <-timer.C:
 			iterations++
+			isFinal := opts.MaxIterations > 0 && iterations >= opts.MaxIterations
+			if isFinal {
+				t.mu.Lock()
+				t.done = true
+				t.completed = true
+				t.mu.Unlock()
+				t.finish()
+				markRegistryState(t.id, taskregistry.StateDone)
+			}
+
 			NotifyTask(TaskNotification{
 				TaskID:   t.id,
 				Priority: TaskPriorityHigh,
@@ -221,12 +237,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 
 			_ = appendTaskLogFile(opts.LogPath, fmt.Sprintf("Cron iteration %d fired at %s\n", iterations, time.Now().Format(time.RFC3339)))
 
-			if opts.MaxIterations > 0 && iterations >= opts.MaxIterations {
-				t.mu.Lock()
-				t.done = true
-				t.completed = true
-				t.mu.Unlock()
-				t.finish()
+			if isFinal {
 				return
 			}
 		}

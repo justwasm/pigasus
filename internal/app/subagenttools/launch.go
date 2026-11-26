@@ -201,23 +201,53 @@ func adaptSubagentTool(t tools.Tool) actor.Tool {
 		return nil
 	}
 	var params map[string]any
-	desc := t.Name()
+	desc := tools.Describe(t)
 	if raw := t.Schema(); len(raw) > 0 {
 		_ = json.Unmarshal(raw, &params)
-		if d, ok := params["description"].(string); ok && d != "" {
-			desc = d
+		if desc == "" {
+			if d, ok := params["description"].(string); ok && d != "" {
+				desc = d
+			}
 		}
 	}
-	return actor.NewFuncTool(t.Name(), desc, func(ctx context.Context, input string) (string, error) {
+	if desc == "" {
+		desc = t.Name()
+	}
+	return actor.NewResultTool(t.Name(), desc, func(ctx context.Context, input string) (actor.ToolResult, error) {
 		res, err := t.Run(ctx, json.RawMessage(input))
 		if err != nil {
-			return "", err
+			return actor.ToolResult{Error: err.Error()}, err
 		}
-		if s, ok := res.(string); ok {
-			return s, nil
+		switch v := res.(type) {
+		case nil:
+			return actor.ToolResult{}, nil
+		case string:
+			return actor.ToolResult{Output: v}, nil
+		case tools.MediaOutput:
+			out := actor.ToolResult{Output: v.Text}
+			for _, img := range v.Images {
+				out.Images = append(out.Images, actor.ImagePart{
+					MIMEType: img.MIMEType,
+					Data:     append([]byte(nil), img.Data...),
+				})
+			}
+			return out, nil
+		case *tools.MediaOutput:
+			if v == nil {
+				return actor.ToolResult{}, nil
+			}
+			out := actor.ToolResult{Output: v.Text}
+			for _, img := range v.Images {
+				out.Images = append(out.Images, actor.ImagePart{
+					MIMEType: img.MIMEType,
+					Data:     append([]byte(nil), img.Data...),
+				})
+			}
+			return out, nil
+		default:
+			b, _ := json.Marshal(res)
+			return actor.ToolResult{Output: string(b)}, nil
 		}
-		b, _ := json.Marshal(res)
-		return string(b), nil
 	}, actor.WithParameters(params))
 }
 
@@ -401,6 +431,15 @@ func runChild(
 						}
 					})
 				}
+			case actor.EventTurnCompleted:
+				if ev.TurnSummary != nil {
+					child.AddUsage(
+						ev.TurnSummary.PromptTokens,
+						ev.TurnSummary.OutputTokens,
+						ev.TurnSummary.TotalTokens,
+						ev.TurnSummary.ThoughtsTokens,
+					)
+				}
 			}
 		}
 
@@ -420,8 +459,7 @@ func runChild(
 	var runErr error
 
 	if initialMsg != nil {
-		pctx.Record(initialMsg.Content, initialMsg.At)
-		envelope := agentmessage.Render(parentID, initialMsg.Content, initialMsg.At, agentmessage.PriorityHigh)
+		envelope := renderDeliveredMessage(pctx, parentID, *initialMsg)
 		msgs, runErr = executeTurn(envelope)
 	} else if len(loadedMsgs) == 0 {
 		first := agentmessage.Render(parentID, inv.Prompt, time.Now(), agentmessage.PriorityHigh)
@@ -476,8 +514,7 @@ func runChild(
 		})
 		defer watchdog.Stop()
 
-		pctx.Record(msg.Content, msg.At)
-		envelope := agentmessage.Render(parentID, msg.Content, msg.At, agentmessage.PriorityHigh)
+		envelope := renderDeliveredMessage(pctx, parentID, msg)
 		msgs, runErr = executeTurn(envelope)
 		if runErr != nil {
 			if watchdog.IsStalled() {
@@ -669,4 +706,18 @@ func recordChildTurnWithMeta(
 		}
 		_ = saveCheckpoint(subDir, meta)
 	}
+}
+
+// renderDeliveredMessage formats a delivered message for the subagent's next
+// turn. System wakeup notifications (From == "system") keep "system" as the
+// sender and are not recorded into ParentContext so they cannot crowd out
+// coordinator/parent instructions when the worker's conversation compacts.
+func renderDeliveredMessage(pctx *ParentContext, parentID string, msg Message) string {
+	sender := parentID
+	if msg.From == "system" {
+		sender = "system"
+	} else {
+		pctx.Record(msg.Content, msg.At)
+	}
+	return agentmessage.Render(sender, msg.Content, msg.At, agentmessage.PriorityHigh)
 }

@@ -253,6 +253,23 @@ func (s *tieredTrajectoryStore) LoadTrajectory(convID string) ([]Step, error) {
 		all = append(all, hotSteps...)
 	}
 
+	// Deduplicate by index, keeping the highest-priority tier: hot beats
+	// warm beats cold, matching GetStep's lookup order. A replayed step
+	// lives in hot while its older copy is still durable in warm; without
+	// this, LoadTrajectory would return both rows for one index. all is
+	// assembled cold -> warm -> hot, so letting later entries win gives
+	// exactly that precedence.
+	if len(all) > 1 {
+		byIdx := make(map[int64]Step, len(all))
+		for _, st := range all {
+			byIdx[st.Idx] = st
+		}
+		all = all[:0]
+		for _, st := range byIdx {
+			all = append(all, st)
+		}
+	}
+
 	// Sort by Idx
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].Idx < all[j].Idx

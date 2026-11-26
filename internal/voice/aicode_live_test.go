@@ -6,7 +6,9 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/justwasm/pigasus/internal/voice/voicepb"
@@ -430,5 +432,95 @@ func TestAICodeLiveBackend_FallbackLatchingAndSendAudio(t *testing.T) {
 
 	if _, ok := sess2.(*MockLiveSession); !ok {
 		t.Fatalf("expected *MockLiveSession from latched fallback, got %T", sess2)
+	}
+}
+
+func TestAICodeLiveBackend_QuotaProjectMetadata(t *testing.T) {
+	t.Setenv("AICODE_DEV_PROJECT", "env-proj-123")
+	t.Setenv("OPENAGY_AICODE_PROJECT", "")
+
+	var gotProjects []string
+	backend := NewAICodeLiveBackend("ya29.test-token")
+	backend.SetStreamFactory(func(ctx context.Context, endpoint string, token string) (AICodeStream, func(), error) {
+		md, _ := metadata.FromOutgoingContext(ctx)
+		gotProjects = append(gotProjects, md.Get("x-goog-user-project")...)
+		return &mockAICodeStream{}, func() {}, nil
+	})
+
+	// 1. Env fallback
+	sess1, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn"})
+	if err != nil {
+		t.Fatalf("CreateSession 1: %v", err)
+	}
+	_ = sess1.Close()
+
+	// 2. Backend override
+	backend.SetQuotaProject("backend-proj-456")
+	sess2, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn"})
+	if err != nil {
+		t.Fatalf("CreateSession 2: %v", err)
+	}
+	_ = sess2.Close()
+
+	// 3. Per-session config override
+	sess3, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn", QuotaProject: "cfg-proj-789"})
+	if err != nil {
+		t.Fatalf("CreateSession 3: %v", err)
+	}
+	_ = sess3.Close()
+
+	want := []string{"env-proj-123", "backend-proj-456", "cfg-proj-789"}
+	if len(gotProjects) != len(want) {
+		t.Fatalf("gotProjects = %v, want %v", gotProjects, want)
+	}
+	for i := range want {
+		if gotProjects[i] != want[i] {
+			t.Errorf("gotProjects[%d] = %q, want %q", i, gotProjects[i], want[i])
+		}
+	}
+}
+
+type delayedErrAICodeStream struct {
+	mockAICodeStream
+	delay time.Duration
+	err   error
+}
+
+func (d *delayedErrAICodeStream) RecvMsg(target any) error {
+	time.Sleep(d.delay)
+	return d.err
+}
+
+func TestAICodeLiveSession_WaitHandshakeAsyncPermissionDenied(t *testing.T) {
+	wantErr := errors.New("rpc error: code = PermissionDenied desc = The caller does not have permission")
+	stream := &delayedErrAICodeStream{
+		delay: 40 * time.Millisecond,
+		err:   wantErr,
+	}
+
+	backend := NewAICodeLiveBackend("ya29.test-token")
+	backend.SetStreamFactory(func(ctx context.Context, endpoint string, token string) (AICodeStream, func(), error) {
+		return stream, func() {}, nil
+	})
+
+	sess, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn"})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close()
+
+	hs, ok := sess.(HandshakeAwareSession)
+	if !ok {
+		t.Fatalf("expected AICodeLiveSession to implement HandshakeAwareSession")
+	}
+
+	start := time.Now()
+	hsErr := hs.WaitHandshake(1 * time.Second)
+	elapsed := time.Since(start)
+	if hsErr == nil || hsErr.Error() != wantErr.Error() {
+		t.Fatalf("WaitHandshake err = %v, want %v", hsErr, wantErr)
+	}
+	if elapsed >= 500*time.Millisecond {
+		t.Fatalf("WaitHandshake took %v; expected early wakeup on closedCh", elapsed)
 	}
 }

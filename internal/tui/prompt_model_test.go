@@ -42,8 +42,7 @@ func TestPromptModel_DeleteSelection(t *testing.T) {
 	var p PromptModel
 	p.input = tas.New()
 	p.input.SetValue("abcdef")
-	p.InputSelStart = 1
-	p.InputSelEnd = 4
+	p.SetRange(1, 4)
 	p.DeleteInputSelection()
 	if got := p.ComposerValue(); got != "aef" {
 		t.Fatalf("value = %q, want aef", got)
@@ -59,8 +58,7 @@ func TestPromptModel_ClearResetsSelection(t *testing.T) {
 	var p PromptModel
 	p.input = tas.New()
 	p.input.SetValue("draft")
-	p.InputSelStart = 0
-	p.InputSelEnd = 5
+	p.SetRange(0, 5)
 	p.ClearComposer()
 	if p.HasInputSelection() || p.ComposerValue() != "" {
 		t.Fatalf("clear left value=%q selection=%v", p.ComposerValue(), p.HasInputSelection())

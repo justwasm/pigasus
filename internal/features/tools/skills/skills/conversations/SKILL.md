@@ -28,7 +28,7 @@ Shell commands the agent runs receive the server address in
 `ANTIGRAVITY_CSRF_TOKEN`. Send `POST` requests to:
 
 ```text
-http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/<Method>
+http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/<Method>
 ```
 
 Always include these headers:
@@ -54,7 +54,7 @@ Creates a conversation and optionally submits an initial text prompt. When
 
 ```bash
 curl -sS -X POST \
-  "http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/CreateConversation" \
+  "http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/CreateConversation" \
   -H "Content-Type: application/json" \
   -H "Connect-Protocol-Version: 1" \
   -H "x-antigravity-csrf-token: $ANTIGRAVITY_CSRF_TOKEN" \
@@ -96,7 +96,7 @@ conversations and agent-started child conversations are omitted by default.
 
 ```bash
 curl -sS -X POST \
-  "http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/ListConversations" \
+  "http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/ListConversations" \
   -H "Content-Type: application/json" \
   -H "Connect-Protocol-Version: 1" \
   -H "x-antigravity-csrf-token: $ANTIGRAVITY_CSRF_TOKEN" \
@@ -125,7 +125,7 @@ state.
 
 ```bash
 curl -sS -X POST \
-  "http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/GetConversation" \
+  "http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/GetConversation" \
   -H "Content-Type: application/json" \
   -H "Connect-Protocol-Version: 1" \
   -H "x-antigravity-csrf-token: $ANTIGRAVITY_CSRF_TOKEN" \
@@ -153,7 +153,7 @@ preserved.
 
 ```bash
 curl -sS -X POST \
-  "http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/UpdateConversation" \
+  "http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/UpdateConversation" \
   -H "Content-Type: application/json" \
   -H "Connect-Protocol-Version: 1" \
   -H "x-antigravity-csrf-token: $ANTIGRAVITY_CSRF_TOKEN" \
@@ -186,7 +186,7 @@ undone — to hide a conversation while keeping its transcript, set
 
 ```bash
 curl -sS -X POST \
-  "http://$ANTIGRAVITY_LS_ADDRESS/jetski.product.v1.ConversationService/DeleteConversation" \
+  "http://$ANTIGRAVITY_LS_ADDRESS/product.v1.ConversationService/DeleteConversation" \
   -H "Content-Type: application/json" \
   -H "Connect-Protocol-Version: 1" \
   -H "x-antigravity-csrf-token: $ANTIGRAVITY_CSRF_TOKEN" \

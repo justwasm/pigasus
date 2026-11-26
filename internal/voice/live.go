@@ -3,6 +3,7 @@ package voice
 
 import (
 	"context"
+	"time"
 )
 
 // LiveToolCall represents a tool or function invocation requested by the live talker model.
@@ -45,6 +46,10 @@ type LiveSessionConfig struct {
 	SystemPrompt string
 	APIKey       string
 	Endpoint     string
+	QuotaProject string
+	// DirectTools exposes direct local/web tools (search_web, fetch_url,
+	// run_command, read_file) alongside the Thinker-Talker declarations.
+	DirectTools bool
 }
 
 // LiveSession is a full-duplex live audio streaming session with an upstream AI engine.
@@ -79,6 +84,12 @@ type LiveSession interface {
 
 	// Close terminates the session cleanly.
 	Close() error
+}
+
+// HandshakeAwareSession can optionally be implemented by LiveSessions to report
+// immediate upstream handshake failures (e.g. gRPC or WebSocket auth/permission rejections).
+type HandshakeAwareSession interface {
+	WaitHandshake(timeout time.Duration) error
 }
 
 // LiveBackend creates full-duplex real-time voice sessions.

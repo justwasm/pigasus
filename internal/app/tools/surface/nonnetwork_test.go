@@ -135,9 +135,12 @@ func TestGrepSearch(t *testing.T) {
 	if strings.Contains(got, "a.go") || !strings.Contains(got, "sub/c.go") {
 		t.Errorf("grep_search include = %q", got)
 	}
-	// no match reports the reference-shaped empty message
-	if got := dispatch(t, reg, "grep_search", `{"pattern":"zzz-nope"}`); !strings.Contains(got, "No files were searched") {
+	// Files were searched, but none matched; distinguish this from an empty scope.
+	if got := dispatch(t, reg, "grep_search", `{"pattern":"zzz-nope"}`); got != "No matches found." {
 		t.Errorf("empty grep = %q", got)
+	}
+	if got := dispatch(t, reg, "grep_search", `{"pattern":"package","include":"*.absent"}`); got != "No files were searched, double check your search parameter" {
+		t.Errorf("unsearched grep = %q", got)
 	}
 	if _, err := reg.Dispatch(context.Background(), "grep_search", json.RawMessage(`{"pattern":"("}`)); err == nil {
 		t.Error("invalid regex accepted")

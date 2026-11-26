@@ -28,6 +28,20 @@ func (p *Panel) tabsLocked() []TabInfo {
 }
 
 func (p *Panel) bodyDimensionsLocked() (height, width int) {
+	if p.seams.OmniBar {
+		width = p.cols
+		if p.seams.Width != nil && p.seams.Width() >= 10 {
+			width = p.seams.Width()
+		}
+		height = p.rows
+		if p.seams.Height != nil && p.seams.Height() >= 5 {
+			height = p.seams.Height() - 1
+		}
+		if height < 4 {
+			height = 4
+		}
+		return height, width
+	}
 	width = p.cols
 	if p.seams.Width != nil && p.seams.Width() > 10 {
 		w := p.seams.Width() - 4
@@ -36,10 +50,19 @@ func (p *Panel) bodyDimensionsLocked() (height, width int) {
 		}
 	}
 	height = p.rows
-	if p.seams.Height != nil && p.seams.Height() > 6 {
-		h := p.seams.Height() - 4
-		if h > 4 {
-			height = h
+	if p.seams.Height != nil {
+		if p.seams.Standalone {
+			if p.seams.Height() > 4 {
+				h := p.seams.Height() - 2
+				if h >= 4 {
+					height = h
+				}
+			}
+		} else if p.seams.Height() > 6 {
+			h := p.seams.Height() - 4
+			if h > 4 {
+				height = h
+			}
 		}
 	}
 	if len(p.tabsLocked()) > 1 && height > 4 {
@@ -95,8 +118,47 @@ func (p *Panel) Render() string {
 
 	var b strings.Builder
 
+	if p.seams.OmniBar {
+		b.WriteString(p.renderOmniBarLocked(tabs, width, title, cwd, statusBadge))
+		b.WriteString("\n")
+
+		lines := p.renderVisibleLinesLocked(height, width)
+		for len(lines) < height {
+			lines = append(lines, "")
+		}
+		if p.menuOpen {
+			lines = p.overlayMenuLocked(lines, 1, width)
+		}
+		for i := 0; i < height; i++ {
+			line := ""
+			if i < len(lines) {
+				line = lines[i]
+			}
+			line = ansi.Truncate(line, width, "")
+			pad := width - ansi.StringWidth(line)
+			if pad < 0 {
+				pad = 0
+			}
+			b.WriteString(line)
+			if pad > 0 {
+				b.WriteString(strings.Repeat(" ", pad))
+			}
+			if i < height-1 {
+				b.WriteString("\n")
+			}
+		}
+		return b.String()
+	}
+
 	// Top border with title, clickable buttons, and controls hint
 	hint := "Esc: Detach · Alt+C: Copy · Alt+M: Menu"
+	if p.seams.PassThroughEsc {
+		if p.seams.Quit != nil {
+			hint = "Alt+C: Copy · Alt+M: Menu · Alt+Q: Quit"
+		} else {
+			hint = "Alt+C: Copy · Alt+M: Menu"
+		}
+	}
 	if p.copyMode {
 		hint = "hjkl: Move · v/V: Select · y/Enter: Yank · Esc/q: Exit"
 	} else if p.isScrollbackMode {
@@ -327,6 +389,330 @@ func (p *Panel) renderTabBarLocked(tabs []TabInfo, width int) string {
 		return joined + strings.Repeat(" ", gap) + hint
 	}
 	return joined
+}
+
+func shortenOmniCwd(cwd string, maxLen int) string {
+	if cwd == "" || maxLen <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(cwd) <= maxLen {
+		return cwd
+	}
+	parts := strings.Split(strings.TrimRight(cwd, "/"), "/")
+	if len(parts) > 0 {
+		base := parts[len(parts)-1]
+		if base != "" && ansi.StringWidth(base) <= maxLen {
+			return "…/" + base
+		}
+	}
+	return ansi.Truncate(cwd, maxLen, "…")
+}
+
+func (p *Panel) renderOmniBarLocked(tabs []TabInfo, width int, title, cwd, statusBadge string) string {
+	if len(tabs) == 0 {
+		tabs = []TabInfo{{
+			ID:     "",
+			Title:  title,
+			Active: true,
+			Exited: p.exitCode != nil,
+		}}
+	}
+
+	// Compact status badge for the omni bar
+	compactStatus := ansiGreen + "●" + ansiReset
+	switch {
+	case p.copyMode:
+		modeTag := "COPY"
+		if p.copyVisual == copyVisualChar {
+			modeTag = "VISUAL"
+		} else if p.copyVisual == copyVisualLine {
+			modeTag = "V-LINE"
+		}
+		compactStatus = ansiCyan + fmt.Sprintf("◆ %s %d,%d", modeTag, p.copyCol, p.copyRow) + ansiReset
+	case p.isScrollbackMode:
+		compactStatus = ansiCyan + fmt.Sprintf("◆ -%d", p.scrollOffset) + ansiReset
+	case strings.HasPrefix(p.status, "Running"):
+		compactStatus = ansiGreen + "●" + ansiReset
+	case strings.HasPrefix(p.status, "Exited"):
+		compactStatus = ansiYellow + "○ " + p.status + ansiReset
+	case strings.HasPrefix(p.status, "Error"):
+		compactStatus = ansiRed + "✗ " + p.status + ansiReset
+	default:
+		compactStatus = ansiGray + p.status + ansiReset
+	}
+
+	newBtnText := "[+]"
+	menuBtnText := "[≡ Menu]"
+	if width < 44 {
+		menuBtnText = "[≡]"
+	}
+	newBtn := ansiCyan + newBtnText + ansiReset
+	menuBtn := ansiCyan + menuBtnText + ansiReset
+	if p.menuOpen {
+		menuBtn = ansiBold + "\x1b[7m" + menuBtnText + ansiReset
+	}
+
+	// Build right-side candidates from richest to leanest so tabs get priority
+	// while keeping status + menu accessible.
+	type rightCandidate struct {
+		text       string
+		hasNew     bool
+		hasMenu    bool
+		newOffset  int
+		menuOffset int
+	}
+
+	buildRight := func(meta string, includeNew, includeMenu bool) rightCandidate {
+		var segs []string
+		if meta != "" {
+			segs = append(segs, meta)
+		}
+		segs = append(segs, compactStatus)
+		newOff := -1
+		menuOff := -1
+		prefixLen := 0
+		for _, s := range segs {
+			prefixLen += ansi.StringWidth(s) + 1
+		}
+		if includeNew {
+			newOff = prefixLen
+			segs = append(segs, newBtn)
+			prefixLen += ansi.StringWidth(newBtnText) + 1
+		}
+		if includeMenu {
+			menuOff = prefixLen
+			segs = append(segs, menuBtn)
+		}
+		return rightCandidate{
+			text:       strings.Join(segs, " "),
+			hasNew:     includeNew,
+			hasMenu:    includeMenu,
+			newOffset:  newOff,
+			menuOffset: menuOff,
+		}
+	}
+
+	var modeHint string
+	if p.copyMode {
+		modeHint = ansiGray + "hjkl:Move v:Sel y:Yank Esc:Exit" + ansiReset
+	} else if p.isScrollbackMode {
+		modeHint = ansiGray + "v:Copy End:Live" + ansiReset
+	}
+
+	sizeMeta := ansiDim + fmt.Sprintf("%dx%d", p.cols, p.rows) + ansiReset
+	cwdMeta := ""
+	if cwd != "" {
+		cwdMeta = ansiDim + shortenOmniCwd(cwd, 24) + ansiReset
+	}
+
+	var candidates []rightCandidate
+	if modeHint != "" {
+		candidates = append(candidates, buildRight(modeHint, true, true))
+	}
+	if cwdMeta != "" {
+		candidates = append(candidates, buildRight(cwdMeta+" · "+sizeMeta, true, true))
+		candidates = append(candidates, buildRight(cwdMeta, true, true))
+	}
+	candidates = append(candidates, buildRight(sizeMeta, true, true))
+	candidates = append(candidates, buildRight("", true, true))
+	candidates = append(candidates, buildRight("", false, true))
+	candidates = append(candidates, buildRight("", false, false))
+
+	// Pre-build tab segments
+	type tabSeg struct {
+		tab        TabInfo
+		rendered   string
+		labelWidth int
+		closeWidth int
+		totalWidth int
+	}
+	activeIdx := 0
+	allSegs := make([]tabSeg, len(tabs))
+	for i, tab := range tabs {
+		if tab.Active {
+			activeIdx = i
+		}
+		label := tab.Title
+		if label == "" {
+			label = tab.ID
+		}
+		if label == "" {
+			label = fmt.Sprintf("term-%d", i+1)
+		}
+		maxLabel := 20
+		if len(tabs) == 1 {
+			maxLabel = 32
+		}
+		if ansi.StringWidth(label) > maxLabel {
+			label = ansi.Truncate(label, maxLabel, "…")
+		}
+		var labelPart, closePart, suffixPart, rendered string
+		if tab.Active {
+			labelPart = fmt.Sprintf(" %d:%s ", i+1, label)
+			closePart = "×"
+			suffixPart = " "
+			rendered = ansiBold + "\x1b[7m" + labelPart + closePart + suffixPart + ansiReset
+		} else {
+			color := ansiGray
+			if tab.Exited {
+				color = ansiDim
+			}
+			labelPart = fmt.Sprintf(" %d:%s ", i+1, label)
+			closePart = "×"
+			suffixPart = " "
+			rendered = color + labelPart + closePart + suffixPart + ansiReset
+		}
+		allSegs[i] = tabSeg{
+			tab:        tab,
+			rendered:   rendered,
+			labelWidth: ansi.StringWidth(labelPart),
+			closeWidth: ansi.StringWidth(closePart),
+			totalWidth: ansi.StringWidth(rendered),
+		}
+	}
+
+	// Pick the richest right candidate that still leaves room for at least the active tab.
+	minTabNeed := allSegs[activeIdx].totalWidth
+	if minTabNeed > width/2 && width >= 20 {
+		minTabNeed = width / 2
+	}
+	chosenRight := candidates[len(candidates)-1]
+	for _, cand := range candidates {
+		rw := ansi.StringWidth(cand.text)
+		if rw+1+minTabNeed <= width {
+			chosenRight = cand
+			break
+		}
+	}
+	rightW := ansi.StringWidth(chosenRight.text)
+	availLeft := width - rightW - 1
+	if availLeft < 4 {
+		availLeft = width - rightW
+	}
+	if availLeft < 0 {
+		availLeft = 0
+	}
+
+	// Select a contiguous window of tabs around activeIdx that fits in availLeft.
+	startIdx, endIdx := activeIdx, activeIdx+1
+	usedW := allSegs[activeIdx].totalWidth
+	for {
+		expanded := false
+		if endIdx < len(allSegs) {
+			need := allSegs[endIdx].totalWidth + 1
+			hiddenAfter := len(allSegs) - (endIdx + 1) + startIdx
+			overflowReserve := 0
+			if hiddenAfter > 0 {
+				overflowReserve = len(fmt.Sprintf(" +%d", hiddenAfter))
+			}
+			if usedW+need+overflowReserve <= availLeft {
+				usedW += need
+				endIdx++
+				expanded = true
+			}
+		}
+		if startIdx > 0 {
+			need := allSegs[startIdx-1].totalWidth + 1
+			hiddenAfter := (len(allSegs) - endIdx) + (startIdx - 1)
+			overflowReserve := 0
+			if hiddenAfter > 0 {
+				overflowReserve = len(fmt.Sprintf(" +%d", hiddenAfter))
+			}
+			if usedW+need+overflowReserve <= availLeft {
+				usedW += need
+				startIdx--
+				expanded = true
+			}
+		}
+		if !expanded {
+			break
+		}
+	}
+
+	var leftParts []string
+	curX := 0
+	for i := startIdx; i < endIdx; i++ {
+		seg := allSegs[i]
+		rendered := seg.rendered
+		if curX+seg.totalWidth > availLeft && availLeft > 0 {
+			rendered = ansi.Truncate(rendered, availLeft-curX, "…")
+		}
+		segW := ansi.StringWidth(rendered)
+		if seg.tab.ID != "" && curX+seg.labelWidth <= availLeft {
+			p.hits = append(p.hits, hitRect{
+				row:    0,
+				startX: curX,
+				endX:   curX + seg.labelWidth,
+				kind:   hitActionSwitchTab,
+				id:     seg.tab.ID,
+			})
+		}
+		if (seg.tab.ID != "" || p.seams.Close != nil) && curX+seg.labelWidth+seg.closeWidth <= availLeft {
+			p.hits = append(p.hits, hitRect{
+				row:    0,
+				startX: curX + seg.labelWidth,
+				endX:   curX + seg.labelWidth + seg.closeWidth,
+				kind:   hitActionCloseTab,
+				id:     seg.tab.ID,
+			})
+		}
+		leftParts = append(leftParts, rendered)
+		curX += segW + 1
+	}
+
+	hiddenCount := len(allSegs) - (endIdx - startIdx)
+	if hiddenCount > 0 {
+		moreText := fmt.Sprintf("+%d", hiddenCount)
+		moreW := ansi.StringWidth(moreText)
+		if curX+moreW <= availLeft {
+			p.hits = append(p.hits, hitRect{
+				row:    0,
+				startX: curX,
+				endX:   curX + moreW,
+				kind:   hitActionOpenMenu,
+			})
+			leftParts = append(leftParts, ansiCyan+moreText+ansiReset)
+		}
+	}
+
+	leftStr := strings.Join(leftParts, " ")
+	leftW := ansi.StringWidth(leftStr)
+	if leftW > availLeft {
+		leftStr = ansi.Truncate(leftStr, availLeft, "")
+		leftW = ansi.StringWidth(leftStr)
+	}
+
+	gap := width - leftW - rightW
+	if gap < 0 {
+		gap = 0
+	}
+	rightStart := leftW + gap
+	if chosenRight.hasNew && chosenRight.newOffset >= 0 {
+		ns := rightStart + chosenRight.newOffset
+		p.hits = append(p.hits, hitRect{
+			row:    0,
+			startX: ns,
+			endX:   ns + ansi.StringWidth(newBtnText),
+			kind:   hitActionNewTab,
+		})
+	}
+	if chosenRight.hasMenu && chosenRight.menuOffset >= 0 {
+		ms := rightStart + chosenRight.menuOffset
+		p.hits = append(p.hits, hitRect{
+			row:    0,
+			startX: ms,
+			endX:   ms + ansi.StringWidth(menuBtnText),
+			kind:   hitActionOpenMenu,
+		})
+	}
+
+	bar := leftStr + strings.Repeat(" ", gap) + chosenRight.text
+	if bw := ansi.StringWidth(bar); bw > width {
+		bar = ansi.Truncate(bar, width, "")
+	} else if bw < width {
+		bar += strings.Repeat(" ", width-bw)
+	}
+	return bar
 }
 
 func (p *Panel) screenLinesWithoutCursorLocked() []string {

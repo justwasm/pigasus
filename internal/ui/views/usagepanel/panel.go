@@ -60,9 +60,14 @@ type State struct {
 
 // The frozen countdowns the reference's capture recorded. They are the
 // values the stub document shows when no refresh time is known. 【推测】
+//
+// The durations are unchanged; only their rendering follows AGY 1.5.17,
+// which formats countdowns of 24 hours or longer in days, hours and
+// minutes. 158h 18m is 6d 14h 18m and 64h 47m is 2d 16h 47m, so the
+// frozen rows and the live rows cannot disagree about the format.
 const (
-	frozenRefreshG = "158h 18m"
-	frozenRefreshO = "64h 47m"
+	frozenRefreshG = "6d 14h 18m"
+	frozenRefreshO = "2d 16h 47m"
 )
 
 // Doc is the /usage scrollable document.

@@ -122,6 +122,17 @@ const accountsWidgetCSS = `
 .agy-accounts-link:hover{text-decoration:underline}
 .agy-accounts-code{font-size:11px;color:var(--muted-foreground,#6e6e6e);font-variant-numeric:tabular-nums}
 .agy-accounts-note{margin-top:6px;padding:2px 6px;font-size:11px;color:var(--muted-foreground,#6e6e6e);word-break:break-word}
+/* The prepaid-wallet notice is the web UI's copy of the reference's
+   non-dismissible warning: a warning icon, the title in the foreground
+   colour and the explanation below it. It sits above the list, where the
+   account it belongs to is, and it has no close button — nothing the
+   browser can do restores the balance. */
+.agy-accounts-wallet{padding:6px 8px;border-radius:8px;border:1px solid #7f1d1d;background:rgba(220,38,38,.12);color:var(--foreground,#ccc);display:flex;flex-direction:column;gap:2px}
+/* The page-level notice sits in the widget's own notification lane, the
+   same corner the toasts use, so it never covers the app's title bar. */
+.agy-accounts-wallet-fixed{position:fixed;top:44px;right:12px;z-index:2147483000;width:min(360px,80vw);box-shadow:0 12px 32px rgba(0,0,0,.45);font:12px/1.45 system-ui,-apple-system,sans-serif}
+.agy-accounts-wallet-title{font-weight:600;font-size:11px;color:#fca5a5}
+.agy-accounts-wallet-body{font-size:11px;color:var(--muted-foreground,#6e6e6e)}
 .agy-accounts-toast{position:fixed;top:44px;right:12px;z-index:2147483001;max-width:min(360px,80vw);padding:8px 12px;border-radius:10px;border:1px solid var(--border,#191919);background:var(--background,#101010);color:var(--foreground,#ccc);box-shadow:0 12px 32px rgba(0,0,0,.45);font:12px/1.45 system-ui,-apple-system,sans-serif}
 .agy-accounts-toast.is-error{border-color:#7f1d1d;color:#fca5a5}
 `
@@ -139,6 +150,12 @@ const accountsWidgetScript = `(function () {
   var REMOVE = API + "/remove";
   var ADD = API + "/add";
   var HOST_ID = "agy-accounts-host";
+  // The reference's copy for an empty organization prepaid wallet (AGY
+  // 1.5.17). The title is the notice it renders; the body is the same
+  // release's explanation, and the notice has no close button because
+  // nothing the browser can do restores the balance.
+  var WALLET_TITLE = "Organization prepaid wallet is empty";
+  var WALLET_BODY = "Your organization has run out of Antigravity funds. Prompt generation is paused until your administrator adds funds.";
   var state = {
     open: false, list: null, note: "", loaded: false, pendingRemove: null,
     session: null, usage: null, usageEmail: "", usageError: "",
@@ -242,8 +259,13 @@ const accountsWidgetScript = `(function () {
   }
 
   // refreshCountdown renders the countdown to the next reset, the way
-  // the TUI's /usage panel renders it: hours and minutes, and the word
-  // "Refreshes".
+  // the TUI's /usage panel renders it: days/hours/minutes above 24
+  // hours, hours and minutes below it, and the word "Refreshes".
+  //
+  // AGY 1.5.17: "Improved /usage to format quota refresh countdowns of
+  // 24 hours or longer in days, hours, and minutes (such as in 3d 3h
+  // 59m instead of in 75h 59m)." This view mirrors the panel, so it
+  // carries the same 24-hour boundary.
   function refreshCountdown(resetAt) {
     if (!resetAt) { return ""; }
     var at = Date.parse(resetAt);
@@ -253,7 +275,11 @@ const accountsWidgetScript = `(function () {
     var mins = Math.floor(diff / 60000);
     if (mins < 1) { return "Refreshes in <1m"; }
     if (mins < 60) { return "Refreshes in " + mins + "m"; }
-    return "Refreshes in " + Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+    if (mins < 1440) {
+      return "Refreshes in " + Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+    }
+    var hours = Math.floor(mins / 60);
+    return "Refreshes in " + Math.floor(hours / 24) + "d " + (hours % 24) + "h " + (mins % 60) + "m";
   }
 
   // percentText renders the fraction that is left as a percentage.
@@ -390,6 +416,11 @@ const accountsWidgetScript = `(function () {
   function render() {
     var host = ensureHost();
     renderButton(host, state.list);
+    // The prepaid-wallet notice is *not* behind the panel: the reference
+    // shows it as a page-level warning, and a warning the user has to
+    // open a menu to see would be a warning they miss. AGY 1.5.17 renders
+    // it non-dismissible.
+    renderWalletNotice(host);
     if (!state.open) { closePanel(); return; }
     var panel = ensurePanel();
     // The list keeps its scroll position across a re-render: the panel
@@ -403,6 +434,10 @@ const accountsWidgetScript = `(function () {
     if (!payload) {
       panel.appendChild(el("div", "agy-accounts-note", "Loading..."));
     } else {
+      // The notice is repeated inside the panel: the panel is what a
+      // user opens to compare accounts, and the row that is out of
+      // funds is the row they are looking at.
+      if (payload.prepaidBalanceExhausted) { panel.appendChild(renderWalletBlock()); }
       panel.appendChild(el("div", "agy-accounts-head",
         payload.active ? ("Signed in as " + payload.active) : "Not signed in"));
       var list = el("div", "agy-accounts-list");
@@ -417,6 +452,39 @@ const accountsWidgetScript = `(function () {
     }
     if (state.note) { panel.appendChild(el("div", "agy-accounts-note", state.note)); }
     positionPanel(panel, host.querySelector(".agy-accounts-button"));
+  }
+
+  // renderWalletBlock draws the prepaid-wallet notice.
+  function renderWalletBlock() {
+    var wrap = el("div", "agy-accounts-wallet");
+    wrap.setAttribute("role", "alert");
+    wrap.appendChild(el("div", "agy-accounts-wallet-title", WALLET_TITLE));
+    wrap.appendChild(el("div", "agy-accounts-wallet-body", WALLET_BODY));
+    return wrap;
+  }
+
+  // renderWalletNotice keeps the page-level notice in step with the list
+  // the server last answered.
+  //
+  // It lives in the body, not in the titlebar: the titlebar clips its
+  // overflow, and the notice is a line of text that must be readable
+  // without opening anything. It sits in the same top-right lane as the
+  // widget's toasts, never over the app's own chrome.
+  function renderWalletNotice(host) {
+    var node = document.getElementById("agy-accounts-wallet-notice");
+    var wanted = !!(state.list && state.list.prepaidBalanceExhausted);
+    if (!wanted) {
+      if (node) { node.remove(); }
+      return;
+    }
+    if (!node) {
+      node = el("div", "agy-accounts-wallet agy-accounts-wallet-fixed");
+      node.id = "agy-accounts-wallet-notice";
+      node.setAttribute("role", "alert");
+      node.appendChild(el("div", "agy-accounts-wallet-title", WALLET_TITLE));
+      node.appendChild(el("div", "agy-accounts-wallet-body", WALLET_BODY));
+      document.body.appendChild(node);
+    }
   }
 
   // reposition moves the panel with its button.
@@ -711,6 +779,7 @@ const accountsWidgetScript = `(function () {
     var host = ensureHost();
     renderButton(host, state.list);
     if (!state.loaded) { refresh(); }
+    renderWalletNotice(host);
     // The app re-renders its own chrome, so the fixup runs on every
     // change of the page: it is what makes a switch visible in the app
     // itself and not only in the widget's panel.

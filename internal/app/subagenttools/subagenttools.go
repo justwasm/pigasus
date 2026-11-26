@@ -70,6 +70,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/tools/web"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -149,6 +150,11 @@ type Deps struct {
 	Questions *subagentquestions.Manager
 	// OnAsk is called when a question is enqueued by a subagent.
 	OnAsk func(scope string)
+	// ImageGenerator is the optional image generation provider callback.
+	// When non-nil, the image-generator built-in subagent is launched as
+	// an LLM-driven agent with generate_image, view_file, and send_message
+	// tools instead of the offline deterministic handler.
+	ImageGenerator func(ctx context.Context, req web.GenerateImageRequest) (web.GenerateImageResult, error)
 }
 
 // BeforeToolCallGate is the optional policy hook a subagent's tool

@@ -2,22 +2,22 @@
 --- TEXT MATRIX ---
 00: |Modal Authorization Prompt:                                                     |
 01: |                                                                                |
-02: |┌─ Permission Required ────────────────────────────────────────────────────────┐|
-03: |                                                                                |
-04: |│ Tool: write_file                                                             │|
+02: |Tool permission                                                                 |
+03: |────────────────────────────────────────────────────────────────────────────────|
+04: |                                                                                |
 05: |                                                                                |
-06: |│ Path: /workspace/workspace/internal/tui/bridge.go                        │    |
-07: |│ Reason: Patch engine bridge to support Storybook playground event routing    │|
-08: |                                                                                |
-09: |│ [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback                   │|
+06: |Requesting permission for:                                                      |
+07: |   Tool: write_file                                                             |
+08: |  Path: /workspace/workspace/internal/tui/bridge.go                             |
+09: |  Reason: Patch engine bridge to support Storybook playground event routing     |
 10: |                                                                                |
-11: |└──────────────────────────────────────────────────────────────────────────────┘|
-12: |                                                                                |
-13: |                                                                                |
-14: |Shortcuts: [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback           |
-15: |                                                                                |
+11: |Allow invocation of this tool?                                                  |
+12: |> 1. Yes, run write_file                                                        |
+13: |  2. No, cancel                                                                 |
+14: |                                                                                |
+15: |  ↑/↓ Navigate                                                                  |
 16: |                                                                                |
-17: |                                                                                |
+17: |Shortcuts: [y] Approve once  [a] Always allow  [n] Deny  [d] Feedback           |
 18: |                                                                                |
 19: |                                                                                |
 20: |                                                                                |
@@ -27,22 +27,22 @@
 --- ATTRIBUTE MATRIX ---
 00: [0:27] bold
 01: (plain)
-02: [0:3] fg=#657b83 | [3:22] fg=#cb4b16 | [22:80] fg=#657b83
-03: (plain)
-04: [0:1] fg=#657b83 | [2:7] fg=#657b83 | [8:18] fg=#268bd2,bold | [79:80] fg=#657b83
+02: [0:15] bold
+03: [0:80] fg=#657b83
+04: (plain)
 05: (plain)
-06: [0:1] fg=#657b83 | [2:7] fg=#657b83 | [75:76] fg=#657b83
-07: [0:1] fg=#657b83 | [2:9] fg=#657b83 | [79:80] fg=#657b83
-08: (plain)
-09: [0:1] fg=#657b83 | [2:5] fg=#268bd2,bold | [6:18] fg=#268bd2,bold | [20:23] fg=#268bd2,bold | [38:41] fg=#268bd2,bold | [48:51] fg=#268bd2,bold | [79:80] fg=#657b83
+06: [0:26] fg=#657b83
+07: [3:8] fg=#657b83
+08: [2:7] fg=#657b83
+09: [2:9] fg=#657b83
 10: (plain)
-11: [0:80] fg=#657b83
-12: (plain)
-13: (plain)
-14: [0:69] fg=#657b83
-15: (plain)
+11: [0:30] bold
+12: [0:24] fg=#268bd2,bold
+13: [2:15] fg=#657b83
+14: (plain)
+15: [0:14] fg=#657b83
 16: (plain)
-17: (plain)
+17: [0:69] fg=#657b83
 18: (plain)
 19: (plain)
 20: (plain)

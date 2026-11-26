@@ -91,9 +91,23 @@ type ConversationModel struct {
 	// thinking and its snippet drive the live thought row.
 	thinking            bool
 	thinkingSince       time.Time
+	thinkingElapsed     time.Duration
 	liveThinking        string
 	liveThinkingSnippet string
 	liveThoughtRunIdx   int
+
+	// phaseTimer tracks elapsed time for the active phase (thinking, tool, generating/working).
+	phaseTimer activityPhaseTimer
+	toolSeq    int
+
+	// Mid-turn quota refresh tracking (reference behaviour since 1.5.16, unchanged
+	// in 1.5.17).
+	turnStartedAt        time.Time
+	lastQuotaRefreshAt   time.Time
+	quotaRefreshInFlight bool
+
+	// stepTray tracks the live checklist from update_steps during a turn.
+	stepTray stepTray
 
 	// spinner is the streaming spinner.
 	spinner sp.Model
@@ -177,6 +191,57 @@ func (c *ConversationModel) ModelRetryStatus() (string, bool) {
 // performs the I/O they imply (session appends, persistence, transcript
 // document edits); the model decides what the turn's state is.
 
+// activityPhaseTimer tracks elapsed wall-clock time for the current live
+// activity phase (thinking, a specific running tool, or generating/working),
+// resetting whenever the phase or tool changes.
+type activityPhaseTimer struct {
+	key       string
+	startedAt time.Time
+	frozen    time.Duration
+	active    bool
+}
+
+func (t *activityPhaseTimer) reset() {
+	*t = activityPhaseTimer{}
+}
+
+func (t *activityPhaseTimer) track(key string, now time.Time) {
+	if key == "" {
+		t.reset()
+		return
+	}
+	if t.active && t.key == key {
+		return
+	}
+	t.key = key
+	t.startedAt = now
+	t.frozen = 0
+	t.active = true
+}
+
+func (t *activityPhaseTimer) freeze(now time.Time) {
+	if !t.active || t.startedAt.IsZero() {
+		return
+	}
+	d := now.Sub(t.startedAt)
+	if d < 0 {
+		d = 0
+	}
+	t.frozen = d
+	t.active = false
+}
+
+func (t *activityPhaseTimer) elapsed(now time.Time) time.Duration {
+	if t.active && !t.startedAt.IsZero() {
+		d := now.Sub(t.startedAt)
+		if d < 0 {
+			return 0
+		}
+		return d
+	}
+	return t.frozen
+}
+
 // BeginThinking starts a thought block. It reports whether this call opened
 // the block, so the host only paints the first thought once.
 func (c *ConversationModel) BeginThinking(now time.Time) bool {
@@ -190,6 +255,7 @@ func (c *ConversationModel) BeginThinking(now time.Time) bool {
 	c.liveThinkingSnippet = ""
 	c.liveThoughtRunIdx = -1
 	c.streaming = true
+	c.phaseTimer.track("thinking", now)
 	return true
 }
 
@@ -199,6 +265,7 @@ func (c *ConversationModel) AppendThought(delta string, now time.Time) {
 	if !c.thinking {
 		c.thinking = true
 		c.thinkingSince = now
+		c.phaseTimer.track("thinking", now)
 	}
 	c.streaming = true
 	c.liveThinking += delta
@@ -208,7 +275,13 @@ func (c *ConversationModel) AppendThought(delta string, now time.Time) {
 // ClearThinking drops the live thought buffers once the block is finished.
 // The finished rows are painted by the host before it calls this.
 func (c *ConversationModel) ClearThinking() {
+	if !c.thinkingSince.IsZero() {
+		if d := time.Since(c.thinkingSince); d > 0 {
+			c.thinkingElapsed += d
+		}
+	}
 	c.thinking = false
+	c.thinkingSince = time.Time{}
 	c.liveThinking = ""
 	c.liveThinkingSnippet = ""
 }
@@ -226,6 +299,13 @@ func (c *ConversationModel) AppendReplyChunk(chunk string) {
 	c.streamedText = true
 	c.batchBreak = true
 	c.streaming = true
+	if c.activeTool == "" && !c.thinking {
+		key := "generating"
+		if c.anyToolRun {
+			key = "working"
+		}
+		c.phaseTimer.track(key, time.Now())
+	}
 }
 
 // BeginToolRun marks a call as running and opens the tool phase.
@@ -233,6 +313,8 @@ func (c *ConversationModel) BeginToolRun(name string) {
 	c.activeTool = name
 	c.anyToolRun = true
 	c.streaming = true
+	c.toolSeq++
+	c.phaseTimer.track(fmt.Sprintf("tool:%d:%s", c.toolSeq, name), time.Now())
 }
 
 // BeginToolResult closes the running call before its finished row is drawn.
@@ -241,6 +323,19 @@ func (c *ConversationModel) BeginToolResult() {
 	c.replyStart = -1
 	c.liveTextLines = 0
 	c.liveReplyBuf = ""
+	c.phaseTimer.track("working", time.Now())
+}
+
+const midTurnQuotaRefreshInterval = 60 * time.Second
+
+func (c *ConversationModel) shouldRefreshQuotaWhileStreaming(now time.Time) bool {
+	if !c.streaming || c.turnStartedAt.IsZero() || c.quotaRefreshInFlight {
+		return false
+	}
+	if c.lastQuotaRefreshAt.IsZero() {
+		return now.Sub(c.turnStartedAt) >= midTurnQuotaRefreshInterval
+	}
+	return now.Sub(c.lastQuotaRefreshAt) >= midTurnQuotaRefreshInterval
 }
 
 // EndStream closes a streamed turn: no reply region, no live reply index and
@@ -250,5 +345,13 @@ func (c *ConversationModel) EndStream() {
 	c.liveReplyIdx = -1
 	c.streaming = false
 	c.thinking = false
+	c.thinkingSince = time.Time{}
+	c.thinkingElapsed = 0
+	c.toolSeq = 0
+	c.phaseTimer.reset()
+	c.turnStartedAt = time.Time{}
+	c.lastQuotaRefreshAt = time.Time{}
+	c.quotaRefreshInFlight = false
+	c.stepTray.reset()
 	c.modelRetry = nil
 }

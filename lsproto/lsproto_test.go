@@ -21,14 +21,14 @@ func newTestCodec(t *testing.T) *Codec {
 }
 
 // TestServiceMethodCount pins the size of the surface the web UI
-// speaks. The reference's LanguageServerService declares 373 RPCs
-// (added 6 methods and removed 1 in CL 1017595969 / Antigravity 2.31.0:
-// CancelLogin, GetLoginSession, GetOnboardingPersonas, SearchGcpProjects,
-// SubmitLoginAuthCode, SwitchLoginToAuthCode; removed GetWorkspaceGitHubPullRequests).
+// speaks. The reference's LanguageServerService declares 378 RPCs
+// (added 5 methods in Antigravity 2.34.0: CloneGitHubRepo,
+// GetHubOAuthAccessToken, GetProjectTrustStatus, IncludeBundleMember,
+// SetWorkspaceTrust).
 func TestServiceMethodCount(t *testing.T) {
 	c := newTestCodec(t)
-	if got := c.MethodCount(); got != 373 {
-		t.Fatalf("MethodCount = %d, want 373", got)
+	if got := c.MethodCount(); got != 378 {
+		t.Fatalf("MethodCount = %d, want 378", got)
 	}
 	// Check new methods across releases:
 	for _, m := range []string{
@@ -40,6 +40,8 @@ func TestServiceMethodCount(t *testing.T) {
 		"FetchSandboxPort", "GetDefinition", "GetReferences", "StartMcpOAuthSignIn",
 		"CancelLogin", "GetLoginSession", "GetOnboardingPersonas",
 		"SearchGcpProjects", "SubmitLoginAuthCode", "SwitchLoginToAuthCode",
+		"CloneGitHubRepo", "GetHubOAuthAccessToken", "GetProjectTrustStatus",
+		"IncludeBundleMember", "SetWorkspaceTrust",
 	} {
 		if !c.HasMethod(m) {
 			t.Errorf("expected method %s to exist", m)

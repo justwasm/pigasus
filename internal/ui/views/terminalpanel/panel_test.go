@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 )
 
@@ -361,5 +362,302 @@ func TestTerminalPanel_MultiSessionTabBar(t *testing.T) {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) > 13 {
 		t.Fatalf("expected rendered lines (%d) to fit inside viewport height 14 minus status line", len(lines))
+	}
+}
+
+func TestTerminalPanel_PassThroughEscAndStandalone(t *testing.T) {
+	var written []byte
+	var detached, quit bool
+
+	p := terminalpanel.New(20, 100, terminalpanel.Seams{
+		PassThroughEsc: true,
+		Standalone:     true,
+		Width:          func() int { return 100 },
+		Height:         func() int { return 24 },
+		WriteInput: func(b []byte) error {
+			written = append(written, b...)
+			return nil
+		},
+		Detach: func() tea.Cmd {
+			detached = true
+			return nil
+		},
+		Quit: func() tea.Cmd {
+			quit = true
+			return nil
+		},
+	})
+
+	// Standalone fills full 24 rows (1 top + 22 body + 1 bottom)
+	rendered := p.Render()
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("standalone rendered lines = %d, want 24", len(lines))
+	}
+	if strings.Contains(rendered, "Esc: Detach") {
+		t.Fatalf("standalone header should not show Esc: Detach:\n%s", lines[0])
+	}
+	if !strings.Contains(rendered, "Alt+Q: Quit") {
+		t.Fatalf("standalone header should show Alt+Q: Quit:\n%s", lines[0])
+	}
+
+	// Esc in live mode passes 0x1B to PTY and does NOT detach
+	handled, _ := p.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled {
+		t.Fatal("expected Esc to be handled")
+	}
+	if detached || quit {
+		t.Fatalf("Esc must not detach (%v) or quit (%v) when PassThroughEsc=true", detached, quit)
+	}
+	if len(written) != 1 || written[0] != 0x1B {
+		t.Fatalf("Esc written = %v, want [0x1B]", written)
+	}
+	written = nil
+
+	// Shift+Tab encodes as CSI Z
+	p.HandleKey(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})
+	if string(written) != "\x1b[Z" {
+		t.Fatalf("Shift+Tab written = %q, want \\x1b[Z", written)
+	}
+}
+
+func TestTerminalPanel_OmniBarBorderlessAndMenu(t *testing.T) {
+	var switchedTo string
+	var newTabCalled bool
+	tabs := []terminalpanel.TabInfo{
+		{ID: "t1", Title: "zsh", Active: true},
+		{ID: "t2", Title: "pigasus", Active: false},
+		{ID: "t3", Title: "server", Active: false},
+	}
+
+	p := terminalpanel.New(23, 80, terminalpanel.Seams{
+		PassThroughEsc: true,
+		Standalone:     true,
+		OmniBar:        true,
+		Width:          func() int { return 80 },
+		Height:         func() int { return 24 },
+		Cwd:            func() string { return "/Users/gear/GitHub/openagy" },
+		Tabs:           func() []terminalpanel.TabInfo { return tabs },
+		NewTab: func() tea.Cmd {
+			newTabCalled = true
+			return nil
+		},
+		SwitchTab: func(id string) tea.Cmd {
+			switchedTo = id
+			return nil
+		},
+		Quit: func() tea.Cmd { return nil },
+	})
+	p.WriteOutput([]byte("FULL_BLEED_LINE_1\r\nFULL_BLEED_LINE_2"))
+
+	rendered := p.Render()
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("OmniBar rendered lines = %d, want 24 (1 omni bar + 23 body)", len(lines))
+	}
+	if strings.Contains(rendered, "╭─") || strings.Contains(rendered, "╰─") || strings.Contains(rendered, "│ ") {
+		t.Fatalf("OmniBar should not render box borders:\n%s", rendered)
+	}
+	topPlain := ansi.Strip(lines[0])
+	if !strings.Contains(topPlain, "1:zsh") || !strings.Contains(topPlain, "2:pigasus") || !strings.Contains(topPlain, "[≡ Menu]") {
+		t.Fatalf("OmniBar top row missing tabs or menu button: %q", topPlain)
+	}
+	if !strings.HasPrefix(ansi.Strip(lines[1]), "FULL_BLEED_LINE_1") {
+		t.Fatalf("expected full-bleed body starting at col 0 on row 1, got %q", ansi.Strip(lines[1]))
+	}
+
+	// Selection extraction in OmniBar mode preserves col 0 and last row
+	sel := terminalpanel.ExtractSelectionTextWithOptions(lines, 0, 0, 2, 16, true, true)
+	if sel != "FULL_BLEED_LINE_1\nFULL_BLEED_LINE_2" {
+		t.Fatalf("ExtractSelectionTextWithOptions = %q", sel)
+	}
+
+	// Click on tab 2 in OmniBar row 0
+	tab2Byte := strings.Index(topPlain, "2:pigasus")
+	if tab2Byte < 0 {
+		t.Fatalf("could not locate 2:pigasus in %q", topPlain)
+	}
+	tab2X := ansi.StringWidth(topPlain[:tab2Byte])
+	handled, _ := p.HandleMouse(tea.Mouse{X: tab2X + 1, Y: 0, Button: tea.MouseLeft}, false, false)
+	if !handled || switchedTo != "t2" {
+		t.Fatalf("click on tab 2: handled=%v switchedTo=%q", handled, switchedTo)
+	}
+
+	// Click on [+] button in OmniBar row 0
+	plusByte := strings.Index(topPlain, "[+]")
+	if plusByte < 0 {
+		t.Fatalf("could not locate [+] in %q", topPlain)
+	}
+	plusX := ansi.StringWidth(topPlain[:plusByte])
+	handled, _ = p.HandleMouse(tea.Mouse{X: plusX + 1, Y: 0, Button: tea.MouseLeft}, false, false)
+	if !handled || !newTabCalled {
+		t.Fatalf("click on [+]: handled=%v newTabCalled=%v", handled, newTabCalled)
+	}
+
+	// Open menu and verify session metadata moved into menu header
+	p.SetMenuOpen(true)
+	menuFrame := ansi.Strip(p.Render())
+	if !strings.Contains(menuFrame, "Terminal Menu") || !strings.Contains(menuFrame, "80x23") || !strings.Contains(menuFrame, "cwd: /Users/gear/GitHub/openagy") {
+		t.Fatalf("expected session metadata inside menu:\n%s", menuFrame)
+	}
+}
+
+func TestTerminalPanel_ModifiedKeyPassthrough(t *testing.T) {
+	var written []byte
+	p := terminalpanel.New(24, 80, terminalpanel.Seams{
+		PassThroughEsc: true,
+		WriteInput: func(data []byte) error {
+			written = append(written, data...)
+			return nil
+		},
+	})
+
+	cases := []struct {
+		name string
+		key  tea.Key
+		want []byte
+	}{
+		{
+			name: "Alt+Backspace (macOS Option+Backspace)",
+			key:  tea.Key{Code: tea.KeyBackspace, Mod: tea.ModAlt},
+			want: []byte{0x1B, 0x7F},
+		},
+		{
+			name: "Ctrl+Backspace",
+			key:  tea.Key{Code: tea.KeyBackspace, Mod: tea.ModCtrl},
+			want: []byte{0x08},
+		},
+		{
+			name: "Ctrl+Alt+Backspace",
+			key:  tea.Key{Code: tea.KeyBackspace, Mod: tea.ModCtrl | tea.ModAlt},
+			want: []byte{0x1B, 0x08},
+		},
+		{
+			name: "Alt+Enter",
+			key:  tea.Key{Code: tea.KeyEnter, Mod: tea.ModAlt},
+			want: []byte{0x1B, '\r'},
+		},
+		{
+			name: "Alt+Tab",
+			key:  tea.Key{Code: tea.KeyTab, Mod: tea.ModAlt},
+			want: []byte{0x1B, '\t'},
+		},
+		{
+			name: "Alt+Shift+Tab",
+			key:  tea.Key{Code: tea.KeyTab, Mod: tea.ModAlt | tea.ModShift},
+			want: []byte("\x1b[1;4Z"),
+		},
+		{
+			name: "Alt+Esc",
+			key:  tea.Key{Code: tea.KeyEsc, Mod: tea.ModAlt},
+			want: []byte{0x1B, 0x1B},
+		},
+		{
+			name: "Ctrl+Alt+A",
+			key:  tea.Key{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt},
+			want: []byte{0x1B, 0x01},
+		},
+		{
+			name: "Ctrl+Alt+Space",
+			key:  tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl | tea.ModAlt},
+			want: []byte{0x1B, 0x00},
+		},
+		{
+			name: "Ctrl+Slash",
+			key:  tea.Key{Code: '/', Mod: tea.ModCtrl},
+			want: []byte{0x1F},
+		},
+		{
+			name: "Alt+Shift+A",
+			key:  tea.Key{Code: 'a', ShiftedCode: 'A', Mod: tea.ModAlt | tea.ModShift},
+			want: []byte("\x1bA"),
+		},
+		{
+			name: "Alt+Delete",
+			key:  tea.Key{Code: tea.KeyDelete, Mod: tea.ModAlt},
+			want: []byte("\x1b[3;3~"),
+		},
+		{
+			name: "Ctrl+Left",
+			key:  tea.Key{Code: tea.KeyLeft, Mod: tea.ModCtrl},
+			want: []byte("\x1b[1;5D"),
+		},
+		{
+			name: "Shift+Up",
+			key:  tea.Key{Code: tea.KeyUp, Mod: tea.ModShift},
+			want: []byte("\x1b[1;2A"),
+		},
+		{
+			name: "Alt+F4",
+			key:  tea.Key{Code: tea.KeyF4, Mod: tea.ModAlt},
+			want: []byte("\x1b[1;3S"),
+		},
+		{
+			name: "Ctrl+F5",
+			key:  tea.Key{Code: tea.KeyF5, Mod: tea.ModCtrl},
+			want: []byte("\x1b[15;5~"),
+		},
+	}
+
+	for _, tc := range cases {
+		written = nil
+		handled, _ := p.HandleKey(tc.key)
+		if !handled {
+			t.Fatalf("%s: expected handled=true", tc.name)
+		}
+		if string(written) != string(tc.want) {
+			t.Fatalf("%s: written = %q (%v), want %q (%v)", tc.name, written, written, tc.want, tc.want)
+		}
+	}
+
+	// When child app enables xterm modifyOtherKeys=2 (e.g. Bubbletea v2 / pigasus),
+	// Shift+Enter, Ctrl+Enter, Ctrl+Shift+Z, and Ctrl+Backspace preserve full modifiers,
+	// while Alt+Backspace continues sending universal ESC+DEL.
+	p.WriteOutput([]byte("\x1b[>4;2m"))
+	mokCases := []struct {
+		name string
+		key  tea.Key
+		want []byte
+	}{
+		{
+			name: "modifyOtherKeys Alt+Backspace",
+			key:  tea.Key{Code: tea.KeyBackspace, Mod: tea.ModAlt},
+			want: []byte{0x1B, 0x7F},
+		},
+		{
+			name: "modifyOtherKeys Shift+Enter",
+			key:  tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift},
+			want: []byte("\x1b[27;2;13~"),
+		},
+		{
+			name: "modifyOtherKeys Ctrl+Enter",
+			key:  tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl},
+			want: []byte("\x1b[27;5;13~"),
+		},
+		{
+			name: "modifyOtherKeys Ctrl+Shift+Z",
+			key:  tea.Key{Code: 'z', Mod: tea.ModCtrl | tea.ModShift},
+			want: []byte("\x1b[27;6;122~"),
+		},
+		{
+			name: "modifyOtherKeys Ctrl+Backspace",
+			key:  tea.Key{Code: tea.KeyBackspace, Mod: tea.ModCtrl},
+			want: []byte("\x1b[27;5;127~"),
+		},
+	}
+	for _, tc := range mokCases {
+		written = nil
+		p.HandleKey(tc.key)
+		if string(written) != string(tc.want) {
+			t.Fatalf("%s: written = %q, want %q", tc.name, written, tc.want)
+		}
+	}
+
+	// Reset modifyOtherKeys back to 0
+	p.WriteOutput([]byte("\x1b[>4m"))
+	written = nil
+	p.HandleKey(tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift})
+	if string(written) != "\r" {
+		t.Fatalf("after reset modifyOtherKeys, Shift+Enter = %q, want \\r", written)
 	}
 }

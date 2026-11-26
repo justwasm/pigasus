@@ -6,7 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/json/jsontext"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,19 +24,119 @@ import (
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
+type pendingACPReply struct {
+	allowed bool
+	choice  string
+	err     error
+}
+
+type pendingACPPrompt struct {
+	id        string
+	title     string
+	kind      interaction.Kind
+	questions []interaction.Question
+	options   []string
+	replyCh   chan pendingACPReply
+	once      sync.Once
+}
+
+func (p *pendingACPPrompt) resolve(allowed bool, choice string) {
+	if p == nil {
+		return
+	}
+	p.once.Do(func() {
+		p.replyCh <- pendingACPReply{allowed: allowed, choice: choice}
+	})
+}
+
+func (p *pendingACPPrompt) resolveErr(err error) {
+	if p == nil {
+		return
+	}
+	p.once.Do(func() {
+		p.replyCh <- pendingACPReply{err: err}
+	})
+}
+
+func isTransportClosedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed)
+}
+
 type acpV1Session struct {
-	cwd      string
-	mode     string
-	session  *Session
-	history  []agentlink.Message
-	commands []acp1.AvailableCommand
-	mu       sync.Mutex
+	cwd            string
+	mode           string
+	session        *Session
+	history        []agentlink.Message
+	commands       []acp1.AvailableCommand
+	pendingPrompts []*pendingACPPrompt
+	activeStream   *acp1.SessionStream
+	turns          acp.TurnTracker[acp1.SessionID]
+	mu             sync.Mutex
+}
+
+func (s *acpV1Session) setStream(st *acp1.SessionStream) {
+	if s == nil || st == nil {
+		return
+	}
+	s.mu.Lock()
+	s.activeStream = st
+	s.mu.Unlock()
+}
+
+func (s *acpV1Session) getStream(fallback *acp1.SessionStream) *acp1.SessionStream {
+	if s == nil {
+		return fallback
+	}
+	s.mu.Lock()
+	st := s.activeStream
+	s.mu.Unlock()
+	if st != nil {
+		return st
+	}
+	return fallback
+}
+
+func (s *acpV1Session) setPendingPrompt(p *pendingACPPrompt) {
+	if s == nil || p == nil {
+		return
+	}
+	s.mu.Lock()
+	s.pendingPrompts = append(s.pendingPrompts, p)
+	s.mu.Unlock()
+}
+
+func (s *acpV1Session) clearPendingPrompt(p *pendingACPPrompt) {
+	if s == nil || p == nil {
+		return
+	}
+	s.mu.Lock()
+	for i, cur := range s.pendingPrompts {
+		if cur == p {
+			s.pendingPrompts = append(s.pendingPrompts[:i], s.pendingPrompts[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *acpV1Session) getPendingPrompts() []*pendingACPPrompt {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.pendingPrompts)
 }
 
 var _ acp1.SessionModesReporter = (*acpV1Session)(nil)
@@ -422,7 +525,10 @@ func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRe
 	}
 	s, err := a.Lookup(ctx, params.SessionID)
 	if err != nil {
-		// External editor reconnection (e.g. Zed / VS Code): session might need restoration
+		if !hasPersistedSession(string(params.SessionID)) {
+			return nil, acp.SessionNotFound(params.SessionID)
+		}
+		// External editor reconnection (e.g. Zed / VS Code): restore persisted session
 		cwd := params.Cwd
 		if cwd == "" && a.srv != nil {
 			cwd = a.srv.cfg.Workspace
@@ -430,9 +536,9 @@ func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRe
 		var sess *Session
 		var sErr error
 		if a.srv != nil {
-			sess, sErr = a.srv.sessionFor(cwd, a.srv.cfg.Model)
+			sess, sErr = a.srv.sessionForID(string(params.SessionID), cwd, a.srv.cfg.Model)
 			if sErr != nil {
-				return nil, err
+				return nil, sErr
 			}
 		}
 		recoveredHist := loadHistoryFromTranscript(string(params.SessionID))
@@ -480,9 +586,10 @@ func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRe
 		}
 	}
 
-	// Replay retained history and slash commands to client upon reconnection
+	// Replay full retained history and slash commands to client upon reconnection
 	if a.client != nil {
 		stream := acp1.NewSessionStream(a.client, params.SessionID)
+		s.setStream(stream)
 		_ = stream.SendCommands(ctx, sessionCommandsV1(s))
 		s.mu.Lock()
 		hist := slices.Clone(s.history)
@@ -493,6 +600,16 @@ func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRe
 				_ = stream.SendUserMessage(ctx, msg.Content)
 			case "assistant":
 				_ = stream.SendText(ctx, msg.Content)
+			}
+		}
+		if pending := s.getPendingPrompts(); len(pending) > 0 {
+			reemit := func(c context.Context) {
+				for _, p := range pending {
+					dispatchPendingV1Prompt(c, stream, p)
+				}
+			}
+			if !acp.AfterReply(ctx, reemit) {
+				go reemit(context.Background())
 			}
 		}
 	}
@@ -510,6 +627,9 @@ func (a *ACPV1Agent) ResumeSession(ctx context.Context, params *acp1.ResumeSessi
 	}
 	s, err := a.Lookup(ctx, params.SessionID)
 	if err != nil {
+		if !hasPersistedSession(string(params.SessionID)) {
+			return nil, acp.SessionNotFound(params.SessionID)
+		}
 		cwd := params.Cwd
 		if cwd == "" && a.srv != nil {
 			cwd = a.srv.cfg.Workspace
@@ -517,9 +637,9 @@ func (a *ACPV1Agent) ResumeSession(ctx context.Context, params *acp1.ResumeSessi
 		var sess *Session
 		var sErr error
 		if a.srv != nil {
-			sess, sErr = a.srv.sessionFor(cwd, a.srv.cfg.Model)
+			sess, sErr = a.srv.sessionForID(string(params.SessionID), cwd, a.srv.cfg.Model)
 			if sErr != nil {
-				return nil, err
+				return nil, sErr
 			}
 		}
 		recoveredHist := loadHistoryFromTranscript(string(params.SessionID))
@@ -568,7 +688,18 @@ func (a *ACPV1Agent) ResumeSession(ctx context.Context, params *acp1.ResumeSessi
 
 	if a.client != nil {
 		stream := acp1.NewSessionStream(a.client, params.SessionID)
+		s.setStream(stream)
 		_ = stream.SendCommands(ctx, sessionCommandsV1(s))
+		if pending := s.getPendingPrompts(); len(pending) > 0 {
+			reemit := func(c context.Context) {
+				for _, p := range pending {
+					dispatchPendingV1Prompt(c, stream, p)
+				}
+			}
+			if !acp.AfterReply(ctx, reemit) {
+				go reemit(context.Background())
+			}
+		}
 	}
 
 	return &acp1.ResumeSessionResponse{
@@ -594,6 +725,7 @@ func loadHistoryFromTranscript(convID string) []agentlink.Message {
 	}
 	var messages []agentlink.Message
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -639,56 +771,169 @@ func ptr[T any](v T) *T {
 
 // Prompt implements acp1.Agent.
 func (a *ACPV1Agent) Prompt(ctx context.Context, params *acp1.PromptRequest) (*acp1.PromptResponse, error) {
-	return a.RunTurnResponse(ctx, params.SessionID, func(turnCtx context.Context, s *acpV1Session) (*acp1.PromptResponse, error) {
-		return a.runTurn(turnCtx, params.SessionID, s, extractPromptTextV1(params.Prompt))
+	return a.RunTurnResponse(context.WithoutCancel(ctx), params.SessionID, func(protocolCtx context.Context, s *acpV1Session) (*acp1.PromptResponse, error) {
+		// ACP's manager follows the connection even after WithoutCancel.
+		// Retained permission work instead belongs to the session, so it can
+		// resume through LoadSession on another connection. Keep the outer
+		// manager for ordered early session/cancel delivery, but forward only
+		// explicit cancellation, never a transport disconnect, to that work.
+		turnCtx, done, err := s.turns.Begin(context.Background(), params.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		forwardCancel := func() {
+			if acp.TurnCancelled(protocolCtx) {
+				s.turns.Cancel(params.SessionID)
+			}
+		}
+		stop := context.AfterFunc(protocolCtx, forwardCancel)
+		defer stop()
+		forwardCancel()
+
+		if a.client != nil {
+			s.setStream(acp1.NewSessionStream(a.client, params.SessionID))
+		}
+		var cfg Config
+		if a.srv != nil {
+			cfg = a.srv.cfg
+		}
+		parsed := parseACPPromptV1(params.Prompt, cfg)
+		response, err := a.runTurn(turnCtx, params.SessionID, s, parsed)
+		if acp.TurnCancelled(turnCtx) {
+			return &acp1.PromptResponse{StopReason: acp1.StopReasonCancelled}, nil
+		}
+		return response, err
 	})
 }
 
 func extractPromptTextV1(blocks []acp1.ContentBlock) string {
-	var texts []string
-	var resources []string
-	for _, block := range blocks {
-		if txt, ok := block.As[schemav1.ContentBlockText](); ok {
-			texts = append(texts, txt.Text)
-		} else if res, ok := block.As[schemav1.ContentBlockResource](); ok {
-			if tr, err := res.Resource.As[schemav1.TextResourceContents](); err == nil {
-				uri := tr.URI
-				path := uri
-				if strings.HasPrefix(path, "file://") {
-					path = strings.TrimPrefix(path, "file://")
-				}
-				header := uri
-				if path != "" {
-					header = path + " (editor contents)"
-				}
-				resources = append(resources, fmt.Sprintf("\n[Attached Resource: %s]\n%s", header, tr.Text))
-			}
-		}
-	}
-	prompt := strings.Join(texts, "\n")
-	if len(resources) > 0 {
-		if prompt != "" {
-			prompt += "\n"
-		}
-		prompt += strings.Join(resources, "\n")
-	}
-	return prompt
+	return parseACPPromptV1(blocks, Config{}).ModelPrompt
 }
 
-func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV1Session, promptText string) (*acp1.PromptResponse, error) {
-	trimmed := strings.TrimSpace(promptText)
-	if trimmed == "/clear" {
+func dispatchPendingV1Prompt(ctx context.Context, stream *acp1.SessionStream, p *pendingACPPrompt) {
+	if stream == nil || p == nil {
+		return
+	}
+	var opts []acp1.PermissionOption
+	if len(p.options) > 0 {
+		for i, opt := range p.options {
+			opts = append(opts, acp1.PermissionOption{
+				OptionID: acp1.PermissionOptionID(fmt.Sprintf("opt_%d", i)),
+				Name:     opt,
+				Kind:     acp1.PermissionOptionKindAllowOnce,
+			})
+		}
+		opts = append(opts, acp1.PermissionOption{
+			OptionID: "reject",
+			Name:     "Skip / Cancel",
+			Kind:     acp1.PermissionOptionKindRejectOnce,
+		})
+	} else {
+		opts = acp1.DefaultPermissionOptions()
+	}
+	title := p.title
+	choice, allowed, err := stream.RequestPermission(ctx, acp1.ToolCallUpdate{
+		ToolCallID: acp1.ToolCallID(p.id),
+		Title:      &title,
+	}, opts...)
+	if err != nil {
+		if ctx.Err() == nil && (isTransportClosedErr(err) || errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "closed")) {
+			return
+		}
+		p.resolveErr(err)
+		return
+	}
+	p.resolve(allowed, choice.Name)
+}
+
+type acpV1InteractionHost struct {
+	sess   *acpV1Session
+	stream *acp1.SessionStream
+}
+
+func (h *acpV1InteractionHost) Ask(ctx context.Context, req interaction.Request) (interaction.Answer, error) {
+	if req.Kind == interaction.KindQuestion && len(req.Questions) > 0 {
+		answers := make([]string, 0, len(req.Questions))
+		for _, q := range req.Questions {
+			p := &pendingACPPrompt{
+				id:        fmt.Sprintf("ask_%d", time.Now().UnixNano()),
+				title:     q.Prompt,
+				kind:      req.Kind,
+				questions: []interaction.Question{q},
+				options:   q.Options,
+				replyCh:   make(chan pendingACPReply, 1),
+			}
+			h.sess.setPendingPrompt(p)
+			go dispatchPendingV1Prompt(ctx, h.sess.getStream(h.stream), p)
+
+			var rep pendingACPReply
+			select {
+			case <-ctx.Done():
+				h.sess.clearPendingPrompt(p)
+				return interaction.Answer{Cancelled: true}, ctx.Err()
+			case rep = <-p.replyCh:
+				h.sess.clearPendingPrompt(p)
+			}
+			if rep.err != nil {
+				return interaction.Answer{Cancelled: true}, rep.err
+			}
+			if !rep.allowed {
+				return interaction.Answer{Cancelled: true}, nil
+			}
+			ans := rep.choice
+			if ans == "" && len(q.Options) > 0 {
+				ans = q.Options[0]
+			}
+			answers = append(answers, ans)
+		}
+		return interaction.Answer{Answers: answers, Text: strings.Join(answers, "\n")}, nil
+	}
+
+	title := req.ToolName
+	if req.Action != "" && req.Target != "" {
+		title = fmt.Sprintf("%s: %s", req.Action, req.Target)
+	} else if req.Reason != "" {
+		title = req.Reason
+	}
+	p := &pendingACPPrompt{
+		id:      fmt.Sprintf("ask_%d", time.Now().UnixNano()),
+		title:   title,
+		kind:    req.Kind,
+		replyCh: make(chan pendingACPReply, 1),
+	}
+	h.sess.setPendingPrompt(p)
+	defer h.sess.clearPendingPrompt(p)
+
+	go dispatchPendingV1Prompt(ctx, h.sess.getStream(h.stream), p)
+
+	select {
+	case <-ctx.Done():
+		return interaction.Answer{Cancelled: true}, ctx.Err()
+	case rep := <-p.replyCh:
+		if rep.err != nil {
+			return interaction.Answer{Cancelled: true}, rep.err
+		}
+		if !rep.allowed {
+			return interaction.Answer{Cancelled: true}, nil
+		}
+		return interaction.Answer{Allowed: true, Text: rep.choice}, nil
+	}
+}
+
+func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV1Session, parsed parsedACPPrompt) (*acp1.PromptResponse, error) {
+	if parsed.Command == "clear" && parsed.CommandArgs == "" {
 		s.mu.Lock()
 		s.history = nil
 		s.mu.Unlock()
 	}
-	if trimmed == "/tasks" {
+	if parsed.Command == "tasks" && parsed.CommandArgs == "" {
 		stream := acp1.NewSessionStream(a.client, sessID)
 		summary := formatTasksSummary()
 		_ = stream.SendText(ctx, summary)
 		return &acp1.PromptResponse{StopReason: acp1.StopReasonEndTurn}, nil
 	}
-	if trimmed == "/agents" {
+	if parsed.Command == "agents" && parsed.CommandArgs == "" {
 		stream := acp1.NewSessionStream(a.client, sessID)
 		summary := formatAgentsSummary(s.cwd)
 		_ = stream.SendText(ctx, summary)
@@ -701,17 +946,14 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 	s.mu.Lock()
 	turnHistory := append(slices.Clone(s.history), agentlink.Message{
 		Role:    "user",
-		Content: promptText,
+		Content: parsed.ModelPrompt,
 	})
 	s.mu.Unlock()
 
-	turn := agentturn.Turn{
-		Model:   s.session.Model,
-		History: turnHistory,
-	}
-
 	stream := acp1.NewSessionStream(a.client, sessID)
 	_ = stream.SendCommands(ctx, sessionCommandsV1(s))
+
+	turnCtx := interaction.WithHost(ctx, &acpV1InteractionHost{sess: s, stream: stream})
 
 	var origPromptUser func(context.Context, backend.ToolCall) (bool, error)
 	if pr, ok := s.session.Runner.(*toolrunner.PermissionRunner); ok && pr != nil {
@@ -721,109 +963,233 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 			if callID == "" {
 				callID = fmt.Sprintf("call_%s_%d", call.Name, time.Now().UnixNano())
 			}
-			var title *string
-			target := toolrunner.ToolTarget(call)
-			if target != "" {
-				t := fmt.Sprintf("%s: %s", call.Name, target)
-				title = &t
-			} else {
-				t := call.Name
-				title = &t
+			title := call.Name
+			if target := toolrunner.ToolTarget(call); target != "" {
+				title = fmt.Sprintf("%s: %s", call.Name, target)
 			}
-			_, allowed, err := stream.RequestPermission(callCtx, acp1.ToolCallUpdate{
-				ToolCallID: acp1.ToolCallID(callID),
-				Title:      title,
-			}, acp1.DefaultPermissionOptions()...)
-			return allowed, err
+			p := &pendingACPPrompt{
+				id:      callID,
+				title:   title,
+				kind:    interaction.KindPermission,
+				replyCh: make(chan pendingACPReply, 1),
+			}
+			s.setPendingPrompt(p)
+			defer s.clearPendingPrompt(p)
+
+			go dispatchPendingV1Prompt(callCtx, s.getStream(stream), p)
+
+			select {
+			case <-callCtx.Done():
+				return false, callCtx.Err()
+			case rep := <-p.replyCh:
+				return rep.allowed, rep.err
+			}
 		}
 		defer func() {
 			pr.PromptUser = origPromptUser
 		}()
 	}
 
-	frames, err := engine.Turn(ctx, turn)
+	var baseSubPrompt, baseSubOut, baseSubTotal int
+	if s.session.SubagentRegistry != nil {
+		baseSubPrompt, baseSubOut, baseSubTotal, _ = s.session.SubagentRegistry.TotalUsage()
+	}
+
+	var totalPromptTokens, totalOutputTokens, totalTokens uint64
+	var usageSent bool
+	var allAssistantText strings.Builder
+	stopReason := acp1.StopReasonEndTurn
+
+	runSingleTurn := func(hist []agentlink.Message) (string, bool, error) {
+		turn := agentturn.Turn{
+			Model:   s.session.Model,
+			History: hist,
+		}
+		frames, err := engine.Turn(turnCtx, turn)
+		if err != nil {
+			return "", false, err
+		}
+
+		inProgressTools := make(map[string]string)
+		var turnAssistant strings.Builder
+		var turnPrompt, turnOutput, turnTotal uint64
+		var turnFailed bool
+
+		for frame := range frames {
+			curStream := s.getStream(stream)
+			switch frame.Kind {
+			case agentlink.KindText:
+				turnAssistant.WriteString(frame.Text)
+				allAssistantText.WriteString(frame.Text)
+				_ = curStream.SendText(turnCtx, frame.Text)
+			case agentlink.KindThought:
+				_ = curStream.SendThought(turnCtx, frame.Text)
+			case agentlink.KindTool:
+				if frame.Tool != nil {
+					callID := acp1.ToolCallID(frame.ID)
+					if callID == "" {
+						callID = acp1.ToolCallID(fmt.Sprintf("call_%s", frame.Tool.Name))
+					}
+					if frame.Tool.Phase == agentlink.ToolStart {
+						inProgressTools[string(callID)] = frame.Tool.Name
+						var opts []acp1.ToolCallOption
+						if rawInput := rawJSONOrQuoted(frame.Tool.Args); rawInput != nil {
+							opts = append(opts, acp1.WithRawInput(rawInput))
+						}
+						_ = curStream.StartToolCall(turnCtx, callID, frame.Tool.Name, acp1.ToolKindExecute, opts...)
+					} else if frame.Tool.Phase == agentlink.ToolEnd {
+						delete(inProgressTools, string(callID))
+						failed := frame.Tool.Err || tools.IsFailureText(frame.Tool.Result)
+						resultText := frame.Tool.Result
+						if failed && resultText == "" {
+							resultText = frame.Error
+							if resultText == "" {
+								resultText = "Tool execution failed"
+							}
+						}
+						var opts []acp1.ToolCallOption
+						if rawOutput := rawJSONOrQuoted(resultText); rawOutput != nil {
+							opts = append(opts, acp1.WithRawOutput(rawOutput))
+						}
+						if resultText != "" {
+							opts = append(opts, acp1.WithToolContent(acp1.ToolText(resultText)))
+						}
+						if failed {
+							_ = curStream.FailToolCall(turnCtx, callID, opts...)
+						} else {
+							_ = curStream.CompleteToolCall(turnCtx, callID, opts...)
+						}
+					}
+				}
+			case agentlink.KindResult:
+				if frame.Error != "" {
+					turnFailed = true
+					stopReason = acp1.StopReasonRefusal
+				}
+				if frame.Usage != nil {
+					t := frame.Usage.TotalTokens
+					if t == 0 {
+						t = frame.Usage.PromptTokens + frame.Usage.CompletionTokens
+					}
+					turnPrompt = uint64(frame.Usage.PromptTokens)
+					turnOutput = uint64(frame.Usage.CompletionTokens)
+					turnTotal = uint64(t)
+				}
+			}
+		}
+
+		if len(inProgressTools) > 0 {
+			failCtx, cancel := context.WithTimeout(context.WithoutCancel(turnCtx), 2*time.Second)
+			curStream := s.getStream(stream)
+			for id := range inProgressTools {
+				var opts []acp1.ToolCallOption
+				if rawOutput := rawJSONOrQuoted("Cancelled"); rawOutput != nil {
+					opts = append(opts, acp1.WithRawOutput(rawOutput))
+				}
+				opts = append(opts, acp1.WithToolContent(acp1.ToolText("Cancelled")))
+				_ = curStream.FailToolCall(failCtx, acp1.ToolCallID(id), opts...)
+			}
+			cancel()
+		}
+
+		totalPromptTokens += turnPrompt
+		totalOutputTokens += turnOutput
+		totalTokens += turnTotal
+
+		return turnAssistant.String(), turnFailed, nil
+	}
+
+	firstReply, failed, err := runSingleTurn(turnHistory)
 	if err != nil {
 		return &acp1.PromptResponse{StopReason: acp1.StopReasonRefusal}, err
 	}
+	if firstReply != "" {
+		turnHistory = append(turnHistory, agentlink.Message{Role: "assistant", Content: firstReply})
+	}
 
-	stopReason := acp1.StopReasonEndTurn
+	// Keep session/prompt open while non-daemon background tasks or subagents are active,
+	// running follow-up turns as completion notifications arrive.
+	if !failed && !acp.TurnCancelled(turnCtx) && turnCtx.Err() == nil {
+		for {
+			if acp.TurnCancelled(turnCtx) || turnCtx.Err() != nil {
+				stopReason = acp1.StopReasonCancelled
+				break
+			}
+			if s.session.TaskInbox != nil && s.session.TaskInbox.Len() > 0 {
+				items := s.session.TaskInbox.Drain()
+				var parts []string
+				for _, item := range items {
+					parts = append(parts, agentturn.RenderTaskNotification(item))
+				}
+				turnHistory = append(turnHistory, agentlink.Message{
+					Role:    "user",
+					Content: strings.Join(parts, "\n\n"),
+				})
+				reply, f, tErr := runSingleTurn(turnHistory)
+				if tErr != nil {
+					stopReason = acp1.StopReasonRefusal
+					break
+				}
+				if reply != "" {
+					turnHistory = append(turnHistory, agentlink.Message{Role: "assistant", Content: reply})
+				}
+				if f {
+					break
+				}
+				continue
+			}
+			if !hasNonDaemonBackgroundWork(s.session) {
+				break
+			}
+			ticker := time.NewTicker(50 * time.Millisecond)
+			select {
+			case <-turnCtx.Done():
+				ticker.Stop()
+			case <-s.session.notifyWake:
+				ticker.Stop()
+			case <-ticker.C:
+				ticker.Stop()
+			}
+		}
+	}
+
+	if s.session.SubagentRegistry != nil {
+		curSubPrompt, curSubOut, curSubTotal, _ := s.session.SubagentRegistry.TotalUsage()
+		if curSubPrompt > baseSubPrompt {
+			totalPromptTokens += uint64(curSubPrompt - baseSubPrompt)
+		}
+		if curSubOut > baseSubOut {
+			totalOutputTokens += uint64(curSubOut - baseSubOut)
+		}
+		if curSubTotal > baseSubTotal {
+			totalTokens += uint64(curSubTotal - baseSubTotal)
+		}
+	}
+
 	var lastUsage *acp1.Usage
-	var usageSent bool
-	var assistantText strings.Builder
-
-	for frame := range frames {
-		switch frame.Kind {
-		case agentlink.KindText:
-			assistantText.WriteString(frame.Text)
-			_ = stream.SendText(ctx, frame.Text)
-		case agentlink.KindThought:
-			_ = stream.SendThought(ctx, frame.Text)
-		case agentlink.KindTool:
-			if frame.Tool != nil {
-				callID := acp1.ToolCallID(frame.ID)
-				if callID == "" {
-					callID = acp1.ToolCallID(fmt.Sprintf("call_%s", frame.Tool.Name))
-				}
-				if frame.Tool.Phase == agentlink.ToolStart {
-					var opts []acp1.ToolCallOption
-					if rawInput := rawJSONOrQuoted(frame.Tool.Args); rawInput != nil {
-						opts = append(opts, acp1.WithRawInput(rawInput))
-					}
-					_ = stream.StartToolCall(ctx, callID, frame.Tool.Name, acp1.ToolKindExecute, opts...)
-				} else if frame.Tool.Phase == agentlink.ToolEnd {
-					var opts []acp1.ToolCallOption
-					if rawOutput := rawJSONOrQuoted(frame.Tool.Result); rawOutput != nil {
-						opts = append(opts, acp1.WithRawOutput(rawOutput))
-					}
-					if frame.Tool.Result != "" {
-						opts = append(opts, acp1.WithToolContent(acp1.ToolText(frame.Tool.Result)))
-					}
-					if frame.Tool.Err {
-						_ = stream.FailToolCall(ctx, callID, opts...)
-					} else {
-						_ = stream.CompleteToolCall(ctx, callID, opts...)
-					}
-				}
-			}
-		case agentlink.KindResult:
-			if frame.Error != "" {
-				stopReason = acp1.StopReasonRefusal
-			}
-			if frame.Usage != nil {
-				total := frame.Usage.TotalTokens
-				if total == 0 {
-					total = frame.Usage.PromptTokens + frame.Usage.CompletionTokens
-				}
-				lastUsage = &acp1.Usage{
-					InputTokens:  uint64(frame.Usage.PromptTokens),
-					OutputTokens: uint64(frame.Usage.CompletionTokens),
-					TotalTokens:  uint64(total),
-				}
-				if total > 0 || frame.Usage.PromptTokens > 0 {
-					_ = stream.SendUsage(ctx, uint64(total), 1_000_000, nil)
-					usageSent = true
-				}
-			}
+	if totalTokens > 0 || totalPromptTokens > 0 || totalOutputTokens > 0 {
+		if totalTokens == 0 {
+			totalTokens = totalPromptTokens + totalOutputTokens
 		}
-	}
-
-	if !usageSent && lastUsage != nil && (lastUsage.TotalTokens > 0 || lastUsage.InputTokens > 0) {
-		used := lastUsage.TotalTokens
-		if used == 0 {
-			used = lastUsage.InputTokens + lastUsage.OutputTokens
+		lastUsage = &acp1.Usage{
+			InputTokens:  totalPromptTokens,
+			OutputTokens: totalOutputTokens,
+			TotalTokens:  totalTokens,
 		}
-		_ = stream.SendUsage(ctx, used, 1_000_000, nil)
+		_ = s.getStream(stream).SendUsage(context.WithoutCancel(turnCtx), totalTokens, 1_000_000, nil)
+		usageSent = true
 	}
+	_ = usageSent
 
-	if acp.TurnCancelled(ctx) {
+	if acp.TurnCancelled(turnCtx) || turnCtx.Err() != nil {
 		stopReason = acp1.StopReasonCancelled
 	}
 
-	if stopReason != acp1.StopReasonRefusal && stopReason != acp1.StopReasonCancelled && strings.TrimSpace(promptText) != "/clear" {
+	if stopReason != acp1.StopReasonRefusal && stopReason != acp1.StopReasonCancelled && !(parsed.Command == "clear" && parsed.CommandArgs == "") {
 		s.mu.Lock()
 		s.history = append(s.history,
-			agentlink.Message{Role: "user", Content: promptText},
-			agentlink.Message{Role: "assistant", Content: assistantText.String()},
+			agentlink.Message{Role: "user", Content: parsed.HistoryText},
+			agentlink.Message{Role: "assistant", Content: allAssistantText.String()},
 		)
 		s.mu.Unlock()
 	}
@@ -841,12 +1207,23 @@ func (a *ACPV1Agent) ListSessions(ctx context.Context, params *acp1.ListSessions
 
 // CancelSession implements acp1.Agent, stopping background tasks and subagents.
 func (a *ACPV1Agent) CancelSession(ctx context.Context, params *acp1.CancelNotification) error {
-	stopSessionTasks(string(params.SessionID))
-	return a.SessionManager.CancelSession(ctx, params)
+	var sess *Session
+	if s, err := a.Lookup(ctx, params.SessionID); err == nil && s != nil {
+		sess = s.session
+		s.turns.Cancel(params.SessionID)
+	}
+	err := a.SessionManager.CancelSession(ctx, params)
+	stopSessionWork(string(params.SessionID), sess)
+	return err
 }
 
 // CloseSession implements acp1.SessionCloser, stopping background tasks and subagents.
 func (a *ACPV1Agent) CloseSession(ctx context.Context, params *acp1.CloseSessionRequest) (*acp1.CloseSessionResponse, error) {
-	stopSessionTasks(string(params.SessionID))
+	var sess *Session
+	if s, err := a.Lookup(ctx, params.SessionID); err == nil && s != nil {
+		sess = s.session
+		s.turns.Cancel(params.SessionID)
+	}
+	stopSessionWork(string(params.SessionID), sess)
 	return a.SessionManager.CloseSession(ctx, params)
 }

@@ -77,6 +77,19 @@ func (r *RegistryRunner) Run(ctx context.Context, call backend.ToolCall) (string
 	return r.Reg.Dispatch(ctx, call.Name, call.Arguments)
 }
 
+// RunWithMedia executes a tool and retains binary attachments alongside its text.
+func (r *RegistryRunner) RunWithMedia(ctx context.Context, call backend.ToolCall) (backend.ToolOutput, error) {
+	out, err := r.Reg.DispatchMedia(ctx, call.Name, call.Arguments)
+	if err != nil {
+		return backend.ToolOutput{}, err
+	}
+	result := backend.ToolOutput{Text: out.Text}
+	for _, img := range out.Images {
+		result.Images = append(result.Images, backend.ImagePart{MIMEType: img.MIMEType, Data: append([]byte(nil), img.Data...)})
+	}
+	return result, nil
+}
+
 // PermissionRunner gates every tool call through the recovered permission policy.
 type PermissionRunner struct {
 	Inner   backend.ToolRunner
@@ -85,6 +98,8 @@ type PermissionRunner struct {
 	Denials []string
 	// PromptUser optionally asks user confirmation interactively when a call requires approval (Ask).
 	PromptUser func(ctx context.Context, call backend.ToolCall) (bool, error)
+	// PromptAmend optionally asks user confirmation and allows amending tool call arguments in place.
+	PromptAmend func(ctx context.Context, call *backend.ToolCall) (bool, error)
 }
 
 // Run gates tool execution through policy and sandbox checks.
@@ -94,13 +109,9 @@ func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 	if r.Policy != nil {
 		mode = r.Policy.Mode
 	}
-	// The sandbox check runs first: it is the stricter of the two gates,
-	// so an out-of-bounds command is refused without asking the user to
-	// approve it, except in Auto mode where commands leaving the sandbox
-	// prompt for approval before running (AGY 1.5.4).
 	pipeline := NewPipeline(
 		SandboxBoundaryMiddlewareWithMode(r.Sandbox, mode, r.PromptUser, onDenial),
-		PermissionGateMiddleware(r.Policy, r.PromptUser, onDenial),
+		PermissionGateMiddlewareWithAmend(r.Policy, r.PromptUser, r.PromptAmend, onDenial),
 		OutputBudgetMiddleware(tools.DefaultMaxResultTokens),
 	)
 	handler := pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {
@@ -110,6 +121,41 @@ func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 		return r.Inner.Run(ctx, c)
 	})
 	return handler(ctx, call)
+}
+
+// RunWithMedia preserves successful media while still applying the ordinary
+// sandbox, permission, and output-budget middleware to the textual result.
+func (r *PermissionRunner) RunWithMedia(ctx context.Context, call backend.ToolCall) (backend.ToolOutput, error) {
+	var attached backend.ToolOutput
+	onDenial := func(name string) { r.Denials = append(r.Denials, name) }
+	mode := ""
+	if r.Policy != nil {
+		mode = r.Policy.Mode
+	}
+	pipeline := NewPipeline(
+		SandboxBoundaryMiddlewareWithMode(r.Sandbox, mode, r.PromptUser, onDenial),
+		PermissionGateMiddlewareWithAmend(r.Policy, r.PromptUser, r.PromptAmend, onDenial),
+		OutputBudgetMiddleware(tools.DefaultMaxResultTokens),
+	)
+	handler := pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {
+		if r.Inner == nil {
+			return "", nil
+		}
+		if rich, ok := r.Inner.(backend.MediaToolRunner); ok {
+			out, err := rich.RunWithMedia(ctx, c)
+			if err == nil {
+				attached = out
+			}
+			return out.Text, err
+		}
+		return r.Inner.Run(ctx, c)
+	})
+	text, err := handler(ctx, call)
+	if err != nil {
+		return backend.ToolOutput{}, err
+	}
+	attached.Text = text
+	return attached, nil
 }
 
 // Gate is the verdict the permission gate reports for one tool call.
@@ -148,7 +194,7 @@ func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCal
 	if policy == nil {
 		return Gate{Allow: true}
 	}
-	v := policy.DecideNames(target, tools.PermissionNames(call.Name)...)
+	v := policy.DecideCall(target, call.Arguments, tools.PermissionNames(call.Name)...)
 	v = assessCommandVerdict(policy, call, target, v)
 	if v == permissions.Allow {
 		return Gate{Allow: true}

@@ -285,11 +285,9 @@ func (p *Panel) Hidden() bool {
 	if p == nil {
 		return false
 	}
-	raw, err := settings.Field("hideActiveItems")
-	if err != nil || raw == nil {
-		return false
-	}
-	b, ok := raw.(bool)
+	// Render-path read: the 250ms snapshot avoids an os.Stat per frame while
+	// /config writes invalidate the snapshot immediately.
+	b, ok := settings.CachedSnapshot().Bool("hideActiveItems")
 	return ok && b
 }
 

@@ -21,6 +21,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // Enabled reports the plugins.<name>.enabled flags of a config.json.
@@ -58,6 +60,9 @@ func Enabled(configPath string) map[string]bool {
 // disables a plugin; pass "" when no config applies (the workspace plugin
 // root has no config of its own).
 func LoadedDirs(pluginsDir, configPath string) []string {
+	if settings.ReadAdminPluginControls().PluginsDisabled {
+		return nil
+	}
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
 		return nil

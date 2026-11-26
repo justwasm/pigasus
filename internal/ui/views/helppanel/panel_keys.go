@@ -26,6 +26,17 @@ func (p *Panel) Update(key tea.Key) (bool, tea.Cmd) {
 		return false, nil
 	}
 	var cmd tea.Cmd
+	// Shift+↑ / Shift+↓ and PgUp / PgDn page the overlay's own window
+	// (AGY 1.5.17). They are checked before the plain navigation rule,
+	// because ClassifyListNavKey reads Shift+↑ as a one-row ↑.
+	switch {
+	case isPageUpKey(key):
+		p.pageUp(p.listLen())
+		return true, nil
+	case isPageDownKey(key):
+		p.pageDown(p.listLen())
+		return true, nil
+	}
 	switch tuilib.ClassifyListNavKey(key) {
 	case tuilib.NavRight:
 		p.nextTab()
@@ -194,4 +205,77 @@ func (p *Panel) listEnd(total int) {
 	if p.window < 0 {
 		p.window = 0
 	}
+}
+
+// PageRows is how far one page key moves the overlay's window.
+//
+// It is one window: the reference pages by the rows it shows, so a page
+// key never leaves a partial window behind.
+func (p *Panel) PageRows() int {
+	size := p.listWindowSize()
+	if size < 1 {
+		return 1
+	}
+	return size
+}
+
+// pageUp moves the window (and the cursor, which it keeps on screen) one
+// window up without wrapping — the overlay's own pager, not the list
+// rule's wrap-around navigation.
+func (p *Panel) pageUp(total int) {
+	p.pageBy(-p.PageRows(), total)
+}
+
+// pageDown moves the window one window down, clamped to the last row.
+func (p *Panel) pageDown(total int) {
+	p.pageBy(p.PageRows(), total)
+}
+
+// pageBy is the shared page arithmetic: the cursor moves by step rows and
+// the window follows it, both clamped into [0, total-1] / the last
+// window.
+func (p *Panel) pageBy(step, total int) {
+	if total <= 0 {
+		return
+	}
+	size := p.listWindowSize()
+	maxCursor := total - 1
+	maxWindow := total - size
+	if maxWindow < 0 {
+		maxWindow = 0
+	}
+	p.cursor += step
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
+	if p.cursor > maxCursor {
+		p.cursor = maxCursor
+	}
+	p.window += step
+	if p.window < 0 {
+		p.window = 0
+	}
+	if p.window > maxWindow {
+		p.window = maxWindow
+	}
+	// Keep the cursor inside the visible window, so a page never parks
+	// the cursor off screen.
+	if p.cursor < p.window {
+		p.window = p.cursor
+	}
+	if p.cursor >= p.window+size && size > 0 {
+		p.window = p.cursor - size + 1
+	}
+}
+
+// isPageUpKey reports whether the key is a page-up: PgUp, or Shift+↑.
+func isPageUpKey(key tea.Key) bool {
+	return key.Code == tea.KeyPgUp || key.String() == "pgup" ||
+		(key.Code == tea.KeyUp && key.Mod.Contains(tea.ModShift))
+}
+
+// isPageDownKey reports whether the key is a page-down: PgDn, or Shift+↓.
+func isPageDownKey(key tea.Key) bool {
+	return key.Code == tea.KeyPgDown || key.String() == "pgdown" ||
+		(key.Code == tea.KeyDown && key.Mod.Contains(tea.ModShift))
 }

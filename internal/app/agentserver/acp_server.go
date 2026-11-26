@@ -2,6 +2,7 @@ package agentserver
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -69,16 +70,44 @@ func (s *Server) ACPRouter() *router.ProtocolRouter {
 }
 
 // ServeACP streams the ACP protocol over the given peer input and output.
-// It blocks until the connection is terminated or the context is cancelled.
+// The caller owns these split streams and must close them to interrupt blocked
+// I/O on cancellation. Duplex stream owners should use ServeACPStream instead.
 func (s *Server) ServeACP(ctx context.Context, peerInput io.Writer, peerOutput io.Reader) error {
 	tr := acp.NewStdioTransport(peerOutput, peerInput)
 	return s.ACPRouter().Serve(ctx, tr)
 }
 
+// ServeACPStream serves one ACP protocol connection over a duplex stream. It
+// closes the stream on return; callers retain responsibility for starting and
+// joining the serving goroutine when they invoke this synchronously elsewhere.
+func (s *Server) ServeACPStream(ctx context.Context, stream io.ReadWriteCloser) error {
+	if stream == nil {
+		return errors.New("agentserver: nil ACP stream")
+	}
+	// The router's first initialize read uses blocking stdio I/O. Unlike an
+	// established connection, it has no read-loop cancellation owner yet.
+	// Closing the owned stream interrupts that read (and any blocked write).
+	closed := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = stream.Close()
+		close(closed)
+	})
+	defer func() {
+		if !stop() {
+			<-closed
+		}
+		_ = stream.Close()
+	}()
+	err := s.ServeACP(ctx, stream, stream)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
 // ServeACPConn streams the ACP protocol over a raw network connection (TCP/Unix socket).
 func (s *Server) ServeACPConn(ctx context.Context, conn net.Conn) error {
-	defer conn.Close()
-	return s.ServeACP(ctx, conn, conn)
+	return s.ServeACPStream(ctx, conn)
 }
 
 // ServeACPWebSocket upgrades an incoming HTTP request to a WebSocket and serves ACP over it.
@@ -97,8 +126,7 @@ func (s *Server) ServeACPWebSocket(w http.ResponseWriter, r *http.Request) error
 	netConn := websocket.NetConn(r.Context(), wsConn, websocket.MessageText)
 	defer netConn.Close()
 
-	tr := acp.NewStdioTransport(netConn, netConn)
-	return s.ACPRouter().Serve(r.Context(), tr)
+	return s.ServeACPStream(r.Context(), netConn)
 }
 
 func (s *Server) authorized(r *http.Request) bool {

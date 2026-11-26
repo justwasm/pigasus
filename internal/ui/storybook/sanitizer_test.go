@@ -74,7 +74,14 @@ func TestSanitizer_Durations(t *testing.T) {
 		},
 		{
 			input: "Refreshes in 4h 12m",
-			want:  "Refreshes in XXh XXm",
+			want:  "Refreshes in XXd XXh XXm",
+		},
+		{
+			// AGY 1.5.17 added the day form; it must be masked too, or
+			// every storybook capture of /usage becomes a golden that
+			// changes with the wall clock.
+			input: "Refreshes in 3d 3h 59m",
+			want:  "Refreshes in XXd XXh XXm",
 		},
 	}
 

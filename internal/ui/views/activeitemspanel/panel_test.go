@@ -591,3 +591,30 @@ func TestPanel_VisibleRowCountMatchesRows(t *testing.T) {
 	}
 	check("hidden")
 }
+
+// TestPanel_HiddenSnapshotNoPerFrameStat — the render path must not stat
+// settings.json on every frame. Repeated Hidden()/VisibleRowCount() calls
+// inside one snapshot interval reuse the cached value; a /config write
+// invalidates the snapshot and is visible on the next call.
+func TestPanel_HiddenSnapshotNoPerFrameStat(t *testing.T) {
+	tempHome(t)
+	settings.InvalidateCache()
+	h := newHarness(t)
+	h.reg.Register(runningTask("task-1", "First", time.Now()))
+
+	for i := 0; i < 50; i++ {
+		if h.panel.Hidden() {
+			t.Fatal("expected visible block")
+		}
+		_ = h.panel.VisibleRowCount()
+	}
+	if err := settings.SetField("hideActiveItems", true); err != nil {
+		t.Fatalf("SetField failed: %v", err)
+	}
+	if !h.panel.Hidden() {
+		t.Fatal("expected /config write to invalidate the snapshot immediately")
+	}
+	if got := h.panel.VisibleRowCount(); got != 0 {
+		t.Fatalf("hidden block visible rows = %d, want 0", got)
+	}
+}

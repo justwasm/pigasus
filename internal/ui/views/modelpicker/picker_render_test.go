@@ -83,3 +83,23 @@ func TestPickerRenderHelpers(t *testing.T) {
 		t.Errorf("CatalogueEntry for unknown model succeeded unexpectedly")
 	}
 }
+
+func TestRenderModelPickerAutoCompactOverride(t *testing.T) {
+	t.Setenv("AGY_CLI_AUTO_COMPACT_OVERRIDE", "800K")
+	geminiRow := Row{
+		Display:     "Gemini 3.8 Flash",
+		Slug:        "gemini-3.8-flash",
+		Tiers:       []string{"low", "medium", "high"},
+		DefaultTier: "high",
+	}
+	line := stripSGR(RenderModelPickerRow(geminiRow, 0, 0, true))
+	if !strings.Contains(line, "(current · 800000)") {
+		t.Errorf("current row with override = %q, want (current · 800000)", line)
+	}
+
+	p := New(Seams{CurrentModelLabel: func() string { return "Gemini 3.8 Flash (High)" }})
+	rendered := stripSGR(strings.Join(p.Lines(30), "\n"))
+	if !strings.Contains(rendered, "overridden by AGY_CLI_AUTO_COMPACT_OVERRIDE=800K (800000)") {
+		t.Errorf("picker footer missing override note:\n%s", rendered)
+	}
+}

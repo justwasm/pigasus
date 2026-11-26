@@ -122,6 +122,7 @@ func InvalidateCache() {
 	cachedFields = nil
 	overlayGen++
 	settingsCacheMu.Unlock()
+	cachedSettingsSnapshot.invalidate()
 }
 
 // Path is the settings.json file's own path.
@@ -170,7 +171,7 @@ func ParseAndValidateFlag(raw string) (map[string]any, error) {
 // These settings override settings.json for the active session and are never persisted to disk.
 func SetSessionOverlay(overlay map[string]any) {
 	sessionSettingsMu.Lock()
-	sessionSettingsOverlay = overlay
+	sessionSettingsOverlay = cloneSettingsMap(overlay)
 	sessionSettingsMu.Unlock()
 	InvalidateCache()
 }
@@ -204,7 +205,7 @@ func readSettingsBytes() ([]byte, error) {
 	}
 
 	sessionSettingsMu.RLock()
-	overlay := sessionSettingsOverlay
+	overlay := cloneSettingsMap(sessionSettingsOverlay)
 	curOverlayGen := overlayGen
 	sessionSettingsMu.RUnlock()
 
@@ -500,7 +501,7 @@ func cachedField(key string, validate bool) (any, error) {
 func SetField(key string, value any) error {
 	sessionSettingsMu.Lock()
 	if sessionSettingsOverlay != nil {
-		sessionSettingsOverlay[key] = value
+		sessionSettingsOverlay[key] = cloneSettingsValue(value)
 	}
 	sessionSettingsMu.Unlock()
 

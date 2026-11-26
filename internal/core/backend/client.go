@@ -147,9 +147,8 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
-	// Images are the pictures the user attached to this message. Only
-	// a user message carries them; every transport drops them on the
-	// other roles.
+	// Images are the pictures attached to this message (user attachments or
+	// multimodal tool results such as view_file on an image).
 	Images []ImagePart `json:"images,omitempty"`
 	// WireContent is the <USER_REQUEST> envelope the reference sends in
 	// place of a user message's raw text (see WrapUserContent). Transcript
@@ -234,6 +233,7 @@ type StreamRequest struct {
 	// Optional per-request model capability overrides (used when failover
 	// switches to a backup model mid-turn).
 	ReasoningEffort   string `json:"reasoning_effort,omitempty"`
+	ExecutionModel    string `json:"execution_model,omitempty"`
 	SupportsThinking  *bool  `json:"supports_thinking,omitempty"`
 	SupportsToolCalls *bool  `json:"supports_tool_calls,omitempty"`
 }
@@ -252,11 +252,43 @@ type ToolRunner interface {
 	Run(ctx context.Context, call ToolCall) (string, error)
 }
 
+// ToolOutput carries a tool's text plus any binary media to attach to its result.
+type ToolOutput struct {
+	Text   string
+	Images []ImagePart
+}
+
+// MediaToolRunner is an optional richer runner implemented by registry-backed hosts.
+// Ordinary ToolRunner remains string-only for compatibility with existing adapters.
+type MediaToolRunner interface {
+	RunWithMedia(ctx context.Context, call ToolCall) (ToolOutput, error)
+}
+
 type Client interface {
 	// Stream returns a channel of StreamChunk. The channel is closed when the
 	// upstream call finishes (success or failure). Implementations MUST emit
 	// at least one chunk with Done=true at the end of every call.
 	Stream(ctx context.Context, req StreamRequest) (<-chan StreamChunk, error)
+}
+
+// ImageGenRequest describes a non-streaming image generation or edit request.
+type ImageGenRequest struct {
+	Model       string
+	Prompt      string
+	AspectRatio string
+	InputImages []ImagePart
+}
+
+// ImageGenResult holds the generated image bytes and MIME type.
+type ImageGenResult struct {
+	MIMEType string
+	Data     []byte
+}
+
+// ImageGenerator is an optional capability implemented by backends that support
+// non-streaming image generation (CloudCode and Gemini API).
+type ImageGenerator interface {
+	GenerateImage(ctx context.Context, req ImageGenRequest) (ImageGenResult, error)
 }
 
 // NewMock returns a Client that emits a synthetic streaming response. Useful

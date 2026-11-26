@@ -12,6 +12,7 @@ import (
 var (
 	extraWorkspacesMu sync.RWMutex
 	extraWorkspaces   []string
+	artifactWorkspace string
 )
 
 // SetExtraWorkspaces sets additional workspace roots (e.g. from --add-dir)
@@ -22,7 +23,55 @@ func SetExtraWorkspaces(ws []string) {
 	extraWorkspaces = ws
 }
 
+// SetArtifactWorkspace names the active conversation's artifact directory as
+// a write root.
+//
+// The reference keeps this apart from --add-dir: its system prompt tells the
+// model "All artifacts should be written to the artifact directory:
+// <appDataDir>/brain/<conversation-id>" and promises the directory already
+// exists, so a write there is legitimate by construction. Without this root
+// the clone rejected exactly those writes with "expected path … to not start
+// with /", which made the artifact directory unwritable and every artifact
+// invisible. An empty dir clears the root.
+func SetArtifactWorkspace(dir string) {
+	extraWorkspacesMu.Lock()
+	defer extraWorkspacesMu.Unlock()
+	artifactWorkspace = dir
+}
+
+// ArtifactWorkspace returns the artifact root named by SetArtifactWorkspace.
+func ArtifactWorkspace() string {
+	extraWorkspacesMu.RLock()
+	defer extraWorkspacesMu.RUnlock()
+	return artifactWorkspace
+}
+
 // ---- workspace paths -------------------------------------------------------
+
+// allowedWriteRoot reports whether canonFull sits under one of the write
+// roots: the workspace, the conversation's artifact directory, or an
+// --add-dir root. The artifact root is checked here rather than pushed into
+// extraWorkspaces so that --add-dir keeps its own meaning (and its own
+// diagnostic) and so a conversation switch cannot leak a stale artifact root
+// into the extra list.
+func allowedWriteRoot(root, canonFull string) bool {
+	if Within(root, canonFull) {
+		return true
+	}
+	extraWorkspacesMu.RLock()
+	artifact := artifactWorkspace
+	extras := extraWorkspaces
+	extraWorkspacesMu.RUnlock()
+	if artifact != "" && Within(CanonicalPath(artifact), canonFull) {
+		return true
+	}
+	for _, extra := range extras {
+		if Within(CanonicalPath(extra), canonFull) {
+			return true
+		}
+	}
+	return false
+}
 
 // WorkspacePath resolves a model-supplied path for a WRITE-side tool.
 func WorkspacePath(ws, p string) (string, error) {
@@ -32,32 +81,14 @@ func WorkspacePath(ws, p string) (string, error) {
 	root := CanonicalPath(ws)
 	if filepath.IsAbs(p) {
 		full := filepath.Clean(p)
-		canonFull := CanonicalPath(full)
-		if Within(root, canonFull) {
+		if allowedWriteRoot(root, CanonicalPath(full)) {
 			return full, nil
-		}
-		extraWorkspacesMu.RLock()
-		extras := extraWorkspaces
-		extraWorkspacesMu.RUnlock()
-		for _, extra := range extras {
-			if Within(CanonicalPath(extra), canonFull) {
-				return full, nil
-			}
 		}
 		return "", fmt.Errorf("expected path %s to not start with /", p)
 	}
 	full := filepath.Join(ws, p)
-	canonFull := CanonicalPath(full)
-	if Within(root, canonFull) {
+	if allowedWriteRoot(root, CanonicalPath(full)) {
 		return full, nil
-	}
-	extraWorkspacesMu.RLock()
-	extras := extraWorkspaces
-	extraWorkspacesMu.RUnlock()
-	for _, extra := range extras {
-		if Within(CanonicalPath(extra), canonFull) {
-			return full, nil
-		}
 	}
 	return "", fmt.Errorf("path %s escapes the workspace", p)
 }

@@ -619,6 +619,24 @@ func TestEvaluateForAutoMode(t *testing.T) {
 			wantAllow: false,
 			wantAsk:   false,
 		},
+		{
+			name:      "routine build command allowed in auto mode",
+			cmd:       "go test ./... && make build",
+			wantAllow: true,
+			wantAsk:   false,
+		},
+		{
+			name:      "routine file redirect allowed in auto mode",
+			cmd:       `echo "foo" > /tmp/test.txt`,
+			wantAllow: true,
+			wantAsk:   false,
+		},
+		{
+			name:      "routine git commit allowed in auto mode",
+			cmd:       `git add . && git commit -m "feat: updates"`,
+			wantAllow: true,
+			wantAsk:   false,
+		},
 	}
 
 	for _, tc := range tests {

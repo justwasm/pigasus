@@ -7,15 +7,17 @@ package tui
 // phase machine, recorder and cancellation; this model is the root's owner
 // for it, so the surface is not a loose field on the viewport bucket.
 //
+// The voice session state machine itself lives in internal/ui/voicebridge.
+// What stays here is the surface, the knobs the slash commands own (persona,
+// volume, speed, duplex) and a typed mirror of the active live session for
+// the host files that read it. bridge is built lazily by voiceBridge().
+//
 // Upstream: google3/third_party/jetski/cli/model/model.AudioModel.
 
 import (
-	"context"
-	"os"
-	"sync"
-
 	"github.com/justwasm/pigasus/internal/rcaudio"
 	voiceviews "github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/ui/voicebridge"
 	"github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -24,6 +26,7 @@ import (
 type AudioModel struct {
 	*voiceviews.Surface
 	connect     func() error
+	bridge      *voicebridge.Model
 	muted       bool
 	thinking    bool
 	duplex      bool
@@ -33,115 +36,12 @@ type AudioModel struct {
 	speaker     string
 	liveSession *voice.NativeLiveSession
 
-	thinkerMu         sync.Mutex
-	thinkerCancel     context.CancelFunc
-	thinkerInvID      string
-	thinkerCancelSent bool
-
-	// Dictation recording state
-	dictCapture *voice.AudioCapture
-	dictRemote  *voice.RemoteAudioStream
-	dictMu      sync.Mutex
-	dictPCM     []byte
 	transcriber rcaudio.Transcriber
 }
 
-func (a *AudioModel) setThinkerCancel(invID string, cancel context.CancelFunc) {
-	a.thinkerMu.Lock()
-	prev := a.thinkerCancel
-	a.thinkerCancel = cancel
-	a.thinkerInvID = invID
-	a.thinkerCancelSent = false
-	a.thinkerMu.Unlock()
-	if prev != nil {
-		prev()
+// setLiveSession installs the typed mirror of the bridge's active session.
+func (a *AudioModel) setLiveSession(sess *voice.NativeLiveSession) {
+	if a != nil {
+		a.liveSession = sess
 	}
-}
-
-func (a *AudioModel) clearThinkerCancel(invID string) bool {
-	a.thinkerMu.Lock()
-	defer a.thinkerMu.Unlock()
-	sent := a.thinkerCancelSent
-	if a.thinkerInvID == invID || invID == "" {
-		a.thinkerCancel = nil
-		a.thinkerInvID = ""
-		a.thinkerCancelSent = false
-	}
-	return sent
-}
-
-func (a *AudioModel) cancelActiveThinker() (invID string, cancelled bool) {
-	a.thinkerMu.Lock()
-	cancel := a.thinkerCancel
-	invID = a.thinkerInvID
-	if cancel != nil {
-		a.thinkerCancelSent = true
-		cancelled = true
-	}
-	a.thinkerMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	return invID, cancelled
-}
-
-func (a *AudioModel) startDictationCapture() error {
-	a.dictMu.Lock()
-	a.dictPCM = nil
-	a.dictMu.Unlock()
-
-	if micAddr := os.Getenv("ANTIGRAVITY_MIC"); micAddr != "" {
-		stream, err := voice.DialRemoteAudio(micAddr, func(pcm []byte) {
-			a.dictMu.Lock()
-			a.dictPCM = append(a.dictPCM, pcm...)
-			a.dictMu.Unlock()
-		})
-		if err == nil {
-			a.dictRemote = stream
-			return nil
-		}
-	}
-
-	cap, err := voice.NewAudioCapture(16000, func(pcm []byte) {
-		a.dictMu.Lock()
-		a.dictPCM = append(a.dictPCM, pcm...)
-		a.dictMu.Unlock()
-	})
-	if err != nil {
-		return err
-	}
-	a.dictCapture = cap
-	return cap.Start()
-}
-
-func (a *AudioModel) stopDictationCapture() []byte {
-	if a.dictRemote != nil {
-		_ = a.dictRemote.Close()
-		a.dictRemote = nil
-	}
-	if a.dictCapture != nil {
-		_ = a.dictCapture.Stop()
-		_ = a.dictCapture.Close()
-		a.dictCapture = nil
-	}
-	a.dictMu.Lock()
-	defer a.dictMu.Unlock()
-	pcm := a.dictPCM
-	a.dictPCM = nil
-	return pcm
-}
-
-func (a *AudioModel) cancelDictationCapture() {
-	if a.dictRemote != nil {
-		_ = a.dictRemote.Close()
-		a.dictRemote = nil
-	}
-	if a.dictCapture != nil {
-		_ = a.dictCapture.Stop()
-		_ = a.dictCapture.Close()
-		a.dictCapture = nil
-	}
-	a.dictMu.Lock()
-	a.dictPCM = nil
-	a.dictMu.Unlock()
 }

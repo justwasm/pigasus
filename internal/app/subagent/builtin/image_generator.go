@@ -62,12 +62,26 @@ import (
 type Kind string
 
 const (
-	// KindImageGenerator is the offline-only image generation subagent
-	// that ships with the CLI (AGY 1.2.16 changelog line 7). Today's
-	// handler produces a deterministic local PNG; a future cycle can
-	// replace the body with a network call without changing the name
-	// or the Result shape, so callers stay insulated from the swap.
+	// KindImageGenerator is the built-in image generation subagent
+	// that ships with the CLI (AGY 1.2.16 changelog line 7). When an
+	// image generation provider is wired, subagenttools launches it as
+	// an LLM-driven subagent with generate_image, view_file, and
+	// send_message; otherwise ImageGeneratorHandler provides the
+	// deterministic offline PNG stub.
 	KindImageGenerator Kind = "image-generator"
+
+	// ImageGeneratorDescription is the reference description for the
+	// image-generator built-in subagent (reference 1.5.16, still present in 1.5.17).
+	ImageGeneratorDescription = "Generates or edits images from a brief and replies with the saved file paths."
+
+	// ImageGeneratorInstructions is the exact 570-byte instruction prompt
+	// for agents.ImageGeneratorAgent (1.5.16, still present in 1.5.17).
+	ImageGeneratorInstructions = "You generate and edit images for the main agent with generate_image.\n" +
+		"- Write a detailed prompt: subject, style, composition, and any exact text in quotes. Pass source or reference images via ImagePaths.\n" +
+		"- Check each result against the brief. If it clearly misses, fix it; at most 3 attempts per image.\n" +
+		"- Do not retry quota or capacity errors; report them.\n" +
+		"- Images are saved straight into the main agent's artifact directory, so never copy them.\n" +
+		"- Finish with send_message: the absolute path of each final image, one line on what it shows, and anything you could not do."
 )
 
 // Spec is the catalogue entry for a built-in subagent: a stable name
@@ -284,7 +298,7 @@ func Default() *Registry {
 var defaultSpecs = []Spec{
 	{
 		Name:        KindImageGenerator,
-		Description: "Generates an image from a textual prompt and returns the PNG path. Offline stub: writes a deterministic local PNG.",
+		Description: ImageGeneratorDescription,
 		Handler:     ImageGeneratorHandler,
 	},
 }

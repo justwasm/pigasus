@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	"gopkg.in/yaml.v3"
 )
 
@@ -164,6 +165,20 @@ func scanUnits(home string) []scanUnit {
 			},
 		},
 	}
+	if globalAgents := userAgentsSkillsDir(home); globalAgents != "" {
+		units = append(units, scanUnit{
+			path: globalAgents,
+			read: func() ([]jsonSkillInfo, bool) {
+				return readSkillsFromDir(globalAgents, "", nil, false)
+			},
+		})
+	}
+	if settings.ReadAdminPluginControls().PluginsDisabled {
+		// Reference behaviour since 1.5.16, unchanged in 1.5.17:
+		// pluginControls.pluginsDisabled keeps built-in plugins/skills
+		// enabled while blocking installed, workspace, and marketplace plugins.
+		return units
+	}
 	pluginsDir := filepath.Join(gemini, "config", "plugins")
 	plugins, err := os.ReadDir(pluginsDir)
 	if err != nil {
@@ -255,8 +270,17 @@ func discoverInternal() []jsonSkillInfo {
 		found = append(found, entries...)
 	}
 
-	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
-	return dedupeByHash(found)
+	found = dedupeByName(dedupeByHash(found))
+	sort.SliceStable(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+	return found
+}
+
+func userAgentsSkillsDir(agentHome string) string {
+	gemini := filepath.Dir(agentHome)
+	if filepath.Base(gemini) == ".gemini" {
+		return filepath.Join(filepath.Dir(gemini), ".agents", "skills")
+	}
+	return ""
 }
 
 // Render lists the installed skills as "<name>\t<description>", which is

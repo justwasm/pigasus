@@ -221,6 +221,12 @@ func resolveProfileAndLimit(model string) (modelctx.Profile, modelctx.Limit) {
 			UseModelReportedTokenCount: true,
 		}
 	}
+	if ov, _, ok := modelctx.AutoCompactOverride(modelctx.PublishedContextWindow(model)); ok && ov > 0 {
+		if pub := modelctx.PublishedContextWindow(model); pub > limit.ContextWindow {
+			limit.ContextWindow = pub
+		}
+		profile.TokenThreshold = ov
+	}
 	return profile, limit
 }
 
@@ -660,6 +666,9 @@ func (p *Policy) projected(probe actor.CheckpointProbe, view actor.CheckpointVie
 
 func (p *Policy) hard(projected int) bool {
 	threshold := p.limit.ContextWindow - p.limit.ReserveTokens
+	if ov, _, ok := modelctx.AutoCompactOverride(modelctx.PublishedContextWindow(p.cfg.Model)); ok && ov > 0 && ov > threshold {
+		threshold = ov
+	}
 	return threshold > 0 && projected > threshold
 }
 
@@ -686,6 +695,10 @@ func (p *Policy) should(probe actor.CheckpointProbe, projected int, hard bool) b
 			hasCustom = true
 			threshold = val
 		}
+	}
+	if ov, _, ok := modelctx.AutoCompactOverride(modelctx.PublishedContextWindow(p.cfg.Model)); ok && ov > 0 {
+		hasCustom = true
+		threshold = ov
 	}
 	if !hasCustom && !p.cfg.EnableSoftThreshold {
 		return false

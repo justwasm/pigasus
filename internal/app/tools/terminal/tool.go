@@ -37,7 +37,7 @@ func MinimalDecl() backend.ToolDecl {
 
 // Tool exposes persistent in-process terminal sessions as a single tool.
 type Tool struct {
-	Manager *terminalmgr.Manager
+	Manager terminalmgr.Backend
 }
 
 func (t *Tool) Name() string            { return ToolName }
@@ -52,11 +52,15 @@ type callEnvelope struct {
 type actionArgs struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
+	Title      string   `json:"title"`
 	Cwd        string   `json:"cwd"`
 	Command    string   `json:"command"`
+	Cmd        string   `json:"cmd"`
 	Text       string   `json:"text"`
+	Input      string   `json:"input"`
 	Keys       []string `json:"keys"`
 	Paste      bool     `json:"paste"`
+	Focus      bool     `json:"focus"`
 	WaitMs     *int     `json:"wait_ms"`
 	Scrollback int      `json:"scrollback"`
 	Raw        bool     `json:"raw"`
@@ -89,6 +93,12 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("terminal: invalid args: %w", err)
 		}
 	}
+	if p.Command == "" && p.Cmd != "" {
+		p.Command = p.Cmd
+	}
+	if p.Text == "" && p.Input != "" {
+		p.Text = p.Input
+	}
 
 	switch action {
 	case "list", "ls":
@@ -102,6 +112,7 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 			Command: p.Command,
 			Rows:    p.Rows,
 			Cols:    p.Cols,
+			Focus:   p.Focus,
 			WaitMs:  p.WaitMs,
 		})
 		if err != nil {
@@ -142,6 +153,24 @@ func (t *Tool) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 			return nil, err
 		}
 		return fmt.Sprintf("Resized terminal %s to %dx%d.", formatSessionLabel(info), info.Rows, info.Cols), nil
+
+	case "switch", "focus", "select":
+		info, err := t.Manager.Switch(p.ID)
+		if err != nil {
+			return nil, err
+		}
+		return fmt.Sprintf("Switched active terminal to %s.", formatSessionLabel(info)), nil
+
+	case "rename", "title":
+		title := p.Title
+		if title == "" {
+			title = p.Name
+		}
+		info, err := t.Manager.Rename(p.ID, title)
+		if err != nil {
+			return nil, err
+		}
+		return fmt.Sprintf("Renamed terminal %s to %q.", formatSessionLabel(info), info.Title), nil
 
 	case "kill", "close":
 		info, err := t.Manager.Kill(p.ID)
@@ -185,6 +214,12 @@ func formatList(sessions []terminalmgr.SessionInfo) string {
 		if s.Cwd != "" {
 			fmt.Fprintf(&b, " cwd=%s", s.Cwd)
 		}
+		if s.Active {
+			b.WriteString(" active=true")
+		}
+		if s.Self {
+			b.WriteString(" self=true")
+		}
 		fmt.Fprintf(&b, " size=%dx%d cursor=(%d,%d) status=%q scrollback=%d\n",
 			s.Rows, s.Cols, s.CursorX, s.CursorY, s.Status, s.ScrollbackLines)
 	}
@@ -196,6 +231,12 @@ func formatCapture(header string, res terminalmgr.CaptureResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s\n", header, formatSessionLabel(s))
 	fmt.Fprintf(&b, "status=%s size=%dx%d cursor=(%d,%d)", s.Status, s.Rows, s.Cols, s.CursorX, s.CursorY)
+	if s.Active {
+		b.WriteString(" active=true")
+	}
+	if s.Self {
+		b.WriteString(" self=true")
+	}
 	if s.Cwd != "" {
 		fmt.Fprintf(&b, " cwd=%s", s.Cwd)
 	}

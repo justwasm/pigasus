@@ -6,7 +6,9 @@ package remotecontrol
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/features/personas"
 	"github.com/justwasm/pigasus/internal/features/plugins/sidecars"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
@@ -252,7 +254,7 @@ func (d *Dispatcher) routeLSTelemetryAndMisc(method string, params json.RawMessa
 	case "GenerateSkillInstallationCL", "generateSkillInstallationCL":
 		return map[string]any{"clNumber": 0, "clUrl": ""}, nil, true
 	case "ListBackgroundTasks", "listBackgroundTasks":
-		return map[string]any{"tasks": []any{}}, nil, true
+		return d.handleLSListBackgroundTasks(params)
 	case "CancelLogin", "cancelLogin":
 		return map[string]any{}, nil, true
 	case "GetLoginSession", "getLoginSession":
@@ -271,6 +273,44 @@ func (d *Dispatcher) routeLSTelemetryAndMisc(method string, params json.RawMessa
 		return map[string]any{}, nil, true
 	case "StartNarration", "startNarration":
 		return map[string]any{}, nil, true
+	case "GetProjectTrustStatus", "getProjectTrustStatus",
+		"SetWorkspaceTrust", "setWorkspaceTrust":
+		return map[string]any{
+			"status": map[string]any{
+				"isProjectTrusted": true,
+				"hasBlockedItems":  false,
+				"folders":          []any{},
+			},
+		}, nil, true
+	case "GetHubOAuthAccessToken", "getHubOAuthAccessToken":
+		return map[string]any{"accessToken": ""}, nil, true
 	}
 	return nil, nil, false
+}
+
+func (d *Dispatcher) handleLSListBackgroundTasks(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	var req struct {
+		ConversationID string `json:"conversationId"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &req)
+	}
+	convID := strings.TrimSpace(req.ConversationID)
+	tasks := []any{}
+	if convID != "" {
+		for _, ref := range shell.RunningTaskSnapshots(convID) {
+			tasks = append(tasks, map[string]any{
+				"conversationId": convID,
+				"task":           lsTaskSnapshotJSON(ref),
+			})
+		}
+	} else {
+		for _, ref := range shell.AllRunningTaskSnapshots() {
+			tasks = append(tasks, map[string]any{
+				"conversationId": ref.ConversationID,
+				"task":           lsTaskSnapshotJSON(ref.Task),
+			})
+		}
+	}
+	return map[string]any{"tasks": tasks}, nil, true
 }

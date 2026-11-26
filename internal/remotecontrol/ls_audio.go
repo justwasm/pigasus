@@ -114,7 +114,7 @@ func (d *Dispatcher) lsSendAudioChunk(params json.RawMessage) (any, *rpc.ErrorBo
 		}
 		data = decoded
 	}
-	session.Append(data)
+	session.AppendChunk(req.SequenceNumber, data)
 	return map[string]any{}, nil
 }
 

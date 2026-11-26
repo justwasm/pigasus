@@ -36,6 +36,8 @@ type SessionInfo struct {
 	Cols            int    `json:"cols"`
 	CursorX         int    `json:"cursor_x"`
 	CursorY         int    `json:"cursor_y"`
+	Active          bool   `json:"active,omitempty"`
+	Self            bool   `json:"self,omitempty"`
 	Exited          bool   `json:"exited"`
 	ExitCode        int    `json:"exit_code,omitempty"`
 	Status          string `json:"status"`
@@ -51,28 +53,29 @@ type CaptureResult struct {
 
 // NewOptions configures creating a new terminal session.
 type NewOptions struct {
-	Name    string
-	Cwd     string
-	Command string
-	Rows    int
-	Cols    int
-	WaitMs  *int
+	Name    string `json:"name,omitempty"`
+	Cwd     string `json:"cwd,omitempty"`
+	Command string `json:"command,omitempty"`
+	Rows    int    `json:"rows,omitempty"`
+	Cols    int    `json:"cols,omitempty"`
+	Focus   bool   `json:"focus,omitempty"`
+	WaitMs  *int   `json:"wait_ms,omitempty"`
 }
 
 // CaptureOptions configures capturing a terminal session's screen/scrollback.
 type CaptureOptions struct {
-	ID         string
-	Scrollback int
-	Raw        bool
+	ID         string `json:"id,omitempty"`
+	Scrollback int    `json:"scrollback,omitempty"`
+	Raw        bool   `json:"raw,omitempty"`
 }
 
 // SendOptions configures sending text and/or keys to a terminal session.
 type SendOptions struct {
-	ID     string
-	Text   string
-	Keys   []string
-	Paste  bool
-	WaitMs *int
+	ID     string   `json:"id,omitempty"`
+	Text   string   `json:"text,omitempty"`
+	Keys   []string `json:"keys,omitempty"`
+	Paste  bool     `json:"paste,omitempty"`
+	WaitMs *int     `json:"wait_ms,omitempty"`
 }
 
 type managedSession struct {
@@ -492,6 +495,54 @@ func (m *Manager) Resize(idOrName string, rows, cols int) (SessionInfo, error) {
 	return sess.info(), nil
 }
 
+// Switch marks a session as the active/default target for subsequent calls.
+func (m *Manager) Switch(idOrName string) (SessionInfo, error) {
+	if m == nil || m.reg == nil {
+		return SessionInfo{}, fmt.Errorf("terminal: manager is not initialized")
+	}
+	m.SyncFromRegistry()
+	sess, err := m.resolveSession(idOrName)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	m.mu.Lock()
+	sess.lastActive = time.Now()
+	m.mu.Unlock()
+	info := sess.info()
+	info.Active = true
+	return info, nil
+}
+
+// Rename updates the friendly name/title of a session.
+func (m *Manager) Rename(idOrName, title string) (SessionInfo, error) {
+	if m == nil || m.reg == nil {
+		return SessionInfo{}, fmt.Errorf("terminal: manager is not initialized")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return SessionInfo{}, fmt.Errorf("terminal: rename requires a non-empty title")
+	}
+	m.SyncFromRegistry()
+	sess, err := m.resolveSession(idOrName)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	m.mu.Lock()
+	if sess.name != "" && m.names[sess.name] == sess.id {
+		delete(m.names, sess.name)
+	}
+	if prevID, taken := m.names[title]; !taken || prevID == sess.id {
+		sess.name = title
+		m.names[title] = sess.id
+	}
+	m.mu.Unlock()
+
+	sess.mu.Lock()
+	sess.title = title
+	sess.mu.Unlock()
+	return sess.info(), nil
+}
+
 // Kill terminates a terminal session and removes it from tracking.
 func (m *Manager) Kill(idOrName string) (SessionInfo, error) {
 	if m == nil || m.reg == nil {
@@ -554,6 +605,11 @@ func (m *Manager) CloseAll() {
 
 func (m *Manager) resolveSession(idOrName string) (*managedSession, error) {
 	key := strings.TrimSpace(idOrName)
+	if strings.EqualFold(key, "self") {
+		if selfID := SelfSessionIDFromEnv(); selfID != "" {
+			key = selfID
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

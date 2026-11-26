@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/infra/livevoice"
 	"github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -877,13 +879,13 @@ func makeTestPoolAccount(email, accessToken string, remaining float64) accounts.
 }
 
 func TestHandleChatAggregateFailoverOn503AndStreamError(t *testing.T) {
-	origBackoff := aggregateBackoffFn
+	origBackoff := livevoice.BackoffFunc
 	origKeyFn := currentGeminiAPIKeyFn
 	defer func() {
-		aggregateBackoffFn = origBackoff
+		livevoice.BackoffFunc = origBackoff
 		currentGeminiAPIKeyFn = origKeyFn
 	}()
-	aggregateBackoffFn = func(int, string) time.Duration { return 0 }
+	livevoice.BackoffFunc = func(int, string) time.Duration { return 0 }
 	currentGeminiAPIKeyFn = func() string { return "" }
 
 	acc1 := makeTestPoolAccount("exhausted@example.com", "tok-acc1", 0.95)
@@ -947,14 +949,14 @@ func TestHandleChatAggregateFailoverOn503AndStreamError(t *testing.T) {
 func TestHandleLiveWebSocketAggregateFailover(t *testing.T) {
 	origFactory := oauthLiveBackendFactory
 	origKeyFn := currentGeminiAPIKeyFn
-	origBackoff := aggregateBackoffFn
+	origBackoff := livevoice.BackoffFunc
 	defer func() {
 		oauthLiveBackendFactory = origFactory
 		currentGeminiAPIKeyFn = origKeyFn
-		aggregateBackoffFn = origBackoff
+		livevoice.BackoffFunc = origBackoff
 	}()
 	currentGeminiAPIKeyFn = func() string { return "" }
-	aggregateBackoffFn = func(int, string) time.Duration { return 0 }
+	livevoice.BackoffFunc = func(int, string) time.Duration { return 0 }
 
 	acc1 := makeTestPoolAccount("live1@example.com", "live-tok-1", 0.95)
 	acc2 := makeTestPoolAccount("live2@example.com", "live-tok-2", 0.85)
@@ -1015,13 +1017,13 @@ func TestHandleLiveWebSocketAggregateFailover(t *testing.T) {
 }
 
 func TestAggregatePoolStatusAndDefaultAuthMode(t *testing.T) {
-	origBackoff := aggregateBackoffFn
+	origBackoff := livevoice.BackoffFunc
 	origKeyFn := currentGeminiAPIKeyFn
 	defer func() {
-		aggregateBackoffFn = origBackoff
+		livevoice.BackoffFunc = origBackoff
 		currentGeminiAPIKeyFn = origKeyFn
 	}()
-	aggregateBackoffFn = func(int, string) time.Duration { return 0 }
+	livevoice.BackoffFunc = func(int, string) time.Duration { return 0 }
 	currentGeminiAPIKeyFn = func() string { return "" }
 
 	acc1 := makeTestPoolAccount("pool1@example.com", "pool-tok-1", 0.90)
@@ -1063,5 +1065,194 @@ func TestAggregatePoolStatusAndDefaultAuthMode(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "Default aggregate OK") {
 		t.Fatalf("expected Default aggregate OK, got: %s", rec.Body.String())
+	}
+}
+
+func TestHandleLiveWebSocketAggregateFallbackToClientKeyOnPermissionDenied(t *testing.T) {
+	origFactory := oauthLiveBackendFactory
+	origKeyFn := currentGeminiAPIKeyFn
+	origBackoff := livevoice.BackoffFunc
+	defer func() {
+		oauthLiveBackendFactory = origFactory
+		currentGeminiAPIKeyFn = origKeyFn
+		livevoice.BackoffFunc = origBackoff
+	}()
+	livevoice.BackoffFunc = func(int, string) time.Duration { return 0 }
+	currentGeminiAPIKeyFn = func() string { return "" }
+
+	// Mock LiveBackend that fails immediate handshake with PermissionDenied
+	oauthLiveBackendFactory = func(token string) voice.LiveBackend {
+		mockSess := &mockHandshakeErrSession{
+			err: errors.New("rpc error: code = PermissionDenied desc = The caller does not have permission"),
+		}
+		mockB := voice.NewMockLiveBackend()
+		mockB.SetCustomEvents(nil)
+		return &mockLiveBackendWithSession{
+			sess: mockSess,
+		}
+	}
+
+	acc1 := makeTestPoolAccount("noperm@example.com", "oauth-no-perm", 0.90)
+	_ = setupAggregateTestPool(t, acc1)
+
+	// Mock upstream for Gemini Live API Key fallback
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("key") != "AIzaFallbackKey123" {
+			http.Error(w, "invalid key", http.StatusForbidden)
+			return
+		}
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		_, msg, err := c.Read(r.Context())
+		if err != nil {
+			return
+		}
+		if strings.Contains(string(msg), "setup") {
+			_ = c.Write(r.Context(), websocket.MessageText, []byte(`{"serverContent":{"modelTurn":{"parts":[{"text":"Fallback OK"}]}}}`))
+		}
+		_, _, _ = c.Read(r.Context())
+	}))
+	defer mockUpstream.Close()
+	t.Setenv("OPENAGY_VOICE_URL", "ws"+strings.TrimPrefix(mockUpstream.URL, "http"))
+
+	srv := httptest.NewServer(handleLiveWebSocketWithDefaultProxy(""))
+	defer srv.Close()
+
+	// 1. When client provides fallback key in aggregate mode, should smoothly fallback
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/live-ws?mode=aggregate&key=AIzaFallbackKey123"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket.Dial with fallback key failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"setup":{"model":"models/gemini-3.8-live"}}`))
+	_, msg, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read from fallback connection failed: %v", err)
+	}
+	if !strings.Contains(string(msg), "Fallback OK") {
+		t.Fatalf("expected Fallback OK from upstream, got: %s", string(msg))
+	}
+
+	// 2. When no fallback key is available anywhere, should close with informative PolicyViolation
+	wsURLNoKey := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/live-ws?mode=aggregate"
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+
+	conn2, _, err := websocket.Dial(ctx2, wsURLNoKey, nil)
+	if err != nil {
+		t.Fatalf("websocket.Dial without key failed: %v", err)
+	}
+	defer conn2.CloseNow()
+
+	_ = conn2.Write(ctx2, websocket.MessageText, []byte(`{"setup":{"model":"models/gemini-3.8-live"}}`))
+	_, _, err = conn2.Read(ctx2)
+	if err == nil {
+		t.Fatalf("expected close error when all OAuth accounts lack permission and no key given")
+	}
+	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+		t.Errorf("expected StatusPolicyViolation (1008), got: %v", websocket.CloseStatus(err))
+	}
+	if !strings.Contains(err.Error(), "OAuth accounts lack Gemini Live voice permission") {
+		t.Errorf("expected informative explanation in close error, got: %v", err)
+	}
+}
+
+type mockHandshakeErrSession struct {
+	err error
+}
+
+func (m *mockHandshakeErrSession) SendAudio([]byte) error                     { return nil }
+func (m *mockHandshakeErrSession) SendText(string) error                      { return nil }
+func (m *mockHandshakeErrSession) SendToolResponse(string, string, any) error { return nil }
+func (m *mockHandshakeErrSession) SendThinkerNote(string) error               { return nil }
+func (m *mockHandshakeErrSession) SendThinkerAnswer(string) error             { return nil }
+func (m *mockHandshakeErrSession) SendWaitingOnUser(string) error             { return nil }
+func (m *mockHandshakeErrSession) SendTaskStopped() error                     { return nil }
+func (m *mockHandshakeErrSession) SendMedia(string, []byte) error             { return nil }
+func (m *mockHandshakeErrSession) Receive() (*voice.LiveServerEvent, error)   { return nil, m.err }
+func (m *mockHandshakeErrSession) Close() error                               { return nil }
+func (m *mockHandshakeErrSession) WaitHandshake(time.Duration) error          { return m.err }
+
+type mockLiveBackendWithSession struct {
+	sess voice.LiveSession
+}
+
+func (m *mockLiveBackendWithSession) CreateSession(context.Context, voice.LiveSessionConfig) (voice.LiveSession, error) {
+	return m.sess, nil
+}
+func (m *mockLiveBackendWithSession) Endpoint() string { return "" }
+func (m *mockLiveBackendWithSession) SetModel(string)  {}
+
+func TestHandleLiveWebSocketAggregatePrefersOAuthPoolOverAPIKey(t *testing.T) {
+	origFactory := oauthLiveBackendFactory
+	origKeyFn := currentGeminiAPIKeyFn
+	origBackoff := livevoice.BackoffFunc
+	defer func() {
+		oauthLiveBackendFactory = origFactory
+		currentGeminiAPIKeyFn = origKeyFn
+		livevoice.BackoffFunc = origBackoff
+	}()
+	livevoice.BackoffFunc = func(int, string) time.Duration { return 0 }
+	// Even when a machine Gemini API key is configured, aggregate mode MUST try the OAuth pool first!
+	currentGeminiAPIKeyFn = func() string { return "machine-api-key-should-not-short-circuit" }
+
+	acc1 := makeTestPoolAccount("pool-first@example.com", "pool-first-tok", 0.95)
+	setupAggregateTestPool(t, acc1)
+
+	var oauthCalled bool
+	oauthLiveBackendFactory = func(token string) voice.LiveBackend {
+		oauthCalled = true
+		return &mockWebLiveBackend{
+			createFn: func(ctx context.Context, cfg voice.LiveSessionConfig) (voice.LiveSession, error) {
+				if token != "pool-first-tok" {
+					return nil, fmt.Errorf("unexpected token %q", token)
+				}
+				sess := newMockWebLiveSession(ctx)
+				sess.recvCh <- &voice.LiveServerEvent{VoiceTranscript: "Served by OAuth pool first", TurnComplete: true}
+				return sess, nil
+			},
+		}
+	}
+
+	srv := httptest.NewServer(handleLiveWebSocketWithDefaultProxy(""))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/live-ws?mode=aggregate"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("websocket.Dial failed: %v", err)
+	}
+	defer conn.CloseNow()
+
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"setup":{"model":"models/gemini-3.8-live"}}`)); err != nil {
+		t.Fatalf("write setup failed: %v", err)
+	}
+	_, ack, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read setupComplete failed: %v", err)
+	}
+	if !strings.Contains(string(ack), "setupComplete") {
+		t.Fatalf("expected setupComplete, got %s", string(ack))
+	}
+	_, evMsg, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read server event failed: %v", err)
+	}
+	if !strings.Contains(string(evMsg), "Served by OAuth pool first") {
+		t.Fatalf("expected OAuth pool response, got %s", string(evMsg))
+	}
+	if !oauthCalled {
+		t.Fatalf("expected OAuth pool factory to be called before machine API key")
 	}
 }

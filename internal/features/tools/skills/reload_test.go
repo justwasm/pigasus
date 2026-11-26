@@ -125,3 +125,79 @@ func TestIsReload(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoverGlobalAgentsSkillsAndGeminiPrecedence(t *testing.T) {
+	home := skillsHome(t)
+	userHome := filepath.Dir(filepath.Dir(home))
+
+	// Write a skill only in ~/.agents/skills
+	agentsOnly := filepath.Join(userHome, ".agents", "skills", "cross-tool")
+	if err := os.MkdirAll(agentsOnly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsOnly, "SKILL.md"), []byte("---\nname: cross-tool\ndescription: From agents dir.\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write colliding skill in both ~/.gemini/skills and ~/.agents/skills with different content
+	writeSkill(t, home, "shared-name", "shared-name", "From gemini dir.")
+	agentsCollide := filepath.Join(userHome, ".agents", "skills", "shared-name")
+	if err := os.MkdirAll(agentsCollide, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsCollide, "SKILL.md"), []byte("---\nname: shared-name\ndescription: From agents dir (should lose).\n---\nother body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	list := Discover()
+	byName := map[string]SkillInfo{}
+	for _, s := range list {
+		if _, dup := byName[s.Name]; dup {
+			t.Fatalf("duplicate skill name %q in Discover(): %+v", s.Name, list)
+		}
+		byName[s.Name] = s
+	}
+	if s, ok := byName["cross-tool"]; !ok || s.Description != "From agents dir." {
+		t.Fatalf("cross-tool skill = %+v, want From agents dir.", s)
+	}
+	if s, ok := byName["shared-name"]; !ok || s.Description != "From gemini dir." {
+		t.Fatalf("shared-name skill = %+v, want ~/.gemini precedence (From gemini dir.)", s)
+	}
+}
+
+func TestPluginsDisabledKeepsBuiltinSkillsEnabled(t *testing.T) {
+	home := skillsHome(t)
+	// Create a builtin skill (listed in builtinListed) and an installed plugin skill.
+	builtinDir := filepath.Join(home, "builtin", "skills", "antigravity_guide")
+	if err := os.MkdirAll(builtinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(builtinDir, "SKILL.md"), []byte("---\nname: antigravity-guide\ndescription: Builtin guide.\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pluginSkillDir := filepath.Join(filepath.Dir(home), "config", "plugins", "ext-plugin", "skills", "ext-skill")
+	if err := os.MkdirAll(pluginSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginSkillDir, "SKILL.md"), []byte("---\nname: ext-skill\ndescription: External plugin skill.\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	adminPath := filepath.Join(t.TempDir(), "admin_settings.json")
+	if err := os.WriteFile(adminPath, []byte(`{"pluginControls":{"pluginsDisabled":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_ADMIN_SETTINGS", adminPath)
+
+	list := Discover()
+	byName := map[string]SkillInfo{}
+	for _, s := range list {
+		byName[s.Name] = s
+	}
+	if _, ok := byName["antigravity-guide"]; !ok {
+		t.Fatalf("expected builtin skill antigravity-guide to remain enabled when pluginsDisabled=true, got %+v", list)
+	}
+	if _, ok := byName["ext-plugin:ext-skill"]; ok {
+		t.Fatalf("expected installed plugin skill ext-plugin:ext-skill to be blocked when pluginsDisabled=true, got %+v", list)
+	}
+}

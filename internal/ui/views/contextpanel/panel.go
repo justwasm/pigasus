@@ -110,6 +110,12 @@ type State struct {
 	// immediately preceding turn, showing "Estimated after compaction · updates next turn".
 	CompactJustHappened bool
 
+	// AutoCompactTokens is the active auto-compaction threshold in tokens (0 = server default).
+	AutoCompactTokens int
+
+	// AutoCompactOverrideSpec is the raw AGY_CLI_AUTO_COMPACT_OVERRIDE value when overridden.
+	AutoCompactOverrideSpec string
+
 	// Checkpoint telemetry for the Checkpoints (%d) section:
 	TotalCheckpoints      int
 	ActiveCheckpointIndex int
@@ -252,24 +258,61 @@ func (st State) gridLines() []string {
 	if ctxMax <= 0 {
 		ctxMax = MaxContextTokens
 	}
+	cols := ColsFor(st.Width)
 	switch st.Mode {
 	case ModeStreaming:
 		cats := st.breakdown().Categories()
 		if len(cats) > 3 {
-			return LiveGridLinesWithEmpty(st.Model, st.Width, ctxMax, cats, st.CheckpointBuffer)
+			return st.renderLiveGrid(ctxMax, cols, cats, "Estimated usage (awaiting generation)")
 		}
-		return StreamingGridLines(st.Model, st.Width, ctxMax, st.User, st.Agent, st.Tool)
+		used, free := ClampedUsage(ctxMax, st.User+st.Agent+st.Tool)
+		rows := insertAutoCompactRows(StreamingRows(st.Model, used, free, ctxMax, st.User, st.Agent, st.Tool), st.AutoCompactTokens, st.AutoCompactOverrideSpec)
+		totalDots := len(rows) * cols
+		streamCats := []Category{
+			{Tokens: st.User, Cell: UserGlyph},
+			{Tokens: st.Agent, Cell: AgentGlyph},
+			{Tokens: st.Tool, Cell: ToolGlyph},
+		}
+		fill := ProportionalFill(streamCats, ctxMax, totalDots)
+		if len(fill) == 0 {
+			fill = StreamingFill(st.User, st.Agent, st.Tool)
+		}
+		return RenderGridLines(rows, fill, cols)
 	case ModeEmpty:
 		cats := st.breakdown().Categories()
 		if len(cats) > 3 {
-			return LiveGridLinesWithEmpty(st.Model, st.Width, ctxMax, cats, st.CheckpointBuffer)
+			return st.renderLiveGrid(ctxMax, cols, cats, "Estimated usage (awaiting generation)")
 		}
-		return EmptyGridLinesWithLimit(st.Model, st.Width, ctxMax)
+		rows := insertAutoCompactRows(EmptyRowsWithLimit(st.Model, ctxMax), st.AutoCompactTokens, st.AutoCompactOverrideSpec)
+		return RenderGridLines(rows, nil, cols)
 	case ModeLive:
-		return LiveGridLinesWithCompactedAndCheckpoint(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened, st.CheckpointBuffer)
+		fallthrough
 	default:
-		return LiveGridLinesWithCompactedAndCheckpoint(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened, st.CheckpointBuffer)
+		preamble := "Token usage by category"
+		if st.CompactJustHappened {
+			preamble = "Estimated after compaction · updates next turn"
+		}
+		return st.renderLiveGrid(ctxMax, cols, st.breakdown().Categories(), preamble)
 	}
+}
+
+func (st State) renderLiveGrid(ctxMax, cols int, cats []Category, preamble string) []string {
+	total := 0
+	for _, c := range cats {
+		total += c.Tokens
+	}
+	used, free := ClampedUsage(ctxMax, total)
+	rows := insertAutoCompactRows(
+		LiveRowsWithPreambleAndCheckpoint(st.Model, used, free, ctxMax, cats, preamble, st.CheckpointBuffer),
+		st.AutoCompactTokens,
+		st.AutoCompactOverrideSpec,
+	)
+	totalDots := len(rows) * cols
+	fill := ProportionalFill(cats, ctxMax, totalDots)
+	if len(fill) == 0 {
+		fill = LiveFill(cats)
+	}
+	return RenderGridLines(rows, fill, cols)
 }
 
 // TailLines is the shared bottom of every /context state: the

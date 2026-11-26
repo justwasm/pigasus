@@ -180,8 +180,7 @@ func goldenSelectionDump(b *bytes.Buffer, t *testing.T) {
 		m := goldenMode(t)
 		m.prompt.promptScreenY = 10
 		m.prompt.input.SetValue(f.value)
-		m.prompt.InputSelStart = f.start
-		m.prompt.InputSelEnd = f.end
+		m.prompt.SetRange(f.start, f.end)
 		s, e := m.prompt.InputSelectionRange()
 		fmt.Fprintf(b, "  range=%d,%d\n", s, e)
 		fmt.Fprintf(b, "  highlight=%q\n", m.prompt.ApplyInputSelectionHighlight(f.view))
@@ -199,16 +198,14 @@ func goldenSelectionDump(b *bytes.Buffer, t *testing.T) {
 
 		md := goldenMode(t)
 		md.prompt.input.SetValue(f.value)
-		md.prompt.InputSelStart = f.start
-		md.prompt.InputSelEnd = f.end
+		md.prompt.SetRange(f.start, f.end)
 		md.prompt.DeleteInputSelection()
 		fmt.Fprintf(b, "  delete=%q line=%d col=%d sel=%v\n",
 			md.prompt.input.Value(), md.prompt.input.Line(), md.prompt.input.Column(), md.prompt.HasInputSelection())
 
 		mr := goldenMode(t)
 		mr.prompt.input.SetValue(f.value)
-		mr.prompt.InputSelStart = f.start
-		mr.prompt.InputSelEnd = f.end
+		mr.prompt.SetRange(f.start, f.end)
 		mr.prompt.ReplaceInputSelection(f.rep)
 		fmt.Fprintf(b, "  replace=%q line=%d col=%d sel=%v\n",
 			mr.prompt.input.Value(), mr.prompt.input.Line(), mr.prompt.input.Column(), mr.prompt.HasInputSelection())

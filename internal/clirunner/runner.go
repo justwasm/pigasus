@@ -155,7 +155,7 @@ func buildSubcommands() []cliflags.SubcommandSpec {
 	}
 
 	// Root extensions.
-	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), logsSubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand(), cli.LiveChatSubcommand()} {
+	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), logsSubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand(), cli.LiveChatSubcommand(), cli.TerminalSubcommand()} {
 		if !names[ext.Name] {
 			subs = append(subs, ext)
 			names[ext.Name] = true
@@ -733,7 +733,7 @@ func applySessionFlags(fs *flag.FlagSet) {
 }
 
 func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) printmode.ConversationSelection {
-	convID := cliflags.StringValue(fs, "conversation")
+	convID := cliflags.ResolveStringAlias(fs, "conversation", "resume", "r")
 	cont := cliflags.ResolveBoolAlias(fs, "continue", "c")
 	cwd, _ := os.Getwd()
 	sel := convstore.ResolveSelection(convID, cont, cwd, warn)

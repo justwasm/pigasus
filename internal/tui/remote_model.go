@@ -54,6 +54,9 @@ type RemoteModel struct {
 	termService TerminalService
 	// termMgr owns the in-process headless terminal sessions shared with the `terminal` tool.
 	termMgr *terminalmgr.Manager
+	// termBackend is the resolved terminal backend (host IPC multiplexer when running
+	// inside `pigasus terminal`, or local termMgr otherwise).
+	termBackend terminalmgr.Backend
 	// controlStop stops the in-process remote-control server if one was
 	// started.
 	controlStop func()

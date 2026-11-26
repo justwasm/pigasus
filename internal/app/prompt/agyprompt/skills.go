@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 )
 
@@ -39,6 +40,7 @@ var BuiltinSkillDirs = map[string]bool{
 // directory. AgySkillPaths computes the prompt roots.
 func DiscoverSkills(roots []string) []Skill {
 	var out []Skill
+	seenNames := make(map[string]bool)
 	for _, root := range roots {
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -62,6 +64,10 @@ func DiscoverSkills(roots []string) []Skill {
 			if name == "" {
 				name = entry.Name()
 			}
+			if seenNames[name] {
+				continue
+			}
+			seenNames[name] = true
 			out = append(out, Skill{Name: name, Path: skillMD, Description: description})
 		}
 	}
@@ -123,18 +129,23 @@ func AgySkillPaths(agentHome, workspace string) []string {
 		filepath.Join(gemini, "skills"),
 		filepath.Join(agentHome, "skills"),
 	}
+	if globalAgents := userAgentsSkillsDir(agentHome); globalAgents != "" {
+		candidates = append(candidates, globalAgents)
+	}
 	if workspace != "" {
 		candidates = append(candidates,
 			filepath.Join(workspace, ".agents", "skills"),
 			filepath.Join(workspace, ".agent", "skills"),
 		)
 	}
-	candidates = append(candidates, pluginSkillDirs(
-		filepath.Join(gemini, "config", "plugins"),
-		filepath.Join(gemini, "config", "config.json"))...)
-	if workspace != "" {
+	if !settings.ReadAdminPluginControls().PluginsDisabled {
 		candidates = append(candidates, pluginSkillDirs(
-			filepath.Join(workspace, ".agents", "plugins"), "")...)
+			filepath.Join(gemini, "config", "plugins"),
+			filepath.Join(gemini, "config", "config.json"))...)
+		if workspace != "" {
+			candidates = append(candidates, pluginSkillDirs(
+				filepath.Join(workspace, ".agents", "plugins"), "")...)
+		}
 	}
 	var out []string
 	for _, dir := range candidates {
@@ -143,6 +154,14 @@ func AgySkillPaths(agentHome, workspace string) []string {
 		}
 	}
 	return out
+}
+
+func userAgentsSkillsDir(agentHome string) string {
+	gemini := filepath.Dir(agentHome)
+	if filepath.Base(gemini) == ".gemini" {
+		return filepath.Join(filepath.Dir(gemini), ".agents", "skills")
+	}
+	return ""
 }
 
 func pluginSkillDirs(pluginsDir, configPath string) []string {

@@ -26,6 +26,23 @@ import (
 // for everything it knows, and the only models it does not are the ones
 // the user added.
 func HasEffortTiers(name string) bool {
+	return hasEffortTiers(name, ResolveCatalogueID)
+}
+
+// HasEffortTiersSnapshot avoids a provider filesystem check on every status
+// frame. Non-render callers retain HasEffortTiers' immediate edit detection.
+func HasEffortTiersSnapshot(name string) bool {
+	return hasEffortTiers(name, func(value string) string {
+		for _, entry := range catalog.ModelCatalogueSnapshot() {
+			if entry.ID == value || entry.Label == value {
+				return entry.ID
+			}
+		}
+		return ""
+	})
+}
+
+func hasEffortTiers(name string, resolve func(string) string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return true
@@ -35,7 +52,7 @@ func HasEffortTiers(name string) bool {
 			return true
 		}
 	}
-	id := ResolveCatalogueID(name)
+	id := resolve(name)
 	if id == "" {
 		return true
 	}

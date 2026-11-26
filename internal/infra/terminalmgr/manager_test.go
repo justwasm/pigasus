@@ -16,6 +16,13 @@ func useFastTestShell(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Setenv("SHELL", "/bin/sh")
 	}
+	// Shell startup and tool discovery must use fixture state, never an
+	// operator's profile or a terminal session owned by the parent process.
+	t.Setenv("ZDOTDIR", t.TempDir())
+	t.Setenv("ENV", "")
+	t.Setenv("BASH_ENV", "")
+	t.Setenv("PIGASUS_TERMINAL_SOCKET", "")
+	t.Setenv("PIGASUS_TERMINAL_SESSION", "")
 }
 
 func waitForScreenContains(t *testing.T, mgr *Manager, id, substr string, timeout time.Duration) CaptureResult {

@@ -39,6 +39,8 @@ type Turn struct {
 	MaxOutputTokens int
 	ThinkingBudget  int
 	ThinkingLevel   string
+	// ExecutionModel overrides the Orchestrator executor model in plan-execute-config.
+	ExecutionModel string
 	// SessionID is the reference's sessionId member. Zero picks a random
 	// one.
 	SessionID string
@@ -66,8 +68,7 @@ type TurnMessage struct {
 	ToolCalls  []TurnToolCall
 	ToolCallID string
 	Name       string
-	// Images are the pictures the user attached. Only a user message
-	// carries them.
+	// Images are user attachments or multimodal tool-result media.
 	Images []TurnImage
 	// IsError marks a tool result that carries the reference's *failure*
 	// text. The transport reads it to pick the envelope: a call that
@@ -176,6 +177,12 @@ func BuildRequest(t Turn) GenerateContentRequest {
 		inner.GenerationConfig.Temperature = &temp
 	}
 	inner.Labels = ModelLabels(t.Model)
+	if execModel := strings.TrimSpace(t.ExecutionModel); execModel != "" {
+		if inner.Labels == nil {
+			inner.Labels = make(map[string]string, 1)
+		}
+		inner.Labels["plan-execute-config"] = fmt.Sprintf(`{"executionModel": %q}`, execModel)
+	}
 	inner.SessionID = t.SessionID
 
 	requestType := t.RequestType
@@ -354,6 +361,18 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 			if name == "" {
 				name = "tool"
 			}
+			var frParts []FunctionResponsePart
+			for _, img := range m.Images {
+				if len(img.Data) == 0 {
+					continue
+				}
+				frParts = append(frParts, FunctionResponsePart{
+					InlineData: &InlineData{
+						MIMEType: img.MIMEType,
+						Data:     base64.StdEncoding.EncodeToString(img.Data),
+					},
+				})
+			}
 			contents = append(contents, Content{
 				Role: "model",
 				Parts: []Part{{
@@ -361,6 +380,7 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 						ID:       m.ToolCallID,
 						Name:     name,
 						Response: toolResponse(m),
+						Parts:    frParts,
 					},
 				}},
 			})
@@ -729,6 +749,126 @@ func NewSessionID() int64 {
 		id = -1
 	}
 	return id
+}
+
+// DefaultImageGenerationModel is the fallback image generation model ID
+// used by the reference when fetchAvailableModels does not advertise one
+// (1.5.16 behaviour, still present in 1.5.17).
+const DefaultImageGenerationModel = "gemini-3.1-flash-image"
+
+// ImageGenerationRequest describes a non-streaming image generation or edit call.
+type ImageGenerationRequest struct {
+	Model       string
+	Project     string
+	Prompt      string
+	AspectRatio string
+	InputMedia  []TurnImage
+	RequestID   string
+}
+
+// ImageGenerationResult holds the decoded image returned by generateContent.
+type ImageGenerationResult struct {
+	MIMEType string
+	Data     []byte
+	Usage    *UsageMetadata
+}
+
+// BuildImageGenerationRequest builds the CloudCode /v1internal:generateContent
+// envelope matching the reference's ccpa.BuildImageGenerationRequest
+// (1.5.16 shape, still present in 1.5.17).
+func BuildImageGenerationRequest(req ImageGenerationRequest) (GenerateContentRequest, error) {
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = DefaultImageGenerationModel
+	}
+	project := strings.TrimSpace(req.Project)
+	if project == "" {
+		project = DefaultProject
+	}
+	aspectRatio := strings.TrimSpace(req.AspectRatio)
+	if aspectRatio == "" {
+		aspectRatio = "1:1"
+	}
+	parts := make([]Part, 0, len(req.InputMedia)+1)
+	for _, img := range req.InputMedia {
+		if len(img.Data) == 0 {
+			continue
+		}
+		mimeType := strings.TrimSpace(img.MIMEType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		parts = append(parts, Part{
+			InlineData: &InlineData{
+				MIMEType: mimeType,
+				Data:     base64.StdEncoding.EncodeToString(img.Data),
+			},
+		})
+	}
+	if strings.TrimSpace(req.Prompt) == "" && len(parts) == 0 {
+		return GenerateContentRequest{}, fmt.Errorf("geminicode: image generation requires a prompt or input media")
+	}
+	if req.Prompt != "" {
+		parts = append(parts, Part{Text: req.Prompt})
+	}
+	reqID := strings.TrimSpace(req.RequestID)
+	if reqID == "" {
+		reqID = NewImageGenRequestID()
+	}
+	return GenerateContentRequest{
+		Project:   project,
+		RequestID: reqID,
+		Request: &GenerateContentRequest{
+			Contents: []Content{{
+				Role:  "user",
+				Parts: parts,
+			}},
+			GenerationConfig: &GenerationConfig{
+				CandidateCount: 1,
+				ImageConfig: &ImageConfig{
+					AspectRatio: aspectRatio,
+				},
+			},
+		},
+		Model:       model,
+		UserAgent:   "antigravity",
+		RequestType: "image_gen",
+	}, nil
+}
+
+// ExtractGeneratedImage extracts the first inline image part from a
+// GenerateContentResponse, matching the reference's ccpa.ExtractGeneratedImage
+// (1.5.16 shape, still present in 1.5.17).
+func ExtractGeneratedImage(resp *GenerateContentResponse) (ImageGenerationResult, error) {
+	if resp == nil {
+		return ImageGenerationResult{}, fmt.Errorf("no response in generate content result")
+	}
+	for _, cand := range resp.Candidates {
+		for _, part := range cand.Content.Parts {
+			if part.InlineData == nil || strings.TrimSpace(part.InlineData.Data) == "" {
+				continue
+			}
+			raw, err := base64.StdEncoding.DecodeString(part.InlineData.Data)
+			if err != nil {
+				return ImageGenerationResult{}, fmt.Errorf("decode generated image: %w", err)
+			}
+			mimeType := strings.TrimSpace(part.InlineData.MIMEType)
+			if mimeType == "" {
+				mimeType = "image/png"
+			}
+			return ImageGenerationResult{
+				MIMEType: mimeType,
+				Data:     raw,
+				Usage:    resp.UsageMetadata,
+			}, nil
+		}
+	}
+	return ImageGenerationResult{}, fmt.Errorf("no image generated in response")
+}
+
+// NewImageGenRequestID returns a request id for image generation calls.
+func NewImageGenRequestID() string {
+	return fmt.Sprintf("image_gen/%s/%d/%s/1", uuid.NewV4().String(), time.Now().UnixMilli(), uuid.NewV4().String())
 }
 
 func randomHex(n int) string {

@@ -6,8 +6,7 @@
 > the CLI cannot show (the IDE's own tool-safety layer, its prompt templates,
 > its MCP manager, its model catalogue).
 >
-> Evidence and the full write-up: `out/ide-language-server-2.33.0/README.md` (aliased
-> by `out/ide-language-server/`).
+> Evidence and the full write-up: `out/ide-language-server-2.33.0/README.md` (retired to git history; active extraction lives at `out/ide-language-server-2.34.0/`, aliased by `out/ide-language-server/`).
 
 ## What it is
 

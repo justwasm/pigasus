@@ -89,6 +89,12 @@ type Config struct {
 	// (internal/remotecontrol/files/files.go).
 	FS files.Provider
 
+	// LanguageServerFS is the separate read/write filesystem port for StatUri,
+	// ReadDir, ReadFile, WriteFile and CreateDirectory with URI params. nil uses
+	// files.OSLanguageServerFS to preserve the existing language-server behavior.
+	// It never replaces the dashboard FS provider or its scope policy.
+	LanguageServerFS files.LanguageServerFS
+
 	// Projects is the seam the three project-CRUD methods
 	// (ListRemoteAgentProjects / CreateRemoteAgentProject /
 	// UpdateRemoteAgentProject, cycle rc-projects) call into.

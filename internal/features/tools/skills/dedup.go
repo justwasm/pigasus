@@ -103,3 +103,21 @@ func dedupeByHash(skills []jsonSkillInfo) []jsonSkillInfo {
 	}
 	return out
 }
+
+// dedupeByName folds skills that share the same declared name, keeping the
+// first-encountered entry so higher-precedence roots (e.g. ~/.gemini/skills)
+// win over lower-precedence roots (e.g. ~/.agents/skills) on name collisions.
+func dedupeByName(skills []jsonSkillInfo) []jsonSkillInfo {
+	seen := make(map[string]bool, len(skills))
+	out := make([]jsonSkillInfo, 0, len(skills))
+	for _, s := range skills {
+		if s.Name != "" {
+			if seen[s.Name] {
+				continue
+			}
+			seen[s.Name] = true
+		}
+		out = append(out, s)
+	}
+	return out
+}

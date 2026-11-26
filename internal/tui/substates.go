@@ -58,6 +58,14 @@ type sessionState struct {
 	// remoteAgent marks a `--remote-agent` session: turns run on the
 	// remote agent proxy and the banner names the remote workspace.
 	remoteAgent bool
+	// writer drains conversation saves off the Update goroutine. It is
+	// nil in tests and in hosts that save synchronously.
+	writer *sessionWriter
+	// credential is the shared credential's presence and account
+	// identity, read once per turn instead of once per question. The
+	// composer asks both before every submit, and on macOS each read is
+	// a keychain syscall.
+	credential credentialCache
 	// Cycle 86: per-session conversation UUID shown in the /help
 	conversationID string
 	// initialConversationID is the UUID generated at RootModel creation.
@@ -189,6 +197,15 @@ type uiState struct {
 	rowsGen        int
 	// Cycle 281: the per-frame layout cache. Composing the scrollable rows
 	rowsView composedRows
+	// Prompt rendering is shared by viewportHeight's measurement pass and the
+	// final View pass. Keep this cache scoped to one View call only: textarea
+	// output depends on live cursor/selection/placeholder/style state and must
+	// never survive an Update or a subsequent frame.
+	promptFrameActive         bool
+	preparedInputView         string
+	preparedInputViewValid    bool
+	promptInputViewMisses     int
+	lastPromptInputViewMisses int
 	// View and scroll caching for sub-microsecond scroll hotpath
 	cachedView          tea.View
 	viewCacheValid      bool

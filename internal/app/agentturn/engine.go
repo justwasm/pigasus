@@ -50,6 +50,8 @@ type Env struct {
 	ExtraTools []actor.Tool
 	// Effort is the reasoning effort the turn asks for.
 	Effort string
+	// ExecutionModel is the optional Orchestrator Executor model id.
+	ExecutionModel string
 	// Policy is the optional permissions policy for tool execution.
 	Policy *permissions.Policy
 	// CheckpointPolicy is an optional policy kept alive across turns by a
@@ -88,6 +90,8 @@ type Turn struct {
 	// Effort overrides the environment's reasoning effort. Empty uses the
 	// environment's default.
 	Effort string
+	// ExecutionModel overrides the environment's Orchestrator Executor model.
+	ExecutionModel string
 	// History is the transcript the turn replays, the user's prompt
 	// last.
 	History []agentlink.Message

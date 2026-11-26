@@ -165,3 +165,37 @@ func TestStartScheduledTask_CronEvery(t *testing.T) {
 		t.Errorf("expected cron to complete after MaxIterations reached")
 	}
 }
+
+func TestStartScheduledTask_SystemNotificationDoesNotCancelMemberTimer(t *testing.T) {
+	convID := "test-conv-sys"
+	taskID := "task-5"
+	logPath := filepath.Join(t.TempDir(), "task-5.log")
+
+	prev := SetTaskNotifier(func(n TaskNotification) {})
+	defer SetTaskNotifier(prev)
+
+	bg, err := StartScheduledTask(ScheduledTaskOptions{
+		ConvID:         convID,
+		TaskID:         taskID,
+		LogPath:        logPath,
+		Prompt:         "Member check",
+		Duration:       5 * time.Second,
+		TimerCondition: "subagent-worker",
+	})
+	if err != nil {
+		t.Fatalf("StartScheduledTask failed: %v", err)
+	}
+	defer func() { _, _ = bg.Kill() }()
+
+	// A system wakeup notification must not cancel a member-scoped timer.
+	NotifyTask(TaskNotification{
+		TaskID:   convID + "/system",
+		Priority: TaskPriorityHigh,
+		Body:     "Board wakeup",
+		At:       time.Now(),
+	})
+	time.Sleep(50 * time.Millisecond)
+	if bg.HasCompleted() {
+		t.Fatal("system notification cancelled member-scoped timer early")
+	}
+}

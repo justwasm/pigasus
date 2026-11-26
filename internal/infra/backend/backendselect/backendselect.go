@@ -513,6 +513,13 @@ func Normalise(raw string, logWriter io.Writer) string {
 
 // HasOAuthToken returns true if an OAuth token exists in env, on disk, in Keychain,
 // or in ~/.openagy/accounts.json.
+//
+// The cascade is asked once. It used to be asked twice — a
+// "HasKeychainToken" probe and then a LoadTokenUnified that reads the
+// keychain again — and on macOS each read is a `security` spawn (~11 ms
+// here), so the presence question cost ~22 ms. The load already reads the
+// keychain first (it is the cascade's priority 2, above the on-disk
+// copies), so the probe only ever repeated work the load was about to do.
 func HasOAuthToken() bool {
 	if v := strings.TrimSpace(os.Getenv("JETSKI_OAUTH_TOKEN")); v != "" {
 		return true
@@ -521,9 +528,6 @@ func HasOAuthToken() bool {
 		return true
 	}
 	if fi, err := os.Stat(auth.TokenFilePath()); err == nil && !fi.IsDir() && fi.Size() > 0 {
-		return true
-	}
-	if auth.HasKeychainToken() {
 		return true
 	}
 	tok, err := auth.LoadTokenUnified()

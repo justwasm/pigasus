@@ -296,7 +296,7 @@ func (v *ViewFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(full)
+	data, err := readViewFileData(full)
 	if err != nil {
 		return nil, err
 	}
@@ -306,9 +306,7 @@ func (v *ViewFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 		}
 	}
 	if IsImagePath(p.Path) {
-		if err := probeImage(p.Path, data); err != nil {
-			return nil, err
-		}
+		return imageViewResult(full, data, start)
 	}
 	raw := string(data)
 	lines := strings.Split(raw, "\n")

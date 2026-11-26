@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/features/plugins/validate"
 )
 
 // maxPluginArchiveBytes is 100 MiB (104,857,600 bytes), matching upstream reference.
@@ -179,8 +181,8 @@ func resolveLocalZipValidateSource(zipPath string) (string, string, bool, string
 
 	// Extract zip entries safely
 	for _, f := range zr.File {
-		clean := filepath.Clean(f.Name)
-		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+		clean, ok := validate.ArchiveEntryPath(f.Name)
+		if !ok {
 			continue // skip illegal paths
 		}
 		target := filepath.Join(tmpDir, clean)
@@ -237,11 +239,10 @@ func resolveLocalZipValidateSource(zipPath string) (string, string, bool, string
 
 func validateFileError(input, message string) *validateResult {
 	return &validateResult{
-		Report: &validateReport{
+		Result: validate.Result{Report: validate.Report{
 			Dir:      input,
-			Findings: []validateFinding{{Severity: validateError, File: ".", Message: message}},
-		},
+			Findings: []validate.Finding{{Severity: validate.SeverityError, File: ".", Message: message}},
+		}},
 		HeaderPath: input,
-		ErrorCount: 1,
 	}
 }

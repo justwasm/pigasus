@@ -131,6 +131,11 @@ func TestIsAuthFailureErr(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "token refresh failure with stale token",
+			err:  errors.New("refresh failed: auth: auth failure (refresh): Post \"https://oauth2.googleapis.com/token\": context deadline exceeded (returning stale token)"),
+			want: true,
+		},
+		{
 			name: "normal error",
 			err:  errors.New("connection timed out"),
 			want: false,

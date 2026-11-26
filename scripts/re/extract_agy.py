@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import os
 import pathlib
 import subprocess
@@ -176,7 +177,22 @@ def extract_agy(binary_path: pathlib.Path, out_dir: pathlib.Path, version: str):
         if out_target.stat().st_size > 0:
             print(f"          Extracted {out_stem}_{version}.txt ({out_target.stat().st_size:,} B)")
 
-    # 5. Changelog (optional)
+    # 5. Embedded model_profiles.json
+    data = binary_path.read_bytes()
+    marker = b'{\n  "base": {'
+    idx = data.find(marker)
+    if idx != -1:
+        dec = json.JSONDecoder()
+        text = data[idx : idx + 512 * 1024].decode("utf-8", errors="ignore")
+        try:
+            _, end = dec.raw_decode(text)
+            mp_file = out_dir / f"model_profiles_{version}.json"
+            mp_file.write_bytes(text[:end].encode("utf-8"))
+            print(f"          Extracted model_profiles_{version}.json ({mp_file.stat().st_size:,} B)")
+        except json.JSONDecodeError as exc:
+            print(f"Warning: failed to decode embedded model_profiles.json: {exc}", file=sys.stderr)
+
+    # 6. Changelog (optional)
     res_ch = subprocess.run([str(binary_path), "changelog"], capture_output=True, text=True)
     if res_ch.returncode == 0 and res_ch.stdout.strip():
         ch_file = out_dir / f"changelog_{version}.txt"

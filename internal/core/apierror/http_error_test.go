@@ -4,6 +4,7 @@ package apierror
 // non-2xx model-API response.
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -189,5 +190,23 @@ func TestIsModelAccessErrAndFormatRetryReason(t *testing.T) {
 	got := FormatRetryReason(err503)
 	if got != "HTTP 503: MODEL_CAPACITY_EXHAUSTED please retry" {
 		t.Errorf("FormatRetryReason = %q", got)
+	}
+}
+
+func TestIsConnectionDroppedErr(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{errors.New("cloudcode: gemini-api-key: connection to https://daily-cloudcode-pa.googleapis.com dropped: sse read: read tcp 100.98.214.123:65077->172.217.112.4:443: read: operation timed out"), true},
+		{errors.New("connection reset by peer"), true},
+		{errors.New("broken pipe"), true},
+		{errors.New("unexpected eof"), true},
+		{errors.New("rate limit exceeded"), false},
+	}
+	for _, tc := range cases {
+		if got := IsConnectionDroppedErr(tc.err); got != tc.want {
+			t.Errorf("IsConnectionDroppedErr(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

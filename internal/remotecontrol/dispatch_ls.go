@@ -199,7 +199,7 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		"GetMarketplaceCustomization", "GetMarketplaceBundles",
 		"GetMarketplaceFeatured", "GetSkillMarketplaceLink",
 		"GetAvailableCascadePlugins", "GetBuildWithGooglePlugins",
-		"ListPluginAuthProviders", "InstallCustomization",
+		"ListPluginAuthProviders", "InstallCustomization", "IncludeBundleMember",
 		"ListRemotePlugins", "DisconnectRemotePlugin",
 		"DownloadBuildWithGooglePlugin", "StartPluginAuthSignIn",
 		"StartMcpOAuthSignIn",
@@ -743,9 +743,28 @@ func (d *Dispatcher) streamAgentStateUpdates(ctx context.Context, payload string
 		return true, err
 	}
 	for {
-		version, err := traj.Wait(ctx, snap.Version)
+		waitCtx := ctx
+		var cancelWait context.CancelFunc
+		if len(snap.BackgroundTasks) > 0 {
+			waitCtx, cancelWait = context.WithTimeout(ctx, 500*time.Millisecond)
+		}
+		version, err := traj.Wait(waitCtx, snap.Version)
+		if cancelWait != nil {
+			cancelWait()
+		}
 		if err != nil {
-			return true, nil
+			if ctx.Err() != nil {
+				return true, nil
+			}
+			nextSnap := traj.Snapshot()
+			if lsTaskRefsEqual(snap.BackgroundTasks, nextSnap.BackgroundTasks) {
+				continue
+			}
+			snap = nextSnap
+			if err := emitLSFrame(emit, snap); err != nil {
+				return true, err
+			}
+			continue
 		}
 		if version == snap.Version {
 			continue

@@ -75,7 +75,18 @@ func (p *Panel) selectModel() string {
 	if row.Slug == "" {
 		return "" // not selectable on this account
 	}
+	if row.HasOrchestrator() {
+		st := p.ensureOrchestratorState(row)
+		p.persistOrchestrator(st)
+	}
 	return p.persist(row.CatalogueID(p.effortCursor))
+}
+
+func (p *Panel) persistOrchestrator(st *OrchestratorRowState) {
+	if st == nil {
+		return
+	}
+	_ = settings.SetOrchestrator(st.ToSettings())
 }
 
 // persist writes the catalogue slug to settings.json and hands the

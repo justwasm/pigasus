@@ -94,6 +94,12 @@ func TestVoiceLive_SpinnerTicks(t *testing.T) {
 func TestVoiceLive_TypedPromptRoutesToLiveSession(t *testing.T) {
 	be := &slowFakeClient{delay: 50 * time.Millisecond}
 	m := newRootModel(be, "u@t", "m", "t", "/", true)
+	// A real session always has a size: tea delivers WindowSizeMsg before the
+	// user can type. Without one here the viewport stays 0, and every width-0
+	// render falls back to mdrender's *process-global* width — which this test
+	// then reads instead of its own. That made the reply's wrapping depend on
+	// whatever width some other test happened to leave pinned.
+	m.viewport.width, m.viewport.height = 80, 24
 
 	// Start live surface
 	m.audio.Surface.Start("/voice live")
@@ -101,9 +107,9 @@ func TestVoiceLive_TypedPromptRoutesToLiveSession(t *testing.T) {
 
 	// Hook up mock live backend and session to RootModel
 	mockBackend := voicebackend.NewMockLiveBackend()
-	handler := &tuiLiveHandler{m: m}
+	handler := m.NewLiveHandler()
 	liveSess := voicebackend.NewNativeLiveSession(mockBackend, handler)
-	m.audio.liveSession = liveSess
+	m.setLiveSession(liveSess)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -217,7 +223,11 @@ func TestVoiceLive_ContextIntegratedWithTextChat(t *testing.T) {
 	if err := m.StartLiveVoice(); err != nil {
 		t.Fatalf("StartLiveVoice failed: %v", err)
 	}
-	defer m.audio.liveSession.HangUp()
+	defer func() {
+		if sess := m.audio.liveSession; sess != nil {
+			_ = sess.HangUp()
+		}
+	}()
 
 	m.audio.Surface.Start("/voice live")
 	m.audio.Surface.HandleConnectDone(voiceviews.ConnectDoneMsg{})
@@ -309,9 +319,9 @@ func TestVoiceLive_QueuedMessageDispatchedOnAgentDone(t *testing.T) {
 	m.audio.Surface.HandleConnectDone(voiceviews.ConnectDoneMsg{})
 
 	mockBackend := voicebackend.NewMockLiveBackend()
-	handler := &tuiLiveHandler{m: m}
+	handler := m.NewLiveHandler()
 	liveSess := voicebackend.NewNativeLiveSession(mockBackend, handler)
-	m.audio.liveSession = liveSess
+	m.setLiveSession(liveSess)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -360,9 +370,9 @@ func TestVoiceLive_QueuedMessageDispatchedOnThinkerDone(t *testing.T) {
 	m.audio.Surface.HandleConnectDone(voiceviews.ConnectDoneMsg{})
 
 	mockBackend := voicebackend.NewMockLiveBackend()
-	handler := &tuiLiveHandler{m: m}
+	handler := m.NewLiveHandler()
 	liveSess := voicebackend.NewNativeLiveSession(mockBackend, handler)
-	m.audio.liveSession = liveSess
+	m.setLiveSession(liveSess)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

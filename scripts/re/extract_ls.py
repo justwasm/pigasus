@@ -175,7 +175,7 @@ def extract_language_server(app: pathlib.Path, out_dir: pathlib.Path, version: s
     protoset_target = protos_dir / "language_server.protoset"
     if protoset_script.is_file():
         subprocess.run(
-            [sys.executable, str(protoset_script), str(protoset_target)],
+            [sys.executable, str(protoset_script), "--bin", str(ls_bin), str(protoset_target)],
             cwd=str(out_dir),
             capture_output=True,
             text=True,

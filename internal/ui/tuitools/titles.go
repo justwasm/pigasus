@@ -123,6 +123,8 @@ func ToolStepTitleMisc(name string, args json.RawMessage) string {
 		return "Scheduled " + Clip(ArgStr(args, "Prompt", "prompt", "message", "cron"), 60)
 	case "manage_task":
 		return "Managed task"
+	case "update_steps":
+		return "Updated steps"
 	case "send_message":
 		return "Messaged " + Clip(ArgStr(args, "message", "text"), 60)
 	case "list_permissions":

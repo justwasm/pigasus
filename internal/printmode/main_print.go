@@ -17,6 +17,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/artifacts"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/cli"
@@ -197,6 +198,9 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 	if len(workspaces) > 1 {
 		tools.SetExtraWorkspaces(workspaces[1:])
 	}
+	// The conversation's artifact directory is its own write root, and the
+	// write tools record a sidecar for artifacts.
+	artifacts.InstallWriteRoot(cfg.conversationID)
 
 	ctx = backend.ContextWithRetryNotifier(ctx, func(p backend.RetryProgress) {
 		if p.Attempt > 0 {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/justwasm/pigasus/geminicode"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
+	"github.com/justwasm/pigasus/internal/infra/agyproxy/codec"
 )
 
 // ---- OpenAI Responses API ---------------------------------------------------
@@ -188,7 +189,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 		allItems = append(allItems, rawList...)
 	}
 
-	canonicalModel := normalizeModelName(req.Model)
+	canonicalModel := codec.NormalizeModelName(req.Model)
 	family := accountrouting.ModelFamily(canonicalModel)
 
 	var systemPromptParts []string
@@ -205,7 +206,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 
 		switch {
 		case itemType == "message" || (itemType == "" && role != ""):
-			text, images := parseOpenAIContent(it.Content)
+			text, images := codec.ParseOpenAIContent(it.Content, codec.Media{Resolve: resolveMedia, DetectMIME: http.DetectContentType})
 			if role == "system" || role == "developer" {
 				if text != "" {
 					systemPromptParts = append(systemPromptParts, text)
@@ -232,7 +233,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 				})
 			}
 		case itemType == "agent_message":
-			text, images := parseOpenAIContent(it.Content)
+			text, images := codec.ParseOpenAIContent(it.Content, codec.Media{Resolve: resolveMedia, DetectMIME: http.DetectContentType})
 			if len(turnMessages) > 0 && turnMessages[len(turnMessages)-1].Role == "user" {
 				last := &turnMessages[len(turnMessages)-1]
 				if text != "" {
@@ -391,7 +392,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 	turn := geminicode.Turn{
 		Model:           canonicalModel,
 		Project:         geminicode.DefaultProject,
-		SystemPrompt:    antigravityCloak(strings.Join(systemPromptParts, "\n\n")),
+		SystemPrompt:    cloakSystemPrompt(strings.Join(systemPromptParts, "\n\n")),
 		Messages:        turnMessages,
 		Tools:           turnTools,
 		Temperature:     temp,

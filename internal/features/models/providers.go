@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tailscale/hujson"
 
@@ -655,65 +656,157 @@ func LoadAll() (*Registry, error) {
 	return &Registry{providers: providers, path: path}, nil
 }
 
-// registryCache holds the last registry CachedRegistry built, with the
-// stamp of the files it was built from.
+// registryCache stores the last successfully parsed provider registry and
+// bounds filesystem work for hot snapshot callers. The explicit loader
+// (LoadAll/LoadProviders) remains uncached for callers that need an immediate
+// read.
 type registryCache struct {
-	stamp string
-	reg   *Registry
+	mu       sync.Mutex
+	interval time.Duration
+	now      func() time.Time
+	stat     func(string) (os.FileInfo, error)
+	read     func(string) ([]byte, error)
+
+	path        string
+	stamp       string
+	checkedAt   time.Time
+	readRetryAt time.Time
+	hasCheck    bool
+	lastGood    *Registry
+}
+
+func newRegistryCache(interval time.Duration) *registryCache {
+	return &registryCache{
+		interval: interval,
+		now:      time.Now,
+		stat:     os.Stat,
+		read:     os.ReadFile,
+	}
 }
 
 var (
-	cacheMu sync.Mutex
-	cache   *registryCache
+	globalRegistryCache          = newRegistryCache(250 * time.Millisecond)
+	globalImmediateRegistryCache = newRegistryCache(0)
 )
 
-// CachedRegistry returns the merged registry, re-reading the configuration
-// only when one of the files changed on disk.
-//
-// The catalogue, the context-window table and the transport all consult the
-// user's configuration, and they consult it in a loop — one lookup per
-// candidate model. Re-reading the file each time would be wasteful, so the
-// registry is cached and invalidated by the files' size and modification
-// time.
-//
-// A configuration that does not parse falls back to the last good registry,
-// and to an empty one when there is none: a broken edit to the file must
-// not take the CLI down.
-func CachedRegistry() *Registry {
-	paths := []string{ProvidersPath()}
-	stamp := configStamp(paths)
+// InvalidateProvidersCache forces the next cached registry lookup to inspect
+// the current providers.json immediately. It is useful after out-of-band writes.
+func InvalidateProvidersCache() {
+	globalRegistryCache.invalidate("")
+	globalImmediateRegistryCache.invalidate("")
+}
 
-	cacheMu.Lock()
-	defer cacheMu.Unlock()
-	if cache != nil && cache.stamp == stamp {
-		return cache.reg
+func (c *registryCache) invalidate(path string) {
+	c.mu.Lock()
+	if path == "" || c.path == path {
+		c.hasCheck = false
 	}
-	reg, err := LoadAll()
-	if err != nil {
-		if cache != nil {
-			return cache.reg
+	c.mu.Unlock()
+}
+
+func (c *registryCache) get(path string) *Registry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := c.now()
+	if c.hasCheck && c.path == path {
+		elapsed := now.Sub(c.checkedAt)
+		if elapsed >= 0 && elapsed < c.interval {
+			return c.current(path)
 		}
-		return &Registry{providers: map[string]ProviderConfig{}}
 	}
-	cache = &registryCache{stamp: stamp, reg: reg}
+
+	stamp, statErr := c.fileStamp(path)
+	// Repeated errors and malformed files are negatively cached by stamp too;
+	// only the bounded stat check repeats until the file changes.
+	if c.hasCheck && c.path == path && c.stamp == stamp && (c.readRetryAt.IsZero() || now.Before(c.readRetryAt)) {
+		c.checkedAt = now
+		return c.current(path)
+	}
+
+	// A different configuration path must not inherit another file's models
+	// or credentials when its own contents are invalid.
+	if c.path != path || c.lastGood == nil {
+		c.lastGood = &Registry{providers: map[string]ProviderConfig{}, path: path}
+		c.lastGood.ensureCache()
+	}
+	c.path = path
+	c.stamp = stamp
+	c.checkedAt = now
+	c.hasCheck = true
+	c.readRetryAt = time.Time{}
+
+	if path == "" {
+		return c.lastGood
+	}
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return c.current(path)
+	}
+
+	var (
+		providers map[string]ProviderConfig
+		err       error
+	)
+	if os.IsNotExist(statErr) {
+		providers = map[string]ProviderConfig{}
+	} else {
+		var raw []byte
+		raw, err = c.read(path)
+		if err != nil {
+			// Read failures may clear without changing the file stamp. Bound
+			// these retries even for the immediate metadata-checking API.
+			c.readRetryAt = now.Add(250 * time.Millisecond)
+		}
+		if err == nil {
+			providers, err = ParseProviders(raw)
+		}
+	}
+	if err != nil {
+		return c.current(path)
+	}
+	reg := &Registry{providers: providers, path: path}
+	// Publish a fully built registry: GetByName's legacy lazy path assumes
+	// the flattened cache is already ready for concurrent read-lock users.
+	reg.ensureCache()
+	c.lastGood = reg
 	return reg
 }
 
-// configStamp renders the identity of the configuration files: their paths,
-// and their size and modification time when they exist.
-func configStamp(paths []string) string {
-	var b strings.Builder
-	for _, p := range paths {
-		b.WriteString(p)
-		b.WriteByte(0)
-		if st, err := os.Stat(p); err == nil {
-			fmt.Fprintf(&b, "%d:%d", st.Size(), st.ModTime().UnixNano())
-		} else {
-			b.WriteString("-")
-		}
-		b.WriteByte(0)
+func (c *registryCache) current(path string) *Registry {
+	if c.lastGood != nil {
+		return c.lastGood
 	}
-	return b.String()
+	return &Registry{providers: map[string]ProviderConfig{}, path: path}
+}
+
+func (c *registryCache) fileStamp(path string) (string, error) {
+	if path == "" {
+		return "empty-path", nil
+	}
+	info, err := c.stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "missing", err
+		}
+		return "stat-error:" + err.Error(), err
+	}
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano()), nil
+}
+
+// CachedRegistry returns the registry, checking file metadata on every call
+// while reusing parsed contents for unchanged files. This immediate external
+// edit detection is retained for non-render callers.
+func CachedRegistry() *Registry {
+	return globalImmediateRegistryCache.get(ProvidersPath())
+}
+
+// CachedRegistrySnapshot returns a registry snapshot for hot view loops,
+// checking providers.json at most once per 250ms. Path switches are noticed
+// immediately, and InvalidateProvidersCache/SaveProviders bypass the interval.
+// A malformed file retains the last good registry for the same path; its stamp
+// is negatively cached so unchanged bad contents are not parsed repeatedly.
+func CachedRegistrySnapshot() *Registry {
+	return globalRegistryCache.get(ProvidersPath())
 }
 
 // ParseProviders decodes the provider section of a configuration document.
@@ -752,7 +845,11 @@ func SaveProviders(path string, providers map[string]ProviderConfig) error {
 	doc := struct {
 		Providers map[string]ProviderConfig `json:"providers"`
 	}{Providers: providers}
-	return writeJSONAtomic(path, doc)
+	if err := writeJSONAtomic(path, doc); err != nil {
+		return err
+	}
+	InvalidateProvidersCache()
+	return nil
 }
 
 // writeJSONAtomic writes v as indented JSON to path: a sibling temp file

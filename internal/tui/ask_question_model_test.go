@@ -191,9 +191,9 @@ func TestAskQuestion_TUIInteraction_EscSkips(t *testing.T) {
 }
 
 // TestAskQuestion_HidesTheComposerCursor pins the view contract: while
-// the question form replaces the composer the real terminal cursor is
-// hidden (the write-in textarea draws its own), and the cached view is
-// not reusable.
+// the question form replaces the composer on option rows the real terminal
+// cursor is hidden, and when typing a custom write-in answer the hardware
+// cursor tracks the write-in editing position (for IME composition).
 func TestAskQuestion_HidesTheComposerCursor(t *testing.T) {
 	m := newRootModelForSubagentQuestion(t)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -214,8 +214,19 @@ func TestAskQuestion_HidesTheComposerCursor(t *testing.T) {
 	}
 
 	m.Update(testKeyPress("3", '3')) // write-in row
-	if v := m.View(); v.Cursor != nil {
-		t.Errorf("cursor = %+v, want nil in the write-in state", v.Cursor)
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("cursor = nil in the write-in state, want hardware cursor tracking write-in position")
+	}
+	startX := v.Cursor.Position.X
+	if startX != 2 {
+		t.Fatalf("write-in cursor X = %d, want 2", startX)
+	}
+	m.Update(testKeyPress("a", 'a'))
+	m.Update(testKeyPress("b", 'b'))
+	v2 := m.View()
+	if v2.Cursor == nil || v2.Cursor.Position.X != startX+2 {
+		t.Fatalf("write-in cursor after typing 'ab' = %+v, want X=%d", v2.Cursor, startX+2)
 	}
 }
 
@@ -344,5 +355,46 @@ func TestAskQuestion_SecondRequestDismissesTheFirst(t *testing.T) {
 	}
 	if !m.askQuestion.Active() {
 		t.Error("the second question is not active")
+	}
+}
+
+// TestSubagentQuestion_WriteInHardwareCursor verifies that typing a custom
+// write-in answer in the subagent question panel exposes the hardware cursor
+// at the write-in textarea's editing position (for IME composition).
+func TestSubagentQuestion_WriteInHardwareCursor(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.askQuestion.manager.Enqueue("subagent-1", "Which port?", []string{"8080", "9090"})
+	m.askQuestion.panel.SetScope("subagent-1")
+	m.askQuestion.panel.Toggle()
+
+	if !m.askQuestion.panel.Active() {
+		t.Fatal("expected subagent question panel to be active")
+	}
+	if v := m.View(); v.Cursor != nil {
+		t.Fatalf("cursor = %+v, want nil while navigating options", v.Cursor)
+	}
+
+	// Move option cursor past the 2 options to the Write-in row and press 'e' to activate inline write-in.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	m.Update(testKeyPress("e", 'e'))
+
+	if !m.askQuestion.panel.WriteInActive() {
+		t.Fatal("expected subagent question write-in to be active")
+	}
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("cursor = nil in subagent write-in state, want hardware cursor")
+	}
+	startX := v.Cursor.Position.X
+	if startX != 6 {
+		t.Fatalf("subagent write-in cursor X = %d, want 6", startX)
+	}
+	m.Update(testKeyPress("3", '3'))
+	m.Update(testKeyPress("0", '0'))
+	v2 := m.View()
+	if v2.Cursor == nil || v2.Cursor.Position.X != startX+2 {
+		t.Fatalf("subagent write-in cursor after typing '30' = %+v, want X=%d", v2.Cursor, startX+2)
 	}
 }

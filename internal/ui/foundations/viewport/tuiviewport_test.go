@@ -37,18 +37,6 @@ func TestTextSelection(t *testing.T) {
 		t.Errorf("ResetSelection failed")
 	}
 
-	var in tuiviewport.InputSelection
-	in.InputSelStart = 10
-	in.InputSelEnd = 3
-	start, end := in.InputSelectionRange()
-	if start != 3 || end != 10 {
-		t.Errorf("InputSelectionRange = (%d, %d), want (3, 10)", start, end)
-	}
-
-	in.ResetInputSelection()
-	if in.InputSelStart != 0 || in.InputSelEnd != 0 {
-		t.Errorf("ResetInputSelection failed")
-	}
 }
 
 func TestApplySelectionHighlight(t *testing.T) {

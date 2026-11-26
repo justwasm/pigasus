@@ -98,6 +98,7 @@ type anthropicEvent struct {
 		Thinking    string `json:"thinking"`
 		Signature   string `json:"signature"`
 		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage struct {
 		InputTokens  int `json:"input_tokens"`
@@ -353,7 +354,7 @@ func (c *GatewayClient) readAnthropicBody(ctx context.Context, resp *http.Respon
 	})
 	if scanErr != nil {
 		if !retry.IsConnectionDropped(scanErr) {
-			out <- backend.StreamChunk{Error: scanErr, Done: true}
+			out <- backend.StreamChunk{Error: scanErr, Done: true, Meta: meta}
 		}
 		return scanErr
 	}
@@ -419,6 +420,11 @@ func (c *GatewayClient) dispatchAnthropicEvent(ctx context.Context, ev anthropic
 		return false, handleAnthropicDelta(ctx, ev, tracker.blocks, thinkTracker.blocks, out)
 	case "message_delta":
 		updateAnthropicMeta(meta, ev, c.baseURL, externalModel)
+		if ev.Delta.StopReason == "max_tokens" || ev.Delta.StopReason == "refusal" {
+			// A stopped content block is not proof that a tool call is safe to
+			// execute. Wait for the message outcome before emitting any calls.
+			return true, gatewayTerminationError(GatewayProtocolAnthropic, ev.Delta.StopReason)
+		}
 	case "message_stop":
 		if !tracker.emit(ctx, out) {
 			return true, nil

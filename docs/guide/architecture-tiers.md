@@ -31,9 +31,9 @@ below it and nothing above it.
 |---|---|---|
 | 1 | `internal/core/` | the contracts: the registry (`registry`), the lifecycle state machine (`lifecycle`), the policies (`policy/permissions`, `policy/sandbox`, `policy/trust`), the settings store (`settings`), the seam (`seam`), the token formatter (`tokenfmt`), the log-file timestamp (`logts`), the session-flag policies (`cliflags/*`), the version (`version`), the layering guard (`architecture`) |
 | 2 | `internal/features/` | the capabilities: the auth (`auth/*`), the model catalogue (`models/*`), the accounts (`accounts/*`), the plugins (`plugins/*`), the OAuth flows (`oauthflow`), the feature-local tools (`tools/*`) |
-| 3 | `internal/infra/` | the infrastructure: the transports (`backend/*`), the daemon (`daemon`), the proxy (`agyproxy`, `proxy/*`), the reference's own asset backend (`refbackend`), the remote-control plumbing (`remote/*`), the subsystem registrations (`subsystems/*`), the drift checker (`referencedrift`) |
+| 3 | `internal/infra/` | the infrastructure: the transports (`backend/*`), the daemon (`daemon`), the proxy (`agyproxy`, `proxy/*`), the reference's own asset backend (`refbackend`), the remote-control plumbing (`remote/*`), the subsystem registrations (`subsystems/*`), the drift checker (`referencedrift`), the live voice backend & account-pool failover (`livevoice`) |
 | 4 | `internal/app/` | the orchestration: the turn seam (`agentturn`), the agent server (`agentserver`), the prompt subsystem (`prompt/*`), the session stores (`session/*`), the TUI state store (`tuistore`), the tool surface (`tools/*`), the subagent machinery (`subagent/*`), the subcommand table (`subcommands`) |
-| 5 | `internal/ui/` | the presentation: the TUI contract and defaults (`tuimodel`), the panel registry (`panelregistry`), the TUI widgets (`tuilib`, `tuitools`), the shared rows (`rows`), the editor (`editor/*`), the foundations (`foundations/*`), the renderers (`render/*`, `mdrender`), the views (`views/*`) |
+| 5 | `internal/ui/` | the presentation: the TUI contract and defaults (`tuimodel`), the panel registry (`panelregistry`), the TUI widgets (`tuilib`, `tuitools`), the shared rows (`rows`), the editor (`editor/*`), the foundations (`foundations/*`), the renderers (`render/*`, `mdrender`), the views (`views/*`), the live multimodal chat TUI/Web UI (`livechat`) |
 
 The tier root holds only directories — a package's *own* directory is the
 unit of placement, and the tier is chosen by what the package depends on,
@@ -430,8 +430,11 @@ no fourth kind.
 | `internal/lsserver` | the LanguageServer implementation |
 | `internal/agyupdate` | the updater |
 | `internal/remotecontrol`, `internal/rchost`, `internal/rcfrontend`, `internal/rctunnel`, `internal/rcaudio` | the Web UI's own surface — see [`remote-control.md`](remote-control.md) |
+| `internal/voice`, `internal/voice/voicepb` | the voice dictation driver and generated voice protobuf contracts (tracked in `unclassifiedSubsystems` awaiting tier placement) |
 | `internal/cortex_pb`, `internal/language_server_pb`, `internal/codeium_common_pb`, `internal/extension_server_pb` | the recovered proto skeletons — **evidence**, not program |
 | `internal/cortex`, `internal/language_server`, `internal/planrender` | the 1.3.3-era reverse-engineering skeletons — **evidence**, not program |
+
+> **Unclassified / legacy subsystem ratchet**: `internal/core/architecture/architecture_test.go` maintains `unclassifiedSubsystems` as a strict allowlist for legacy `internal/` packages awaiting tier placement or host migration (including `internal/voice`, `internal/voice/voicepb`, `internal/testguard`, `internal/agyupdate`, `internal/remotecontrol/*`, `internal/rc*`, `internal/cortex*`, `internal/language_server*`, `internal/planrender`, and the `*_pb` contracts). Any new package under `internal/` must sit in tiers 1–5, be a registered host, or be explicitly recorded there.
 
 Two planned targets became **public packages** instead of tier directories:
 the DNS fallback is `dns/` (not `internal/infra/dns`) and the CEL engine is
@@ -553,3 +556,5 @@ shell.
    of `internal/remotecontrol`. R2 exempts the app tier for the five
    engine hosts, and prints the exempted edge count (22) so the
    exemption stays visible.
+
+See [`entrypoints.md`](entrypoints.md) for the classification of all 15 `cmd/*` binaries that sit above the five `internal/` tiers.

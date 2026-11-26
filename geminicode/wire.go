@@ -35,15 +35,21 @@ type FunctionCall struct {
 	Args json.RawMessage `json:"args,omitempty"`
 }
 
+// FunctionResponsePart carries multimodal media attached to a tool response.
+type FunctionResponsePart struct {
+	InlineData *InlineData `json:"inlineData,omitempty"`
+}
+
 // FunctionResponse is the client's answer to a FunctionCall.
 //
 // Response is the reference's own envelope: a successful call travels back
 // under `output`, a failed one under `error` (agy 1.4.8). The body is the
 // same string either way.
 type FunctionResponse struct {
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name"`
-	Response any    `json:"response"`
+	ID       string                 `json:"id,omitempty"`
+	Name     string                 `json:"name"`
+	Response any                    `json:"response"`
+	Parts    []FunctionResponsePart `json:"parts,omitempty"`
 }
 
 // InlineData is base64 payload (images, small files).
@@ -86,6 +92,11 @@ type Tool struct {
 	FunctionDeclarations []FunctionDeclaration `json:"functionDeclarations"`
 }
 
+// ImageConfig configures image generation parameters (aspect ratio).
+type ImageConfig struct {
+	AspectRatio string `json:"aspectRatio,omitempty"`
+}
+
 // GenerationConfig carries sampling parameters.
 //
 // The member order is the order the reference sends them in, and the first
@@ -96,13 +107,15 @@ type Tool struct {
 // Temperature is a pointer because "unset" and "0" are different requests:
 // the reference omits the member when it has no opinion.
 type GenerationConfig struct {
-	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
-	Temperature     *float64        `json:"temperature,omitempty"`
-	ThinkingConfig  *ThinkingConfig `json:"thinkingConfig,omitempty"`
-	TopP            *float64        `json:"topP,omitempty"`
-	TopK            int             `json:"topK,omitempty"`
-	StopSequences   []string        `json:"stopSequences,omitempty"`
-	CandidateCount  int             `json:"candidateCount,omitempty"`
+	MaxOutputTokens    int             `json:"maxOutputTokens,omitempty"`
+	Temperature        *float64        `json:"temperature,omitempty"`
+	ThinkingConfig     *ThinkingConfig `json:"thinkingConfig,omitempty"`
+	TopP               *float64        `json:"topP,omitempty"`
+	TopK               int             `json:"topK,omitempty"`
+	StopSequences      []string        `json:"stopSequences,omitempty"`
+	CandidateCount     int             `json:"candidateCount,omitempty"`
+	ResponseModalities []string        `json:"responseModalities,omitempty"`
+	ImageConfig        *ImageConfig    `json:"imageConfig,omitempty"`
 }
 
 // ThinkingConfig asks the model for its reasoning trace and bounds it.
@@ -243,6 +256,17 @@ type CloudCodeResponse struct {
 	Response GenerateContentResponse `json:"response"`
 	TraceID  string                  `json:"traceId"`
 	Metadata map[string]any          `json:"metadata"`
+}
+
+// FetchAvailableModelsRequest is the request body for /v1internal:fetchAvailableModels.
+type FetchAvailableModelsRequest struct {
+	Project string `json:"project,omitempty"`
+}
+
+// FetchAvailableModelsResponse is the subset of /v1internal:fetchAvailableModels
+// needed to resolve the active image generation model ID.
+type FetchAvailableModelsResponse struct {
+	ImageGenerationModelIDs []string `json:"imageGenerationModelIds,omitempty"`
 }
 
 // NewResponse builds a one-candidate response with the given parts.

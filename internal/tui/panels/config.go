@@ -19,6 +19,7 @@ type ConfigHost interface {
 	SlashRespond(cmd, msg string, extra ...string)
 	SeasonalNow() time.Time
 	ConfigOverrideFor(row configpanel.Row) (string, bool)
+	AltScreenHint() string
 }
 
 // NewConfigPanel builds the /config panel with the given host seams.
@@ -32,5 +33,6 @@ func NewConfigPanel(h ConfigHost) *configpanel.Panel {
 		Respond:         func(cmd, msg string) { h.SlashRespond(cmd, msg) },
 		SeasonalEvent:   func() *seasonal.Event { return seasonal.Current(h.SeasonalNow()) },
 		OverrideFor:     h.ConfigOverrideFor,
+		AltScreenHint:   h.AltScreenHint,
 	})
 }

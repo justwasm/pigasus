@@ -652,3 +652,24 @@ func (d *Dispatcher) handleLSInstallCustomization(params json.RawMessage) (any, 
 		"installDir": "",
 	}, nil, true
 }
+
+// handleLSIncludeBundleMember answers IncludeBundleMember.
+func (d *Dispatcher) handleLSIncludeBundleMember(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	var req struct {
+		BundlePluginID        string `json:"bundlePluginId"`
+		MemberCustomizationID string `json:"memberCustomizationId"`
+	}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+		}
+	}
+	if strings.TrimSpace(req.BundlePluginID) == "" || strings.TrimSpace(req.MemberCustomizationID) == "" {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "bundlePluginId and memberCustomizationId are required"}, true
+	}
+	return map[string]any{
+		"success":    false,
+		"message":    "Updating a marketplace bundle is not supported by this build.",
+		"installDir": "",
+	}, nil, true
+}

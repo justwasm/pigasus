@@ -1,6 +1,7 @@
 package permissionprompt
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -28,9 +29,13 @@ func WithOnDecision(cb func(Result)) OptionFunc {
 type Model struct {
 	req            Request
 	open           bool
+	selectedIndex  int
 	selectedOption Option
 	feedbackMode   bool
 	feedbackText   string
+	amendMode      bool
+	amendText      string
+	expandedView   bool
 	result         Result
 	hasResult      bool
 	width          int
@@ -42,6 +47,7 @@ func New(req Request, opts ...OptionFunc) *Model {
 	m := &Model{
 		req:            req,
 		open:           true,
+		selectedIndex:  0,
 		selectedOption: OptionApproveOnce,
 		width:          DefaultBoxWidth,
 	}
@@ -76,6 +82,24 @@ func (m *Model) Feedback() string {
 	return m.feedbackText
 }
 
+// IsAmendMode reports whether the prompt is currently in command amend mode.
+func (m *Model) IsAmendMode() bool {
+	return m != nil && m.amendMode
+}
+
+// AmendText returns the current amended command buffer.
+func (m *Model) AmendText() string {
+	if m == nil {
+		return ""
+	}
+	return m.amendText
+}
+
+// IsExpandedView reports whether the prompt is in expanded diff or full command view.
+func (m *Model) IsExpandedView() bool {
+	return m != nil && m.expandedView
+}
+
 // Request returns the current Request being prompted.
 func (m *Model) Request() Request {
 	if m == nil {
@@ -97,7 +121,137 @@ func (m *Model) SelectedOption() Option {
 	if m == nil {
 		return OptionApproveOnce
 	}
+	choices := m.Choices()
+	if m.selectedIndex >= 0 && m.selectedIndex < len(choices) {
+		switch choices[m.selectedIndex].Decision {
+		case DecisionApproveOnce:
+			return OptionApproveOnce
+		case DecisionAlwaysAllow:
+			return OptionAlwaysAllow
+		case DecisionDeny:
+			return OptionDeny
+		case DecisionFeedback:
+			return OptionFeedback
+		}
+	}
 	return m.selectedOption
+}
+
+// SelectedIndex returns the index of the currently focused choice.
+func (m *Model) SelectedIndex() int {
+	if m == nil {
+		return 0
+	}
+	return m.selectedIndex
+}
+
+// Choices returns the active list of numbered options for the prompt.
+func (m *Model) Choices() []Choice {
+	if m == nil {
+		return nil
+	}
+	if len(m.req.Options) > 0 {
+		choices := make([]Choice, len(m.req.Options))
+		for i, opt := range m.req.Options {
+			dec := DecisionApproveOnce
+			switch opt.Kind {
+			case "allow_once", "approve_once", "once":
+				dec = DecisionApproveOnce
+			case "allow_always", "always_allow", "always":
+				dec = DecisionAlwaysAllow
+			case "reject", "deny":
+				dec = DecisionDeny
+			case "reject_with_feedback", "feedback":
+				dec = DecisionFeedback
+			default:
+				if i == 0 {
+					dec = DecisionApproveOnce
+				} else {
+					dec = DecisionDeny
+				}
+			}
+			choices[i] = Choice{
+				Number:   i + 1,
+				Title:    opt.Title,
+				Decision: dec,
+				OptionID: opt.ID,
+			}
+		}
+		return choices
+	}
+
+	switch m.req.Kind {
+	case KindFileEdit:
+		choices := []Choice{
+			{Number: 1, Title: "Yes, accept this change", Decision: DecisionApproveOnce, OptionID: m.req.MatchOptionID(DecisionApproveOnce)},
+			{Number: 2, Title: "No, reject this change", Decision: DecisionDeny, OptionID: m.req.MatchOptionID(DecisionDeny)},
+		}
+		if m.req.OutsideWS {
+			choices = append(choices, Choice{
+				Number:   len(choices) + 1,
+				Title:    "Yes, and always allow non-workspace access",
+				Decision: DecisionAlwaysAllow,
+				OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
+			})
+		}
+		return choices
+
+	case KindFileCreate:
+		choices := []Choice{
+			{Number: 1, Title: "Yes, allow creation", Decision: DecisionApproveOnce, OptionID: m.req.MatchOptionID(DecisionApproveOnce)},
+			{Number: 2, Title: "No, deny creation", Decision: DecisionDeny, OptionID: m.req.MatchOptionID(DecisionDeny)},
+		}
+		if m.req.OutsideWS {
+			choices = append(choices, Choice{
+				Number:   len(choices) + 1,
+				Title:    "Yes, and always allow non-workspace access",
+				Decision: DecisionAlwaysAllow,
+				OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
+			})
+		}
+		return choices
+
+	default:
+		cmdTitle := "run command"
+		if m.req.Tool != "" && m.req.Tool != "run_command" && m.req.Tool != "run_shell_command" && m.req.CommandStr() == "" {
+			cmdTitle = fmt.Sprintf("run %s", m.req.Tool)
+		}
+		cmd := m.req.CommandStr()
+		prefix := ""
+		if fields := strings.Fields(cmd); len(fields) > 0 {
+			prefix = fields[0]
+			if slash := strings.LastIndex(prefix, "/"); slash >= 0 {
+				prefix = prefix[slash+1:]
+			}
+		}
+		choices := []Choice{
+			{Number: 1, Title: fmt.Sprintf("Yes, %s", cmdTitle), Decision: DecisionApproveOnce, OptionID: m.req.MatchOptionID(DecisionApproveOnce)},
+		}
+		if prefix != "" {
+			n := len(choices)
+			choices = append(choices,
+				Choice{
+					Number:   n + 1,
+					Title:    fmt.Sprintf("Yes, and always allow in this conversation for commands that start with '%s'", prefix),
+					Decision: DecisionAlwaysAllow,
+					OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
+				},
+				Choice{
+					Number:   n + 2,
+					Title:    fmt.Sprintf("Yes, and always allow for commands that start with '%s' (Persist to settings.json)", prefix),
+					Decision: DecisionAlwaysAllow,
+					OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
+				},
+			)
+		}
+		choices = append(choices, Choice{
+			Number:   len(choices) + 1,
+			Title:    "No, cancel",
+			Decision: DecisionDeny,
+			OptionID: m.req.MatchOptionID(DecisionDeny),
+		})
+		return choices
+	}
 }
 
 // SetWidth sets the render width for the dialog.
@@ -121,6 +275,7 @@ func (m *Model) Open(req Request) {
 	}
 	m.req = req
 	m.open = true
+	m.selectedIndex = 0
 	m.selectedOption = OptionApproveOnce
 	m.feedbackMode = false
 	m.feedbackText = ""
@@ -168,7 +323,56 @@ func (m *Model) HandleKey(key tea.Key) (Result, bool) {
 	if m.feedbackMode {
 		return m.handleFeedbackKey(key)
 	}
+	if m.amendMode {
+		return m.handleAmendKey(key)
+	}
 	return m.handleChoiceKey(key)
+}
+
+func (m *Model) handleAmendKey(key tea.Key) (Result, bool) {
+	switch key.Code {
+	case tea.KeyEsc:
+		m.amendMode = false
+		return Result{}, true
+
+	case tea.KeyEnter:
+		amended := strings.TrimSpace(m.amendText)
+		if amended == "" {
+			amended = m.req.CommandStr()
+		}
+		res := Result{
+			Decision:       DecisionApproveOnce,
+			OptionID:       m.req.MatchOptionID(DecisionApproveOnce),
+			AmendedCommand: amended,
+		}
+		m.complete(res)
+		return res, true
+
+	case tea.KeyBackspace:
+		if len(m.amendText) > 0 {
+			runes := []rune(m.amendText)
+			m.amendText = string(runes[:len(runes)-1])
+		}
+		return Result{}, true
+
+	case tea.KeyDelete:
+		return Result{}, true
+
+	default:
+		if key.Code == 'u' && key.Mod == tea.ModCtrl {
+			m.amendText = ""
+			return Result{}, true
+		}
+		text := key.Text
+		if text == "" && key.Code >= 32 && key.Code != 127 && (key.Mod == 0 || key.Mod == tea.ModShift) {
+			text = string(key.Code)
+		}
+		if text != "" {
+			m.amendText += text
+			return Result{}, true
+		}
+	}
+	return Result{}, true
 }
 
 func (m *Model) handleFeedbackKey(key tea.Key) (Result, bool) {
@@ -222,7 +426,11 @@ func (m *Model) handleFeedbackKey(key tea.Key) (Result, bool) {
 }
 
 func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
-	// 1. Direct single-key shortcuts: y, a, n, d, 1, 2, f, and Esc.
+	choices := m.Choices()
+	if len(choices) == 0 {
+		return Result{}, false
+	}
+
 	ch := strings.ToLower(key.Text)
 	if ch == "" && unicode.IsPrint(key.Code) {
 		ch = strings.ToLower(string(key.Code))
@@ -230,7 +438,6 @@ func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
 
 	// For file edits, official-docs/cli/modes.md:53-60:
 	// "A pending file edit stays open until you accept or reject it. Pressing Esc doesn’t dismiss it."
-	// For file creation, Esc denies file creation (official-docs/cli/modes.md:78).
 	if key.Code == tea.KeyEsc {
 		if m.req.Kind == KindFileEdit {
 			// Esc does not dismiss a pending file edit.
@@ -244,8 +451,29 @@ func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
 		return res, true
 	}
 
-	switch {
-	case ch == "y" || (ch == "1" && (m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate)):
+	// 1. Direct number shortcuts: 1..9
+	if len(ch) == 1 && ch[0] >= '1' && ch[0] <= '9' {
+		idx := int(ch[0] - '1')
+		if idx < len(choices) {
+			targetChoice := choices[idx]
+			if targetChoice.Decision == DecisionFeedback {
+				m.feedbackMode = true
+				m.feedbackText = ""
+				return Result{}, true
+			}
+			res := Result{
+				Decision: targetChoice.Decision,
+				OptionID: targetChoice.OptionID,
+			}
+			m.complete(res)
+			return res, true
+		}
+	}
+
+	// 2. Direct letter shortcuts: y, a, n, d, f
+	switch ch {
+	case "y":
+		// Approve once
 		res := Result{
 			Decision: DecisionApproveOnce,
 			OptionID: m.req.MatchOptionID(DecisionApproveOnce),
@@ -253,7 +481,8 @@ func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
 		m.complete(res)
 		return res, true
 
-	case ch == "a":
+	case "a":
+		// Always allow
 		res := Result{
 			Decision: DecisionAlwaysAllow,
 			OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
@@ -261,7 +490,8 @@ func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
 		m.complete(res)
 		return res, true
 
-	case ch == "n" || (ch == "2" && (m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate)):
+	case "n":
+		// Deny / Cancel
 		res := Result{
 			Decision: DecisionDeny,
 			OptionID: m.req.MatchOptionID(DecisionDeny),
@@ -269,88 +499,77 @@ func (m *Model) handleChoiceKey(key tea.Key) (Result, bool) {
 		m.complete(res)
 		return res, true
 
-	case ch == "d":
+	case "d":
+		// Enter feedback mode
 		m.feedbackMode = true
 		m.feedbackText = ""
 		return Result{}, true
 
-	case ch == "f" && (m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate):
-		// "Press f to open a full-screen, scrollable diff review"
-		// Handled by returning OptionID="full_diff" or feedback mode
-		res := Result{
-			Decision: DecisionFeedback,
-			OptionID: "full_diff",
+	case "f":
+		if m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate {
+			m.expandedView = !m.expandedView
+			return Result{}, true
 		}
-		m.complete(res)
-		return res, true
+	}
 
-	// 2. Navigation keys: Left / Right / Tab / Shift+Tab to change focused option.
-	case key.Code == tea.KeyLeft, key.Code == tea.KeyUp, (key.Code == tea.KeyTab && (key.Mod&tea.ModShift != 0)):
-		if m.selectedOption > OptionApproveOnce {
-			m.selectedOption--
+	// 2.5. Ctrl+G: edit / expand command in command approval
+	if (key.Code == 'g' && key.Mod == tea.ModCtrl) || key.Code == 7 {
+		m.expandedView = !m.expandedView
+		return Result{}, true
+	}
+
+	// 3. Navigation: Up / Down / k / j / Left / Right
+	switch key.Code {
+	case tea.KeyUp, tea.KeyLeft, 'k':
+		if m.selectedIndex > 0 {
+			m.selectedIndex--
 		} else {
-			m.selectedOption = OptionFeedback
+			m.selectedIndex = len(choices) - 1
 		}
 		return Result{}, true
 
-	case key.Code == tea.KeyRight, key.Code == tea.KeyDown:
-		if m.selectedOption < OptionFeedback {
-			m.selectedOption++
+	case tea.KeyDown, tea.KeyRight, 'j':
+		if m.selectedIndex < len(choices)-1 {
+			m.selectedIndex++
 		} else {
-			m.selectedOption = OptionApproveOnce
+			m.selectedIndex = 0
 		}
 		return Result{}, true
 
-	case key.Code == tea.KeyTab && (m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate):
-		// "To reject the edit and tell the agent what to do differently, highlight No, reject this change, press Tab..."
-		if m.selectedOption == OptionDeny {
+	case tea.KeyTab:
+		// Tab in command prompt enters Amend mode
+		if m.req.Kind == KindDefault && (m.req.CommandStr() != "" || m.req.Tool == "run_command" || m.req.Tool == "run_shell_command") {
+			m.amendMode = true
+			m.amendText = m.req.CommandStr()
+			return Result{}, true
+		}
+		// Tab in file edit/create, if on Reject/Deny, opens feedback
+		if (m.req.Kind == KindFileEdit || m.req.Kind == KindFileCreate) && m.selectedIndex == 1 {
 			m.feedbackMode = true
 			m.feedbackText = ""
 			return Result{}, true
 		}
-		if m.selectedOption < OptionFeedback {
-			m.selectedOption++
+		if m.selectedIndex < len(choices)-1 {
+			m.selectedIndex++
 		} else {
-			m.selectedOption = OptionApproveOnce
+			m.selectedIndex = 0
 		}
 		return Result{}, true
 
-	case key.Code == tea.KeyTab:
-		if m.selectedOption < OptionFeedback {
-			m.selectedOption++
-		} else {
-			m.selectedOption = OptionApproveOnce
-		}
-		return Result{}, true
-
-	// 3. Enter key activates the currently focused option.
-	case key.Code == tea.KeyEnter:
-		switch m.selectedOption {
-		case OptionApproveOnce:
+	case tea.KeyEnter:
+		if m.selectedIndex >= 0 && m.selectedIndex < len(choices) {
+			c := choices[m.selectedIndex]
+			if c.Decision == DecisionFeedback {
+				m.feedbackMode = true
+				m.feedbackText = ""
+				return Result{}, true
+			}
 			res := Result{
-				Decision: DecisionApproveOnce,
-				OptionID: m.req.MatchOptionID(DecisionApproveOnce),
+				Decision: c.Decision,
+				OptionID: c.OptionID,
 			}
 			m.complete(res)
 			return res, true
-		case OptionAlwaysAllow:
-			res := Result{
-				Decision: DecisionAlwaysAllow,
-				OptionID: m.req.MatchOptionID(DecisionAlwaysAllow),
-			}
-			m.complete(res)
-			return res, true
-		case OptionDeny:
-			res := Result{
-				Decision: DecisionDeny,
-				OptionID: m.req.MatchOptionID(DecisionDeny),
-			}
-			m.complete(res)
-			return res, true
-		case OptionFeedback:
-			m.feedbackMode = true
-			m.feedbackText = ""
-			return Result{}, true
 		}
 	}
 

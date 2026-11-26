@@ -252,7 +252,7 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 	// 3. Switch live to Tokyo Night
 	m.applyThemeLive("tokyo night")
 	tokyoBlue := "\x1b[38;2;122;162;247;1m"
-	tokyoMuted := "\x1b[38;2;169;177;214m"
+	tokyoMuted := "\x1b[38;2;154;165;206m"
 	if !strings.Contains(m.conversation.response[0], tokyoBlue) {
 		t.Errorf("tokyo night slash header missing %q; got: %q", tokyoBlue, m.conversation.response[0])
 	}

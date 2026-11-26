@@ -68,6 +68,7 @@ type Step struct {
 	Status       string       `json:"status,omitempty"`
 	Thought      string       `json:"thought,omitempty"`
 	Delta        string       `json:"delta,omitempty"`
+	Images       []ImagePart  `json:"images,omitempty"`
 	ToolCalls    []ToolCall   `json:"tool_calls,omitempty"`
 	ToolResults  []ToolResult `json:"tool_results,omitempty"`
 	Steer        []string     `json:"steer,omitempty"`
@@ -89,6 +90,7 @@ type TurnRecord struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	CompletedAt time.Time  `json:"completed_at"`
 	Input       string     `json:"input"`
+	InputImages []ImagePart `json:"input_images,omitempty"`
 	Steers      []string   `json:"steers,omitempty"`
 	Steps       []Step     `json:"steps"`
 	FinalOutput string     `json:"final_output"`
@@ -214,6 +216,7 @@ func (t *Trajectory) AddTurn(tr *TurnRecord) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	tr = cloneTurnRecord(tr)
 	if t.staged >= 0 && t.staged < len(t.turns) {
 		// Keep the staged turn last: ToConversationMessages identifies it by
 		// its position.
@@ -240,58 +243,45 @@ func (t *Trajectory) SeedHistory(history []ConversationMessage) {
 	}
 
 	var current *TurnRecord
+	newTurn := func() *TurnRecord {
+		return &TurnRecord{
+			ID:          fmt.Sprintf("hist_%d", len(t.turns)+1),
+			CreatedAt:   t.now(),
+			CompletedAt: t.now(),
+			Status:      "done",
+		}
+	}
 	for _, m := range history {
 		switch m.Role {
 		case RoleUser:
 			if current != nil {
 				t.turns = append(t.turns, current)
 			}
-			current = &TurnRecord{
-				ID:          fmt.Sprintf("hist_%d", len(t.turns)+1),
-				CreatedAt:   t.now(),
-				CompletedAt: t.now(),
-				Input:       m.Content,
-				Status:      "done",
-			}
+			current = newTurn()
+			current.Input = m.Content
+			current.InputImages = cloneImageParts(m.Images)
 		case RoleAssistant:
-			if current != nil && current.FinalOutput == "" {
-				current.FinalOutput = m.Content
-				if len(m.ToolCalls) > 0 {
-					step := Step{
-						Index:     len(current.Steps),
-						Delta:     m.Content,
-						Thought:   m.Thought,
-						ToolCalls: m.ToolCalls,
-					}
-					current.Steps = append(current.Steps, step)
-				}
-				t.turns = append(t.turns, current)
-				current = nil
-			} else {
-				tr := &TurnRecord{
-					ID:          fmt.Sprintf("hist_%d", len(t.turns)+1),
-					CreatedAt:   t.now(),
-					CompletedAt: t.now(),
-					Input:       "",
-					FinalOutput: m.Content,
-					Status:      "done",
-				}
-				if len(m.ToolCalls) > 0 {
-					tr.Steps = append(tr.Steps, Step{
-						Index:     0,
-						Delta:     m.Content,
-						Thought:   m.Thought,
-						ToolCalls: m.ToolCalls,
-					})
-				}
-				t.turns = append(t.turns, tr)
+			if current == nil {
+				current = newTurn()
 			}
+			current.FinalOutput = m.Content
+			current.Steps = append(current.Steps, Step{
+				Index:     len(current.Steps),
+				Delta:     m.Content,
+				Thought:   m.Thought,
+				Images:    cloneImageParts(m.Images),
+				ToolCalls: append([]ToolCall(nil), m.ToolCalls...),
+			})
+			// Keep this turn open: tool results and subsequent assistant
+			// steps belong to it until the next user message.
 		case RoleTool:
 			if current != nil && len(current.Steps) > 0 {
 				lastIdx := len(current.Steps) - 1
 				current.Steps[lastIdx].ToolResults = append(current.Steps[lastIdx].ToolResults, ToolResult{
 					ToolCallID: m.ToolCallID,
+					ToolName:   m.ToolName,
 					Output:     m.Content,
+					Images:     cloneImageParts(m.Images),
 				})
 			}
 		}
@@ -414,6 +404,11 @@ func (t *Trajectory) CheckpointView() CheckpointView {
 	limit := len(t.turns)
 	staged := t.staged >= 0 && t.staged < limit
 	for ti, turn := range t.turns {
+		if turn.ColdStored && len(turn.Steps) == 0 && t.coldDir != "" {
+			if hydrated, err := t.loadColdTurnLocked(t.coldDir, ti); err == nil && hydrated != nil {
+				turn = hydrated
+			}
+		}
 		keepTurnInput := boundary < 0 || ti > cpTurn || (ti == cpTurn && cpKeepInput)
 		if len(turn.Steps) == 0 {
 			if boundary >= 0 && turn.StartStep <= boundary {
@@ -421,7 +416,7 @@ func (t *Trajectory) CheckpointView() CheckpointView {
 			}
 			if staged && ti == t.staged {
 				if keepTurnInput {
-					view.Pending = append(view.Pending, ConversationMessage{Role: RoleUser, Content: turn.Input})
+					view.Pending = append(view.Pending, ConversationMessage{Role: RoleUser, Content: turn.Input, Images: cloneImageParts(turn.InputImages)})
 				}
 				for _, st := range turn.Steers {
 					view.Pending = append(view.Pending, ConversationMessage{Role: RoleUser, Content: "[Active Guidance]: " + st})
@@ -430,7 +425,7 @@ func (t *Trajectory) CheckpointView() CheckpointView {
 			}
 			msgs := make([]ConversationMessage, 0, 2)
 			if keepTurnInput {
-				msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input})
+				msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input, Images: cloneImageParts(turn.InputImages)})
 			}
 			if turn.FinalOutput != "" {
 				msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})
@@ -445,10 +440,12 @@ func (t *Trajectory) CheckpointView() CheckpointView {
 				continue
 			}
 			input := ""
+			var inputImages []ImagePart
 			if si == 0 && keepTurnInput {
 				input = turn.Input
+				inputImages = turn.InputImages
 			}
-			msgs := stepConversationMessages(step, input)
+			msgs := stepConversationMessages(step, input, inputImages)
 			if si == len(turn.Steps)-1 && turn.FinalOutput != "" && step.Delta == "" {
 				msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})
 			}
@@ -482,10 +479,10 @@ func cloneCheckpoint(cp Checkpoint) Checkpoint {
 	return cp
 }
 
-func stepConversationMessages(step Step, input string) []ConversationMessage {
+func stepConversationMessages(step Step, input string, inputImages []ImagePart) []ConversationMessage {
 	var msgs []ConversationMessage
-	if input != "" {
-		msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: input})
+	if input != "" || len(inputImages) > 0 {
+		msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: input, Images: cloneImageParts(inputImages)})
 	}
 	if len(step.Steer) > 0 {
 		msgs = append(msgs, ConversationMessage{
@@ -493,26 +490,42 @@ func stepConversationMessages(step Step, input string) []ConversationMessage {
 			Content: "[Active Guidance]: " + strings.Join(step.Steer, "; "),
 		})
 	}
-	if step.Delta != "" || step.Thought != "" || len(step.ToolCalls) > 0 {
+	if step.Delta != "" || step.Thought != "" || len(step.Images) > 0 || len(step.ToolCalls) > 0 {
 		msgs = append(msgs, ConversationMessage{
 			Role:      RoleAssistant,
 			Content:   step.Delta,
 			Thought:   step.Thought,
-			ToolCalls: step.ToolCalls,
+			Images:    cloneImageParts(step.Images),
+			ToolCalls: append([]ToolCall(nil), step.ToolCalls...),
 		})
-		for _, res := range step.ToolResults {
-			content := res.Output
-			if res.Error != "" {
-				content = fmt.Sprintf("Error: %s", res.Error)
-			}
-			msgs = append(msgs, ConversationMessage{
-				Role:       RoleTool,
-				Content:    content,
-				ToolCallID: res.ToolCallID,
-			})
-		}
+	}
+	for _, res := range step.ToolResults {
+		msgs = append(msgs, toolResultMessage(step, res))
 	}
 	return msgs
+}
+
+func toolResultMessage(step Step, res ToolResult) ConversationMessage {
+	content := res.Output
+	if res.Error != "" {
+		content = fmt.Sprintf("Error: %s", res.Error)
+	}
+	name := res.ToolName
+	if name == "" {
+		for _, call := range step.ToolCalls {
+			if call.ID == res.ToolCallID {
+				name = call.Name
+				break
+			}
+		}
+	}
+	return ConversationMessage{
+		Role:       RoleTool,
+		Content:    content,
+		Images:     cloneImageParts(res.Images),
+		ToolCallID: res.ToolCallID,
+		ToolName:   name,
+	}
 }
 
 // LastTurn returns a copy of the most recent turn record, or nil if none.
@@ -543,19 +556,29 @@ func cloneTurnRecord(tr *TurnRecord) *TurnRecord {
 		return nil
 	}
 	cp := *tr
+	cp.InputImages = cloneImageParts(tr.InputImages)
 	cp.Steers = append([]string(nil), tr.Steers...)
 	cp.Steps = make([]Step, len(tr.Steps))
 	for i, st := range tr.Steps {
-		cp.Steps[i] = st
-		cp.Steps[i].Steer = append([]string(nil), st.Steer...)
-		cp.Steps[i].ToolCalls = append([]ToolCall(nil), st.ToolCalls...)
-		cp.Steps[i].ToolResults = append([]ToolResult(nil), st.ToolResults...)
-		if st.Usage != nil {
-			usage := *st.Usage
-			cp.Steps[i].Usage = &usage
-		}
+		cp.Steps[i] = cloneStep(st)
 	}
 	return &cp
+}
+
+func cloneStep(st Step) Step {
+	cp := st
+	cp.Images = cloneImageParts(st.Images)
+	cp.Steer = append([]string(nil), st.Steer...)
+	cp.ToolCalls = append([]ToolCall(nil), st.ToolCalls...)
+	cp.ToolResults = append([]ToolResult(nil), st.ToolResults...)
+	for i := range cp.ToolResults {
+		cp.ToolResults[i].Images = cloneImageParts(st.ToolResults[i].Images)
+	}
+	if st.Usage != nil {
+		usage := *st.Usage
+		cp.Usage = &usage
+	}
+	return cp
 }
 
 // TotalTurns returns the total number of turns recorded.
@@ -617,7 +640,7 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 		if len(turn.Steps) == 0 {
 			if turn.StartStep > boundary {
 				if keepTurnInput {
-					msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input})
+					msgs = append(msgs, ConversationMessage{Role: RoleUser, Content: turn.Input, Images: cloneImageParts(turn.InputImages)})
 				}
 				if turn.FinalOutput != "" {
 					msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})
@@ -631,12 +654,14 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 				continue
 			}
 			input := ""
+			var inputImages []ImagePart
 			if si == 0 && keepTurnInput && (boundary < 0 || turn.StartStep > boundary) {
 				input = turn.Input
+				inputImages = turn.InputImages
 			}
-			stepMsgs := stepConversationMessages(step, input)
+			stepMsgs := stepConversationMessages(step, input, inputImages)
 			for _, sm := range stepMsgs {
-				if sm.Role == RoleAssistant && (sm.Content != "" || len(sm.ToolCalls) > 0) {
+				if sm.Role == RoleAssistant && (sm.Content != "" || sm.Thought != "" || len(sm.Images) > 0 || len(sm.ToolCalls) > 0) {
 					hasStepAssistant = true
 				}
 			}
@@ -654,7 +679,7 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 }
 
 // TierColdHistory writes bulky tool outputs of folded steps (<= IncludedThroughStep)
-// to persistent JSON files in coldDir and clears their in-memory Output buffers,
+// to persistent JSON files in coldDir and clears their in-memory text and images,
 // preventing unconstrained heap growth in ultra-long sessions (100+ turns).
 func (t *Trajectory) TierColdHistory(coldDir string) (prunedSteps int, freedBytes int64, err error) {
 	if coldDir == "" {
@@ -684,9 +709,12 @@ func (t *Trajectory) TierColdHistory(coldDir string) (prunedSteps int, freedByte
 			needsPruning := false
 			var stepBytes int64
 			for _, tr := range st.ToolResults {
-				if !tr.ColdStored && (len(tr.Output) > 0 || len(tr.Error) > 0) {
+				if !tr.ColdStored && (len(tr.Output) > 0 || len(tr.Error) > 0 || len(tr.Images) > 0) {
 					needsPruning = true
 					stepBytes += int64(len(tr.Output) + len(tr.Error))
+					for _, image := range tr.Images {
+						stepBytes += int64(len(image.Data))
+					}
 				}
 			}
 			if !needsPruning {
@@ -708,6 +736,7 @@ func (t *Trajectory) TierColdHistory(coldDir string) (prunedSteps int, freedByte
 				st.ToolResults[ri].ColdStored = true
 				st.ToolResults[ri].Output = ""
 				st.ToolResults[ri].Error = ""
+				st.ToolResults[ri].Images = nil
 			}
 			prunedSteps++
 			freedBytes += stepBytes
@@ -976,6 +1005,7 @@ func (t *Trajectory) TierColdTurns(coldDir string, slidingWindowTurns int) (*Col
 		tr.StepCount = len(tr.Steps)
 		tr.Steps = nil
 		tr.Steers = nil
+		tr.InputImages = nil
 		tr.ColdStored = true
 		tr.ColdChunkID = chunkID
 	}

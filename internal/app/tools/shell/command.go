@@ -428,7 +428,13 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 	timer := time.NewTimer(window)
 	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		_, _ = t.Kill()
+		return nil, ctx.Err()
 	case <-t.finished:
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		// The command finished inside the window: the foreground result.
 		code, err := runExitCode(ctx, t.err)
 		if err != nil {

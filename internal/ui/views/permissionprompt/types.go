@@ -20,9 +20,10 @@ const (
 
 // Result holds the outcome of a permission prompt.
 type Result struct {
-	Decision Decision `json:"decision"`
-	Feedback string   `json:"feedback,omitempty"`
-	OptionID string   `json:"optionId,omitempty"`
+	Decision       Decision `json:"decision"`
+	Feedback       string   `json:"feedback,omitempty"`
+	OptionID       string   `json:"optionId,omitempty"`
+	AmendedCommand string   `json:"amended_command,omitempty"`
 }
 
 // IsApproved reports whether the decision is an approval (once or always).
@@ -48,6 +49,14 @@ const (
 	// OptionFeedback represents the [d] Feedback button.
 	OptionFeedback
 )
+
+// Choice represents a numbered choice option in the prompt.
+type Choice struct {
+	Number   int      `json:"number"`
+	Title    string   `json:"title"`
+	Decision Decision `json:"decision"`
+	OptionID string   `json:"optionId,omitempty"`
+}
 
 // PermissionOption describes a protocol-level option presented to the user.
 type PermissionOption struct {
@@ -129,10 +138,16 @@ func (r Request) TitleStr() string {
 	}
 	switch r.Kind {
 	case KindFileEdit:
-		return "Accept this file edit?"
+		return "Pending edit"
 	case KindFileCreate:
 		return "Create file"
 	default:
+		if r.Tool == "run_command" || r.Tool == "run_shell_command" || r.CommandStr() != "" {
+			return "Command"
+		}
+		if r.Tool != "" {
+			return "Tool permission"
+		}
 		return "Permission Required"
 	}
 }
@@ -145,7 +160,10 @@ func (r Request) PromptQuestionStr() string {
 	case KindFileCreate:
 		return "Allow creation of this file?"
 	default:
-		return ""
+		if r.Tool == "run_command" || r.Tool == "run_shell_command" || r.CommandStr() != "" {
+			return "Run this command?"
+		}
+		return "Allow invocation of this tool?"
 	}
 }
 

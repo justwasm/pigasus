@@ -137,6 +137,8 @@ func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json
 		return d.handleLSListPluginAuthProviders(params)
 	case "InstallCustomization":
 		return d.handleLSInstallCustomization(params)
+	case "IncludeBundleMember":
+		return d.handleLSIncludeBundleMember(params)
 	case "ListRemotePlugins":
 		return d.handleLSListRemotePlugins(params)
 	case "DisconnectRemotePlugin":

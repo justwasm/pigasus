@@ -57,6 +57,30 @@ func (m *RootModel) terminalManager() *terminalmgr.Manager {
 	return m.remote.termMgr
 }
 
+func (m *RootModel) terminalBackend() terminalmgr.Backend {
+	if m == nil {
+		return nil
+	}
+	if m.remote.termBackend != nil {
+		return m.remote.termBackend
+	}
+	ws := m.session.cwd
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+	if sock := strings.TrimSpace(os.Getenv(terminalmgr.EnvSocket)); sock != "" {
+		if b, _ := terminalmgr.ResolveBackend(ws, nil); b != nil {
+			if _, isIPC := b.(*terminalmgr.IPCClient); isIPC {
+				m.remote.termBackend = b
+				return b
+			}
+		}
+	}
+	mgr := m.terminalManager()
+	m.remote.termBackend = mgr
+	return mgr
+}
+
 func (m *RootModel) ensureTerminalSession(id, title, cwd string) *terminalSessionState {
 	if id == "" {
 		return nil
@@ -282,6 +306,7 @@ func (m *RootModel) CloseAllTerminals() {
 		m.remote.termMgr.CloseAll()
 		m.remote.termMgr = nil
 	}
+	m.remote.termBackend = nil
 }
 
 // slashTerminal handles /terminal across local and remote sessions.

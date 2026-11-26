@@ -362,6 +362,14 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 		}
 
 		provider := newBackendProviderAdapter(env.Backend, model)
+		provider.effort = strings.TrimSpace(t.Effort)
+		if provider.effort == "" {
+			provider.effort = strings.TrimSpace(env.Effort)
+		}
+		provider.executionModel = strings.TrimSpace(t.ExecutionModel)
+		if provider.executionModel == "" {
+			provider.executionModel = strings.TrimSpace(env.ExecutionModel)
+		}
 		var err error
 		act, err = actor.Spawn(actor.Config{
 			Default: actor.TurnConfig{
@@ -486,18 +494,22 @@ func (r *frameRunner) Run(ctx context.Context, call backend.ToolCall) (string, e
 		Args:  string(call.Arguments),
 	}})
 	res, err := r.inner.Run(ctx, call)
+	resultText := res
+	if err != nil && resultText == "" {
+		resultText = err.Error()
+	}
 	r.emit(agentlink.Frame{Kind: agentlink.KindTool, Tool: &agentlink.Tool{
 		Phase:  agentlink.ToolEnd,
 		Name:   call.Name,
 		Args:   string(call.Arguments),
-		Result: res,
+		Result: resultText,
 		Err:    err != nil,
 	}})
 	if r.steps != nil {
 		*r.steps = append(*r.steps, agentlink.Step{
 			Name:   call.Name,
 			Args:   string(call.Arguments),
-			Result: res,
+			Result: resultText,
 			Err:    err != nil,
 		})
 	}

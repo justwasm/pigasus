@@ -16,6 +16,7 @@ package agentserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
@@ -34,17 +36,22 @@ import (
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	terminaltool "github.com/justwasm/pigasus/internal/app/tools/terminal"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/version"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	"github.com/justwasm/pigasus/internal/features/tools/skills/pigasusskills"
+	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
 	"github.com/justwasm/pigasus/internal/infra/terminalmgr"
 )
 
@@ -266,6 +273,7 @@ func (s *Server) prepare() {
 		}
 		tools.SetExtraWorkspaces(extra)
 	}
+
 	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
 	// need a live MCP connection; the pool is lazy, so this costs
 	// nothing when no server is configured.
@@ -506,8 +514,30 @@ type Session struct {
 	Effort string
 	// BackendFor returns the transport for a model.
 	BackendFor func(model string) backend.Client
+	// Catalog is the session's tool registry.
+	Catalog *tools.Registry
+	// SubagentDefs holds conversation-scoped subagent definitions.
+	SubagentDefs *subagenttools.Store
+	// SubagentRegistry tracks live subagents owned by this session.
+	SubagentRegistry *subagenttools.Registry
+	// TaskRegistry tracks background tasks and subagents.
+	TaskRegistry *taskregistry.Registry
+	// TaskInbox queues background task and subagent completion notifications.
+	TaskInbox *agentturn.TaskInbox
+	// notifyWake signals listeners when a notification arrives in TaskInbox.
+	notifyWake chan struct{}
 	// Close releases session-scoped resources such as in-process terminal PTYs.
 	Close func()
+}
+
+func (s *Session) signalNotifyWake() {
+	if s == nil || s.notifyWake == nil {
+		return
+	}
+	select {
+	case s.notifyWake <- struct{}{}:
+	default:
+	}
 }
 
 // env builds the environment one turn runs in.
@@ -522,20 +552,127 @@ func (s *Session) env(ctx context.Context, model string) (agentturn.Env, func())
 	if s.BackendFor != nil {
 		be = s.BackendFor(model)
 	}
+	imageProvider := surface.ImageProviderFromBackend(backendselect.ImageGeneratorFor(be))
+	if s.Catalog != nil {
+		surface.ConfigureImageGenerator(s.Catalog, imageProvider)
+	}
+	var extraTools []actor.Tool
+	if be != nil && s.SubagentRegistry != nil && s.Catalog != nil {
+		extraTools = subagenttools.Tools(subagenttools.Deps{
+			Provider:          agentturn.NewBackendProviderAdapter(be, model),
+			Backend:           be,
+			Model:             model,
+			Effort:            s.Effort,
+			CWD:               s.Workspace,
+			AgentDir:          confhome.Antigravity(),
+			Definitions:       s.SubagentDefs,
+			Tasks:             s.TaskRegistry,
+			Registry:          s.SubagentRegistry,
+			ConversationID:    s.ConversationID,
+			PermissionGateFor: s.subagentGateFactory(),
+			SystemPrompt:      func() string { return s.Prompt },
+			Catalogue:         agenttools.MainAgentTools(s.Catalog),
+			ImageGenerator:    imageProvider,
+		})
+	}
 	return agentturn.Env{
-		Backend:      be,
-		Model:        model,
-		SystemPrompt: s.Prompt,
-		Tools:        s.Tools,
-		ToolRunner:   s.Runner,
-		Effort:       s.Effort,
-		CheckpointSnapshot: func() checkpoint.Snapshot {
-			return checkpoint.Snapshot{
-				Artifacts:    artifacts.List(s.ConversationID),
-				RunningTasks: shell.RunningTaskSnapshots(s.ConversationID),
-			}
-		},
+		Backend:            be,
+		Model:              model,
+		SystemPrompt:       s.Prompt,
+		Tools:              s.Tools,
+		ExtraTools:         extraTools,
+		ToolRunner:         s.Runner,
+		Effort:             s.Effort,
+		CheckpointSnapshot: s.checkpointSnapshot,
 	}, func() {}
+}
+
+// checkpointSnapshot supplies the resume block's dynamic sections.
+//
+// The sections describe live session state, so they are read when the turn
+// starts rather than cached: a background task started by the previous turn, an
+// artifact written minutes ago and a subagent spawned earlier must all survive
+// the checkpoint that truncates them from the transcript. A conversation with
+// no artifacts, tasks or subagents yields empty sections, and the renderer
+// omits them.
+//
+// This is the same three sections the TUI supplies in
+// (*RootModel).checkpointSnapshot; the two hosts must not diverge, or a
+// checkpoint written by the server would silently forget what one written by
+// the TUI remembers.
+func (s *Session) checkpointSnapshot() checkpoint.Snapshot {
+	var subagents *compaction.SubagentSection
+	if reg := s.SubagentRegistry; reg != nil && reg.ParentID() == s.ConversationID {
+		subagents = reg.SnapshotSection(subagenttools.DefaultMaxSubagentSnapshots)
+	}
+	return checkpoint.Snapshot{
+		Artifacts:    artifacts.List(s.ConversationID),
+		RunningTasks: shell.RunningTaskSnapshots(s.ConversationID),
+		Subagents:    subagents,
+	}
+}
+
+type serverSubagentGate struct {
+	runner   *toolrunner.PermissionRunner
+	worktree string
+}
+
+func (g *serverSubagentGate) Decide(ctx context.Context, toolName string, args json.RawMessage) subagenttools.GateDecision {
+	if g == nil || g.runner == nil {
+		return subagenttools.GateDecision{Allow: true}
+	}
+	sb := g.runner.Sandbox
+	if sb.Enabled && g.worktree != "" {
+		extra := make([]string, 0, len(sb.ExtraPaths)+1)
+		extra = append(extra, sb.ExtraPaths...)
+		extra = append(extra, g.worktree)
+		sb.ExtraPaths = extra
+	}
+	call := backend.ToolCall{Name: toolName, Arguments: args}
+	decision := toolrunner.Decide(g.runner.Policy, sb, call)
+	if decision.Allow {
+		return subagenttools.GateDecision{Allow: true}
+	}
+	if decision.Ask {
+		// Forward subagent permission requests to the active interaction host
+		// (e.g. ACP v1/v2 editor client) so subagents do not silently fail or
+		// stall waiting for approvals (reference behaviour since 1.5.16, unchanged in
+		// 1.5.17).
+		if host := interaction.HostFrom(ctx); host != nil {
+			ans, err := host.Ask(ctx, interaction.Request{
+				Kind:     interaction.KindPermission,
+				ToolName: toolName,
+				Action:   toolName,
+				Target:   toolrunner.ToolTarget(call),
+				ArgsJSON: string(args),
+				Reason:   decision.Reason,
+			})
+			if err == nil && ans.Allowed {
+				return subagenttools.GateDecision{Allow: true}
+			}
+			return subagenttools.GateDecision{Allow: false, Reason: decision.Reason}
+		}
+		if g.runner.PromptUser != nil {
+			approved, err := g.runner.PromptUser(ctx, call)
+			if err == nil && approved {
+				return subagenttools.GateDecision{Allow: true}
+			}
+		}
+	}
+	return subagenttools.GateDecision{Allow: false, Reason: decision.Reason}
+}
+
+func (s *Session) subagentGateFactory() func(worktree string) subagenttools.BeforeToolCallGate {
+	pr, _ := s.Runner.(*toolrunner.PermissionRunner)
+	if pr == nil {
+		return nil
+	}
+	return func(worktree string) subagenttools.BeforeToolCallGate {
+		return &serverSubagentGate{
+			runner:   pr,
+			worktree: worktree,
+		}
+	}
 }
 
 // session builds the session one connection runs on.
@@ -582,6 +719,11 @@ func (s *Server) sessionForID(id, ws, model string) (*Session, error) {
 	if s.cfg.AgentBody != "" {
 		catalog = agenttools.Registry(catalog)
 	}
+	surface.ConfigureConversation(catalog, conversationID)
+	// The conversation's artifact directory is its own write root, and the
+	// write tools record a sidecar for artifacts. Per session, not once in
+	// prepare(): each session has its own conversation id.
+	artifacts.InstallWriteRoot(conversationID)
 	policy := setup.PolicyFrom(s.cfg.PermissionMode, s.cfg.SkipPermissions)
 	sandbox := setup.SandboxFrom(s.cfg.SkipPermissions, workspace, conversationID)
 	runner := &toolrunner.PermissionRunner{
@@ -591,25 +733,59 @@ func (s *Server) sessionForID(id, ws, model string) (*Session, error) {
 	}
 
 	decls := toolrunner.AdvertisedToolDecls(s.cfg.AgentBody, catalog)
-	var closeFn func()
+	var termClose func()
 	if s.cfg.AgentBody == "" {
-		termMgr := terminalmgr.New(workspace)
-		catalog.Register(&terminaltool.Tool{Manager: termMgr})
+		termBackend, closeFn := terminalmgr.ResolveBackend(workspace, nil)
+		catalog.Register(&terminaltool.Tool{Manager: termBackend})
 		decls = append(decls, terminaltool.MinimalDecl())
-		closeFn = termMgr.CloseAll
+		termClose = closeFn
 	}
 
-	return &Session{
-		Workspace:      workspace,
-		ConversationID: conversationID,
-		Model:          model,
-		Prompt:         s.prompt(workspace, agentDir, conversationID),
-		Tools:          decls,
-		Runner:         runner,
-		Effort:         s.cfg.Effort,
-		BackendFor:     s.cfg.BackendFor,
-		Close:          closeFn,
-	}, nil
+	subDefs := subagenttools.NewStore()
+	subReg := subagenttools.NewRegistry(conversationID)
+	taskReg := tools.SharedTaskRegistry()
+	taskInbox := agentturn.NewTaskInbox()
+	notifyWake := make(chan struct{}, 1)
+
+	sess := &Session{
+		Workspace:        workspace,
+		ConversationID:   conversationID,
+		Model:            model,
+		Prompt:           s.prompt(workspace, agentDir, conversationID),
+		Tools:            decls,
+		Runner:           runner,
+		Effort:           s.cfg.Effort,
+		BackendFor:       s.cfg.BackendFor,
+		Catalog:          catalog,
+		SubagentDefs:     subDefs,
+		SubagentRegistry: subReg,
+		TaskRegistry:     taskReg,
+		TaskInbox:        taskInbox,
+		notifyWake:       notifyWake,
+	}
+
+	subReg.SetNotify(func(sender, content string) {
+		taskInbox.Add(shell.TaskNotification{
+			TaskID:   sender,
+			Body:     content,
+			Priority: shell.TaskPriorityHigh,
+			At:       time.Now(),
+		})
+		sess.signalNotifyWake()
+	})
+	unregisterNotifier := shell.RegisterConversationNotifier(conversationID, func(n shell.TaskNotification) {
+		taskInbox.Add(n)
+		sess.signalNotifyWake()
+	})
+	sess.Close = func() {
+		unregisterNotifier()
+		subReg.Close()
+		if termClose != nil {
+			termClose()
+		}
+	}
+
+	return sess, nil
 }
 
 // prompt builds the system prompt the session's turns carry.

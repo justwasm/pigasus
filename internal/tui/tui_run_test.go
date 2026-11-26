@@ -5135,6 +5135,14 @@ func queueTestMode(t *testing.T) *RootModel {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	t.Setenv("HOME", t.TempDir())
+	// dispatchSlashLine runs syncAccountIdentity before the command, and that
+	// returns a command whenever the shared credential's account differs from
+	// the session's. The credential's registry defaults to the *machine's*
+	// ~/.openagy/accounts.json, so on a signed-in developer's machine every
+	// submit-path test would come back with a command nobody asked for. Point
+	// it at this test's own empty home so "no command" means "nothing
+	// happened", not "nobody is signed in here".
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(dir, "accounts.json"))
 	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.session.store.QueueMode = true
 	return m
@@ -6304,7 +6312,7 @@ func TestInputSelection_MouseClickWithoutDrag(t *testing.T) {
 
 	// Click at 'w' (col = 2 (prompt "> ") + 6 ("hello ") = 8)
 	m.Update(mouseClick(8, m.prompt.promptScreenY, tea.MouseLeft))
-	if !m.prompt.InputSelDragging {
+	if !m.prompt.InputSelectionDragging() {
 		t.Errorf("expected inputSelDragging to be true during click")
 	}
 
@@ -6321,7 +6329,7 @@ func TestInputSelection_MouseClickWithoutDrag(t *testing.T) {
 	}
 }
 
-func TestInputSelection_MouseDragForwardAutoCopy(t *testing.T) {
+func TestInputSelection_MouseDragForwardSelects(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Click at start of "hello" (x=2)
@@ -6344,18 +6352,27 @@ func TestInputSelection_MouseDragForwardAutoCopy(t *testing.T) {
 		t.Errorf("expected reverse video highlight for 'hello', got: %q", viewStr)
 	}
 
-	// Release: should auto-copy "hello" to clipboard
+	// Release: no clipboard write. agy 1.5.17 — the copy is Ctrl+C's,
+	// and a release must not overwrite the user's clipboard.
 	_, cmd := m.Update(mouseRelease(7, m.prompt.promptScreenY, tea.MouseLeft))
-	if cmd == nil {
-		t.Errorf("expected non-nil copy cmd on release")
+	if cmd != nil {
+		t.Errorf("expected no cmd on release (a release must not copy), got %v", cmd)
 	}
 	// Selection stays active after release
 	if !m.prompt.HasInputSelection() {
 		t.Errorf("expected selection to remain highlighted after mouse release")
 	}
+	// Ctrl+C is what copies it.
+	_, cmd = m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("expected a copy cmd from Ctrl+C over the selection")
+	}
+	if got, ok := m.prompt.CopyInputSelection(); !ok || got != "hello" {
+		t.Fatalf("Ctrl+C copied (%q,%v), want (hello,true)", got, ok)
+	}
 }
 
-func TestInputSelection_MouseDragBackwardAutoCopy(t *testing.T) {
+func TestInputSelection_MouseDragBackwardSelects(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Click at end of "hello" (x=7)
@@ -6370,8 +6387,11 @@ func TestInputSelection_MouseDragBackwardAutoCopy(t *testing.T) {
 
 	// Release
 	_, cmd := m.Update(mouseRelease(2, m.prompt.promptScreenY, tea.MouseLeft))
-	if cmd == nil {
-		t.Errorf("expected non-nil copy cmd on release")
+	if cmd != nil {
+		t.Errorf("expected no cmd on release, got %v", cmd)
+	}
+	if !m.prompt.HasInputSelection() {
+		t.Error("expected the highlight to survive the release")
 	}
 }
 
@@ -6441,8 +6461,7 @@ func TestInputSelection_BackspaceDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.prompt.InputSelStart = 6
-	m.prompt.InputSelEnd = 11
+	m.prompt.SetRange(6, 11)
 
 	// Press Backspace
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
@@ -6458,8 +6477,7 @@ func TestInputSelection_DeleteDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "hello " [0, 6]
-	m.prompt.InputSelStart = 0
-	m.prompt.InputSelEnd = 6
+	m.prompt.SetRange(0, 6)
 
 	// Press Delete
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
@@ -6475,8 +6493,7 @@ func TestInputSelection_TypeReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.prompt.InputSelStart = 6
-	m.prompt.InputSelEnd = 11
+	m.prompt.SetRange(6, 11)
 
 	// Type '!'
 	m.Update(tea.KeyPressMsg(tea.Key{Code: '!', Text: "!"}))
@@ -6492,8 +6509,7 @@ func TestInputSelection_PasteReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.prompt.InputSelStart = 6
-	m.prompt.InputSelEnd = 11
+	m.prompt.SetRange(6, 11)
 
 	// Paste "there"
 	m.insertPastedText("there")
@@ -6528,8 +6544,7 @@ func TestInputSelection_EscapeClearsSelection(t *testing.T) {
 func TestInputSelection_ArrowKeysClearSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
-	m.prompt.InputSelStart = 0
-	m.prompt.InputSelEnd = 5
+	m.prompt.SetRange(0, 5)
 
 	// Press Left arrow
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
@@ -6869,8 +6884,7 @@ func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
 	}
 
 	m.prompt.input.SetValue("abcdef")
-	m.prompt.InputSelStart = 1
-	m.prompt.InputSelEnd = 4
+	m.prompt.SetRange(1, 4)
 	m.Update(ctrlKey('d'))
 	if m.display.quitting {
 		t.Fatal("ctrl+d on active selection must not quit")

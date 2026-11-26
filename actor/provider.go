@@ -20,6 +20,7 @@ const (
 type ConversationMessage struct {
 	Role       Role       `json:"role"`
 	Content    string     `json:"content"`
+	Images     []ImagePart `json:"images,omitempty"`
 	Thought    string     `json:"thought,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`

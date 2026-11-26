@@ -46,6 +46,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -152,9 +153,11 @@ type Session struct {
 	mimeType    string
 	transcriber Transcriber
 
-	mu    sync.Mutex
-	audio []byte
-	ended bool
+	mu      sync.Mutex
+	audio   []byte
+	nextSeq int64
+	pending map[int64][]byte
+	ended   bool
 
 	frames    chan Frame
 	closeOnce sync.Once
@@ -172,8 +175,50 @@ func (s *Session) Append(data []byte) {
 		return
 	}
 	s.mu.Lock()
-	s.audio = append(s.audio, data...)
+	if !s.ended {
+		s.audio = append(s.audio, data...)
+	}
 	s.mu.Unlock()
+}
+
+// AppendChunk adds a sequenced audio chunk to the session, reordering
+// out-of-order chunks by sequenceNumber and draining contiguous runs.
+func (s *Session) AppendChunk(seq int64, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ended {
+		return
+	}
+	if seq < 0 {
+		s.audio = append(s.audio, data...)
+		return
+	}
+	if seq < s.nextSeq {
+		return
+	}
+	if seq == s.nextSeq {
+		s.audio = append(s.audio, data...)
+		s.nextSeq++
+		for {
+			next, ok := s.pending[s.nextSeq]
+			if !ok {
+				break
+			}
+			s.audio = append(s.audio, next...)
+			delete(s.pending, s.nextSeq)
+			s.nextSeq++
+		}
+		return
+	}
+	if s.pending == nil {
+		s.pending = make(map[int64][]byte)
+	}
+	if _, exists := s.pending[seq]; !exists {
+		s.pending[seq] = append([]byte(nil), data...)
+	}
 }
 
 // Audio is the recorded bytes so far.
@@ -191,7 +236,8 @@ func (s *Session) Frames() <-chan Frame { return s.frames }
 //
 // The call answers immediately: the reference's EndAudioSession
 // answers `{}` and the final transcription arrives on the stream
-// afterwards.
+// afterwards. Any buffered out-of-order chunks are flushed in ascending
+// sequence order so stopping never stalls on a missing sequence gap.
 func (s *Session) End() {
 	s.mu.Lock()
 	if s.ended {
@@ -199,6 +245,17 @@ func (s *Session) End() {
 		return
 	}
 	s.ended = true
+	if len(s.pending) > 0 {
+		seqs := make([]int64, 0, len(s.pending))
+		for seq := range s.pending {
+			seqs = append(seqs, seq)
+		}
+		sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+		for _, seq := range seqs {
+			s.audio = append(s.audio, s.pending[seq]...)
+		}
+		s.pending = nil
+	}
 	audio := append([]byte(nil), s.audio...)
 	s.mu.Unlock()
 

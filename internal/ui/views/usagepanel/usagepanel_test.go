@@ -266,20 +266,33 @@ func TestViewerLinesStatic(t *testing.T) {
 // TestQuotaCountdown pins the three duration forms and the negative
 // clamp. The reference truncates to whole seconds, so the expectations
 // leave a second of slack below.
+//
+// AGY 1.5.17 added the day form: "Improved `/usage` to format quota
+// refresh countdowns of 24 hours or longer in days, hours, and minutes
+// (such as `in 3d 3h 59m` instead of `in 75h 59m`)." The boundary case
+// (23h 59m 59s still hours-only, 24h exactly in days) is the part a
+// naive `total >= 24*3600` rewrite gets wrong, so it is pinned here.
 func TestQuotaCountdown(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		d    time.Duration
 		want string
 	}{
-		{"two days", 49*time.Hour + 23*time.Minute + 30*time.Second, "49h 23m"},
+		// 1.5.17 day form (>= 24h).
+		{"three days three hours", 75*time.Hour + 59*time.Minute + 30*time.Second, "3d 3h 59m"},
+		{"exactly one day", 24 * time.Hour, "1d 0h 0m"},
+		{"one day one second short of 25h", 24*time.Hour + 59*time.Minute + 59*time.Second, "1d 0h 59m"},
+		// The 24-hour boundary: one second below it is still the hour form.
+		{"one second below a day", 24*time.Hour - time.Second, "23h 59m"},
+		// 1.5.16 hour form (< 24h).
+		{"two days", 49*time.Hour + 23*time.Minute + 30*time.Second, "2d 1h 23m"},
 		{"two hours", 2*time.Hour + 5*time.Minute + 30*time.Second, "2h 5m"},
 		{"seconds", 9*time.Second + 500*time.Millisecond, "9s"},
 		{"negative", -time.Hour, "0s"},
 	} {
-		got := QuotaCountdown(time.Now().Add(tc.d))
+		got := QuotaCountdownFor(tc.d)
 		if got != tc.want {
-			t.Errorf("%s: QuotaCountdown(%v) = %q, want %q", tc.name, tc.d, got, tc.want)
+			t.Errorf("%s: QuotaCountdownFor(%v) = %q, want %q", tc.name, tc.d, got, tc.want)
 		}
 	}
 }
