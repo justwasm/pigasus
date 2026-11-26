@@ -743,8 +743,8 @@ func TestRemoteInteractionPermissionAnswersAllow(t *testing.T) {
 func TestRemoteInteractionEndToEnd(t *testing.T) {
 	proxy, err := mockremoteagent.NewServer(mockremoteagent.WithCustomTurnHandler(
 		func(ctx context.Context, session *mockremoteagent.CascadeSession, prompt string) {
+			_, cancel := session.BeginTurn()
 			go func() {
-				_, cancel := session.BeginTurn()
 				defer cancel()
 				answer, _ := session.AskUser(context.Background(), interaction.Request{
 					Kind:     interaction.KindQuestion,
@@ -868,8 +868,8 @@ func mustTurn(t *testing.T, engine *RemoteAgentEngine, prompt string) <-chan age
 func TestRemoteInteractionPermissionEndToEnd(t *testing.T) {
 	proxy, err := mockremoteagent.NewServer(mockremoteagent.WithCustomTurnHandler(
 		func(ctx context.Context, session *mockremoteagent.CascadeSession, prompt string) {
+			_, cancel := session.BeginTurn()
 			go func() {
-				_, cancel := session.BeginTurn()
 				defer cancel()
 				answer, _ := session.AskUser(context.Background(), interaction.Request{
 					Kind:     interaction.KindPermission,
@@ -945,8 +945,8 @@ func TestTurnDiffAgainstMockServer(t *testing.T) {
 
 	proxy, err := mockremoteagent.NewServer(mockremoteagent.WithCustomTurnHandler(
 		func(ctx context.Context, session *mockremoteagent.CascadeSession, prompt string) {
+			_, cancel := session.BeginTurn()
 			go func() {
-				_, cancel := session.BeginTurn()
 				defer cancel()
 				session.AddStep("PLANNER_RESPONSE", "done", "", nil)
 				session.SetStatus("IDLE")
