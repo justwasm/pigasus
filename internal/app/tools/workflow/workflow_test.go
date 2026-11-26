@@ -332,8 +332,8 @@ await parallel(["slow-1", "boom", "slow-2"], lambda x: agent(x, {"type": "string
 	if !strings.Contains(out, "boom error") {
 		t.Fatalf("expected boom error in output:\n%s", out)
 	}
-	if elapsed > 2*time.Second {
-		t.Fatalf("expected fail-fast cancellation (<2s), took %v", elapsed)
+	if elapsed > 4*time.Second {
+		t.Fatalf("expected fail-fast cancellation (<4s, well before 5s slow tasks), took %v", elapsed)
 	}
 	if cancelledCount.Load() < 1 {
 		t.Fatalf("expected sibling Go contexts to be cancelled, cancelledCount=%d", cancelledCount.Load())

@@ -268,7 +268,14 @@ func TestServeHandler_BindsAndShutsDown(t *testing.T) {
 	// os.Stderr). The banner is the contract dashboards
 	// already grep; if it disappeared the daemon is
 	// invisible to the dashboard.
-	banner := errBuf.String()
+	var banner string
+	for time.Now().Before(deadline) {
+		banner = errBuf.String()
+		if strings.Contains(banner, "remote-control serve: listening on") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if !strings.Contains(banner, "remote-control serve: listening on") {
 		t.Errorf("serve banner missing on stderr; got=%q", banner)
 	}

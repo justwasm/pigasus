@@ -10,6 +10,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/infra/livevoice"
 	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -204,6 +205,9 @@ func newScenario(t *testing.T) *scenario {
 			},
 		},
 		LoadToken: func() (*auth.AntigravityToken, error) { return nil, errors.New("no token") },
+		ResolveBackend: func(livevoice.Options) (voicebackend.LiveBackend, error) {
+			return nil, nil
+		},
 		NewLiveSession: func(voicebackend.LiveBackend, voicebackend.NativeLiveHandler) LiveSession {
 			return sc.live
 		},

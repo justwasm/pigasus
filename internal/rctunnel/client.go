@@ -233,8 +233,15 @@ const healthySession = 60 * time.Second
 // until ctx is canceled.
 func (c *Client) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
+	c.mu.Lock()
 	c.cancel = cancel
-	defer cancel()
+	c.mu.Unlock()
+	defer func() {
+		cancel()
+		c.mu.Lock()
+		c.cancel = nil
+		c.mu.Unlock()
+	}()
 
 	backoff := 2 * time.Second
 	const maxBackoff = 15 * time.Second
@@ -964,7 +971,10 @@ func (c *Client) sendForwardBatch(ctx context.Context, token string, items []str
 
 // Stop terminates the active tunnel client connection.
 func (c *Client) Stop() {
-	if c.cancel != nil {
-		c.cancel()
+	c.mu.Lock()
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
