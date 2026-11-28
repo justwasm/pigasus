@@ -93,7 +93,7 @@ def find_reference_binary(explicit: str | None = None) -> pathlib.Path | None:
     local_bin = pathlib.Path("~/.local/bin/agy").expanduser().resolve()
     if local_bin.is_file() and os.access(local_bin, os.X_OK):
         return local_bin
-    extracted = REPO / "out" / "extracted-1.5.17" / "reference-binaries" / "agy-darwin-arm64"
+    extracted = REPO / "out" / "extracted-1.5.18" / "reference-binaries" / "agy-darwin-arm64"
     if extracted.is_file() and os.access(extracted, os.X_OK):
         return extracted
     return None
@@ -121,8 +121,8 @@ def camel_to_snake(name: str) -> str:
 
 
 def load_baseline_symbols() -> set[str]:
-    """Load baseline pclntab symbols from out/extracted-1.5.16/seeds/funcs.txt if present."""
-    funcs_file = REPO / "out" / "extracted-1.5.16" / "seeds" / "funcs.txt"
+    """Load baseline pclntab symbols from out/extracted-1.5.18/seeds/funcs.txt if present."""
+    funcs_file = REPO / "out" / "extracted-1.5.18" / "seeds" / "funcs.txt"
     symbols = set()
     if funcs_file.is_file():
         try:

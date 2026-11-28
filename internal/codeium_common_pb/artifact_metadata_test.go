@@ -11,7 +11,7 @@ import (
 // TestArtifactMetadataFieldSet pins the recovered field set.
 //
 // 【反编译】 the authority is the getter set in the recovered symbol table:
-// out/extracted-1.5.17/seeds/seeds.txt carries exactly seven
+// out/extracted-1.5.18/seeds/seeds.txt carries exactly seven
 // (*ArtifactMetadata).Get* methods, and docs/legacy-re/extracts/
 // priority-funcs-v1.3.4.txt carries the same seven. A field with no getter
 // does not exist on the wire; a getter with no field is a reader the clone

@@ -7,11 +7,11 @@
 // (cmd/wagyu/slash_compact.go) and posts the result back to the
 // bubbletea runtime as a tea.Msg.
 //
-// The package deliberately avoids the PiG / coding.Session path that
-// cycle-229's manualCompactor exposes — AGY 1.4.2's /compact
-// works against the same backend as the regular turns, and a
-// standalone summarizer keeps the slash command testable without
-// wiring a *pigrt.Runtime.
+// This is the only /compact path. Cycle 229 also carried a seam for PiG's
+// coding.Session.Compact(); it never had a production implementation, and
+// the pigrt runtime it was meant to wrap left the tree, so the seam was
+// deleted. AGY 1.4.2's /compact works against the same backend as the
+// regular turns, which is what this package does.
 //
 // The package does not mutate the input session. When the context
 // fires cancellation mid-call, ComputeSummary returns

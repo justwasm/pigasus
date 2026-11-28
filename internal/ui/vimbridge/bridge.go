@@ -574,6 +574,12 @@ func (b *Bridge) InsertPastedText(s string) tea.Cmd {
 // answers "Model set to Claude Sonnet 4.6 (Thinking)" and the status row
 // follows; naming the model that is already selected answers "Model
 // already set to <label>".
+//
+// A model the catalogue resolved is a model the dispatch can serve (a
+// configured one has its endpoint, a reference one goes to CloudCode), so
+// resolving is not a reason to warn. The only warning the answer carries
+// is the session's own, raised by the backend re-sync when the model
+// really did fall back to the shim.
 func (b *Bridge) ApplyModelArgument(arg string) tea.Cmd {
 	if b == nil {
 		return nil
@@ -586,7 +592,7 @@ func (b *Bridge) ApplyModelArgument(arg string) tea.Cmd {
 		b.respond("/model", modelargpopup.InvalidMessage(arg))
 		return nil
 	}
-	return b.setModel(entry.ID, entry.Label, "warning: unconfigured, falling back to mock shim")
+	return b.setModel(entry.ID, entry.Label, "")
 }
 
 // resolveRemoteModel looks the argument up in the attached backend's own

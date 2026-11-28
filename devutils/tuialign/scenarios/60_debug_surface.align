@@ -1,0 +1,67 @@
+NAME "Debug Surface: Summary, Requests, Context"
+WINDOW 110 32
+TARGET pigasus
+
+# Two turns, so the Requests view has more than one exchange and the
+# Context view has a reported prompt count to show.
+MOCK_TURN
+  TEXT "First answer for the debug probe." DELAY 50ms
+  USAGE PROMPT 21000 CANDIDATES 24 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TEXT "Second answer for the debug probe." DELAY 50ms
+  USAGE PROMPT 26000 CANDIDATES 31 THOUGHTS 0
+  FINISH STOP
+
+BOOT
+WAIT_READY 15s
+
+TYPE "first probe"
+ENTER
+WAIT_TEXT "First answer" 20s
+SLEEP 800ms
+
+TYPE "second probe"
+ENTER
+WAIT_TEXT "Second answer" 20s
+SLEEP 1200ms
+
+# 1. The landing view: /debug opens on the Summary index.
+TYPE "/debug"
+ENTER
+SLEEP 900ms
+SNAPSHOT "01_debug_summary"
+
+# 2. Requests: the exchanges this session made, with status and timing.
+KEYS "5"
+SLEEP 600ms
+SNAPSHOT "02_debug_requests"
+
+# 3. The reader: Enter on the top exchange shows the request and response.
+KEYS "Enter"
+SLEEP 700ms
+SNAPSHOT "03_debug_reader"
+KEYS "Escape"
+SLEEP 400ms
+
+# 3b. Re-open the reader to check the ratio line after the label fix.
+KEYS "Enter"
+SLEEP 600ms
+SNAPSHOT "03b_reader_ratio"
+KEYS "Escape"
+SLEEP 300ms
+
+# 4. The copy keys: c puts a curl command on the clipboard, C a markdown
+#    report. The harness cannot read the clipboard, so the assertion here is
+#    that the keys are handled and the panel stays where it was.
+KEYS "c"
+SLEEP 400ms
+SNAPSHOT "04_debug_copy_curl"
+
+# 5. Context: measured occupancy and the provenance column.
+KEYS "6"
+SLEEP 600ms
+SNAPSHOT "05_debug_context"
+
+CLEANUP

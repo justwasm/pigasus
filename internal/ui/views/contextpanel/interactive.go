@@ -1,17 +1,42 @@
-// interactive.go — the interactive /context usage panel.
+// interactive.go — the interactive /context panel.
 //
-// The reference (`agy`) answers `/context` with an interactive panel:
-// keyboard navigation (↑/↓, pgup/pgdown, home/end, esc) scrolls the
-// breakdown and file lists, while mouse dragging selects text and
-// copies it to the clipboard.
+// # What it is
+//
+// The reference (`agy`) answers `/context` with one view: the token
+// breakdown, the auto-loaded files and the scroll legend, byte for byte
+// what `/context` has always drawn. Keyboard navigation (↑/↓, pgup/pgdown,
+// ctrl+home/ctrl+end, esc) scrolls it and mouse dragging selects its text.
+//
+// # What it is not
+//
+// The clone briefly gave this panel two more views — the request on the
+// wire and the conversation's trajectory — behind a hand-rolled tab bar.
+// They now live on /debug, which is already the full-viewport diagnostics
+// surface and already draws tuilib's own tab bar; this panel went back to
+// the single view the reference has, so it looks like every other panel
+// in the tree again instead of the only one with a bar of its own.
+//
+// # Scrolling
+//
+// One arithmetic, not two. The render clips with MaxContextScroll's answer
+// and the keys clamp against the same function, so the last row is
+// reachable and the window never scrolls past the end. The old pair (a
+// render that reserved one budget and a key handler that clamped against
+// another) disagreed about how far the body could scroll, which is how a
+// panel that looked scrollable could refuse to reach its own tail.
 package contextpanel
 
 import (
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
 // Seams are the host-provided facts the interactive panel needs.
+//
+// Every one of them is optional: a panel built without a seam renders the
+// panel's empty shapes, which keeps the package usable from a test with no
+// host.
 type Seams struct {
 	State  func() State
 	Height func() int
@@ -19,9 +44,11 @@ type Seams struct {
 	Close  func() tea.Cmd
 }
 
-// Panel is the interactive /context usage panel.
+// Panel is the interactive /context panel.
 type Panel struct {
-	seams  Seams
+	seams Seams
+
+	// scroll is the body's window offset.
 	scroll int
 }
 
@@ -30,90 +57,86 @@ func New(seams Seams) *Panel {
 	return &Panel{seams: seams}
 }
 
-// RowCount returns the total number of lines in the complete breakdown.
+// RowCount returns the number of lines the document renders.
+//
+// The registry asks this for a list panel's cursor bound. The panel owns
+// its own cursor, so the number is a courtesy to the router.
 func (p *Panel) RowCount() int {
-	if p == nil || p.seams.State == nil {
+	if p == nil {
 		return 0
 	}
-	st := p.seams.State()
-	return len(AllLines(st))
+	return len(AllLines(p.viewState()))
 }
 
-// Lines returns the rendered lines for the panel, respecting viewport height.
-func (p *Panel) Lines() []string {
-	if p == nil || p.seams.State == nil {
-		return nil
-	}
-	st := p.seams.State()
-	if p.seams.Width != nil {
-		st.Width = p.seams.Width()
-	}
+// contextMaxRows is the body's own budget: the reference's layout reserves
+// room for the prompt and the status line, as it always has.
+func (p *Panel) contextMaxRows() int {
 	h := 0
 	if p.seams.Height != nil {
 		h = p.seams.Height()
 	}
-	if h > 0 {
-		// Budget for inline body lines before footer (reserve room for prompt/status)
-		maxRows := h - 4
-		if maxRows < 14 {
-			maxRows = 14
-		}
-		st.MaxRows = maxRows
+	if h <= 0 {
+		return 0
 	}
-	st.ScrollOffset = p.scroll
-	return Lines(st)
+	maxRows := h - 4
+	if maxRows < 14 {
+		maxRows = 14
+	}
+	return maxRows
 }
 
-// HandleKey processes keyboard navigation for the /context panel.
+// viewState is the State the render and the scroll bound both read: the
+// host's facts plus the width it clips to and the height budget its window
+// has. Reading it in both places is what keeps the two from disagreeing
+// about how tall the head is.
+func (p *Panel) viewState() State {
+	st := State{}
+	if p.seams.State != nil {
+		st = p.seams.State()
+	}
+	if p.seams.Width != nil {
+		st.Width = p.seams.Width()
+	}
+	st.MaxRows = p.contextMaxRows()
+	st.ScrollOffset = p.scroll
+	return st
+}
+
+// Lines returns the rendered lines.
+func (p *Panel) Lines() []string {
+	if p == nil {
+		return nil
+	}
+	return Lines(p.viewState())
+}
+
+// HandleKey processes keyboard navigation for the panel.
+//
+// Every bound comes from MaxContextScroll, the same function the render
+// clips with, so the offset can never be pushed past what is drawn.
 func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	if p == nil {
 		return false, nil
 	}
+	max := p.contextMaxScroll()
 	switch tuilib.ClassifyListNavKey(key) {
 	case tuilib.NavUp:
-		p.scroll--
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
+		p.scroll = clampScroll(p.scroll-1, max)
 		return true, nil
 	case tuilib.NavDown:
-		p.scroll++
-		total := p.RowCount()
-		maxScroll := total - 10
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		if p.scroll > maxScroll {
-			p.scroll = maxScroll
-		}
+		p.scroll = clampScroll(p.scroll+1, max)
 		return true, nil
 	case tuilib.NavPageUp:
-		p.scroll -= 10
-		if p.scroll < 0 {
-			p.scroll = 0
-		}
+		p.scroll = clampScroll(p.scroll-10, max)
 		return true, nil
 	case tuilib.NavPageDown:
-		p.scroll += 10
-		total := p.RowCount()
-		maxScroll := total - 10
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		if p.scroll > maxScroll {
-			p.scroll = maxScroll
-		}
+		p.scroll = clampScroll(p.scroll+10, max)
 		return true, nil
 	case tuilib.NavTop:
 		p.scroll = 0
 		return true, nil
 	case tuilib.NavBottom:
-		total := p.RowCount()
-		maxScroll := total - 10
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
-		p.scroll = maxScroll
+		p.scroll = max
 		return true, nil
 	case tuilib.NavCancel:
 		if key.Code == tea.KeyEsc || key.String() == "esc" {
@@ -124,4 +147,24 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// contextMaxScroll is how far the body may scroll.
+//
+// It asks the same function that renders the body, so the two cannot
+// disagree: the last row is reachable exactly when the render would clip
+// it.
+func (p *Panel) contextMaxScroll() int {
+	return MaxContextScroll(p.viewState())
+}
+
+// clampScroll bounds v to [0, max].
+func clampScroll(v, max int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > max {
+		return max
+	}
+	return v
 }

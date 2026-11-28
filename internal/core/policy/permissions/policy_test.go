@@ -194,12 +194,13 @@ func TestModeBanner(t *testing.T) {
 	if ModeBanner(ModeAcceptEdits) != AcceptEditsBanner {
 		t.Error("accept-edits banner")
 	}
-	if ModeBanner(ModeAuto) != AutoBanner {
-		t.Error("auto banner")
+	// Auto names itself in the composer. AutoBanner is agy 1.5.18's own
+	// string, present verbatim in the binary; a bare ">" in a capture means
+	// the binary never entered auto (the terminal sandbox was unavailable),
+	// not that auto has no banner.
+	if got := ModeBanner(ModeAuto); got != AutoBanner {
+		t.Errorf("auto banner = %q, want %q", got, AutoBanner)
 	}
-	// Cycle 104: `Plan mode: research & plan only (shift+tab to cycle)` is
-	// recovered from the 1.3.6 string table, so plan does have a banner; only
-	// the default mode has none.
 	if ModeBanner(ModePlan) != PlanBanner {
 		t.Error("plan banner")
 	}
@@ -208,15 +209,156 @@ func TestModeBanner(t *testing.T) {
 	}
 }
 
-// TestNextMode pins the Shift+Tab order (AGY 1.5.14 decompilation: Default →
-// AcceptEdits → Auto → Plan → Default).
+// TestModeBanner_AutoIsNotTheDefault pins that auto and the stored-empty
+// default are two modes, not one.
+//
+// They are separate cycle stops with different behaviour (default pauses for
+// diff review, auto approves edits and commands) and different storage
+// ("" against "auto"). Only auto names itself in the composer, because the
+// empty value is the absence of a choice rather than a word.
+func TestModeBanner_AutoIsNotTheDefault(t *testing.T) {
+	if ModeBanner(ModeAuto) == ModeBanner("") {
+		t.Errorf("auto banner = %q equals the default's; auto is a mode, the empty value is no choice",
+			ModeBanner(ModeAuto))
+	}
+	if ModeBanner(ModeAuto) != AutoBanner {
+		t.Errorf("auto banner = %q, want %q", ModeBanner(ModeAuto), AutoBanner)
+	}
+}
+
+// TestModeSpecs_EveryModeIsComplete — a mode is one row of facts, and every
+// place that names a mode must agree with that row.
+//
+// This is the invariant the type exists for. Before it, a mode's banner, its
+// cycle position, its colour and its auto-approval rules were four separate
+// tables keyed by the same word with nothing tying them together: a mode could
+// be added to one and silently missing from another. Here every mode is
+// walked through each consumer and each consumer must know it.
+func TestModeSpecs_EveryModeIsComplete(t *testing.T) {
+	for _, mode := range CycleModes {
+		t.Run(string(mode), func(t *testing.T) {
+			if !mode.Valid() {
+				t.Fatalf("%q is in CycleModes but has no modeSpecs row", mode)
+			}
+			// The flag's accepted set and the cycle's stops are different
+			// questions — the stored-empty default is a stop but not a
+			// flag value — but every non-default stop must be an accepted
+			// flag value.
+			if mode != ModeDefault && !ValidMode(string(mode)) {
+				t.Errorf("%q is a cycle stop but --mode rejects it", mode)
+			}
+			// Every mode after the default names itself in the composer,
+			// and the default names nothing. A mode that draws no banner
+			// is a stop the user lands on with no indication.
+			if hasBanner := mode.Banner() != ""; hasBanner != (mode != ModeDefault) {
+				t.Errorf("%q banner = %q: only the default may be anonymous", mode, mode.Banner())
+			}
+		})
+	}
+}
+
+// TestModeSpecs_ApprovalsMatchTheDecidePath — the table's approval list and
+// the policy's actual verdict agree, exactly.
+//
+// modeSpecs states which classes a mode approves; decideByMode implements it.
+// The two are separate pieces of code and could drift, so every (mode, class)
+// pair is walked through the real Decide path and compared.
+//
+// Strict mode is what makes this a real assertion. The clone's default is
+// Allow, so under the normal policy an unapproved call and an approved one
+// both come back Allow and the comparison says nothing. Strict turns an
+// otherwise-undecided call into Ask, leaving the mode's own contribution as
+// the only difference between the two outcomes.
+func TestModeSpecs_ApprovalsMatchTheDecidePath(t *testing.T) {
+	// One call per class, chosen so that no rule list, no toolPermission
+	// setting and no protected path interferes: the mode is the only thing
+	// left to decide.
+	calls := map[Class]struct {
+		tool   string
+		target string
+	}{
+		ClassRead:    {"read_file", "/workspace/a.go"},
+		ClassEdit:    {"write_file", "/workspace/a.go"},
+		ClassCommand: {"run_command", "echo hi"},
+	}
+	for _, mode := range CycleModes {
+		for cls, call := range calls {
+			t.Run(string(mode)+"/"+cls.String(), func(t *testing.T) {
+				p := Policy{
+					Mode:           mode,
+					Strict:         true,
+					WorkspaceRoots: []string{"/workspace"},
+				}
+				got := p.DecideNames(call.target, call.tool)
+				if mode.Approves(cls) {
+					if got != Allow {
+						t.Errorf("%q approves %v per modeSpecs, but DecideNames = %v", mode, cls, got)
+					}
+					return
+				}
+				// Not approved by the mode. Auto's ClassEdit is the one
+				// conditional approval, handled outside the table, so it
+				// has its own test below.
+				if mode == ModeAuto && cls == ClassEdit {
+					return
+				}
+				if got == Allow {
+					t.Errorf("%q does not approve %v per modeSpecs, but DecideNames = %v", mode, cls, got)
+				}
+			})
+		}
+	}
+}
+
+// TestDecideByMode_AutoEditsAreConditional — auto's edit approval is not a
+// row in modeSpecs, because unlike every other entry there it is conditional.
+//
+// The decision depends on the workspace and on whether the call is one the
+// reference approves outside it (ShouldAutoApproveOutsideWorkspaceFileEdit).
+// A category in the table means "approved, full stop", so auto's ClassEdit
+// would be a claim the code does not make. The two halves are checked through
+// the real Decide path instead: an edit inside the workspace is approved, and
+// a call the outside-workspace rule does not cover asks.
+func TestDecideByMode_AutoEditsAreConditional(t *testing.T) {
+	p := Policy{Mode: ModeAuto, Strict: true, WorkspaceRoots: []string{"/workspace"}}
+
+	if got := p.DecideNames("/workspace/a.go", "write_file"); got != Allow {
+		t.Errorf("auto edit inside the workspace = %v, want Allow", got)
+	}
+	// A call the outside-workspace rule does not auto-approve must ask,
+	// which is what makes the rule conditional rather than blanket.
+	const outsideTarget = "/elsewhere/a.go"
+	if ShouldAutoApproveOutsideWorkspaceFileEdit(outsideTarget, "write_file", nil) {
+		t.Skip("this fixture is covered by the outside-workspace rule; the condition cannot be shown")
+	}
+	if got := p.DecideNames(outsideTarget, "write_file"); got != Ask {
+		t.Errorf("auto edit outside the workspace = %v, want Ask", got)
+	}
+
+	// The table must not claim it, or the two would disagree.
+	if ModeAuto.Approves(ClassEdit) {
+		t.Error("modeSpecs lists ClassEdit as an unconditional auto approval, but the rule is conditional")
+	}
+}
+
+// TestNextMode pins the Shift+Tab order against the reference.
+//
+// official-docs/cli/modes.md states the sequence outright:
+//
+//	`default` > `accept-edits` > `auto` > `plan` > `default`
+//
+// Four stops, with default and auto as separate modes. The earlier
+// three-entry order folded "" onto auto's slot; see CycleModes for why that
+// reading was wrong.
 func TestNextMode(t *testing.T) {
-	want := map[string]string{
-		"":               ModeAcceptEdits,
-		ModeAcceptEdits:  ModeAuto,
-		ModeAuto:         ModePlan,
-		ModePlan:         "",
-		"something-else": "",
+	want := map[AgentMode]AgentMode{
+		ModeDefault:     ModeAcceptEdits,
+		ModeAcceptEdits: ModeAuto,
+		ModeAuto:        ModePlan,
+		ModePlan:        ModeDefault,
+		// An unrecognised mode restarts the cycle rather than landing on
+		// "" — "" is a real state now, not the absence of one.
+		"something-else": ModeDefault,
 	}
 	for cur, next := range want {
 		if got := NextMode(cur); got != next {
@@ -224,12 +366,14 @@ func TestNextMode(t *testing.T) {
 		}
 	}
 	// A full lap returns to the starting mode.
-	cur := ""
-	for i := 0; i < len(CycleModes); i++ {
-		cur = NextMode(cur)
-	}
-	if cur != "" {
-		t.Errorf("after %d steps the cycle ended at %q, want default", len(CycleModes), cur)
+	for _, start := range CycleModes {
+		cur := start
+		for i := 0; i < len(CycleModes); i++ {
+			cur = NextMode(cur)
+		}
+		if cur != start {
+			t.Errorf("after %d steps from %q the cycle ended at %q", len(CycleModes), start, cur)
+		}
 	}
 }
 

@@ -80,7 +80,7 @@ make check-reproducibility
 ```
 
 该测试将：
-1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对文件与 `out/extracted-1.5.16` 的 SHA-256，断言 0 差异；
+1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对文件与 `out/extracted-1.5.18` 的 SHA-256，断言 0 差异；
 2. **`language_server` 校验**：在临时沙箱中重新解包，验证 `seeds`、`embed-fs`、`protos`、`ide-js` 与 `out/ide-language-server-2.34.0` 完全一致；
 3. **`localharness` 校验**：进行两次独立解包并比对 Run A 与 Run B，同时与 `out/localharness-0.1.24` 黄金基线逐字节比对，断言 8 个 `.proto` 文件与函数符号表完全重现。
 
@@ -115,7 +115,7 @@ make drift-check
 
 ## 7. 上游 Changelog 获取与逐条功能对齐 SOP
 
-`agy` 二进制内置的 `agy changelog` 始终**滞后一个版本**（例如 `1.5.16` 二进制内置 feed 最高只包含 `1.5.15:` 节），而当前版本自身的完整发布说明发布在官方 GitHub 仓库的 `CHANGELOG.md` 中。因此每次版本对齐必须同时维护两份 Changelog 契约：
+`agy` 二进制内置的 `agy changelog` 始终**滞后一个版本**（例如 `1.5.18` 二进制打印的 feed 最高只包含 `1.5.17:` 节），而当前版本自身的完整发布说明发布在官方 GitHub 仓库的 `CHANGELOG.md` 中。因此每次版本对齐必须同时维护两份 Changelog 契约：
 
 1. **二进制内置 Feed（`internal/cli/testdata/changelog_reference.txt`）**：
    - 运行新版本 `agy changelog > internal/cli/testdata/changelog_reference.txt`；

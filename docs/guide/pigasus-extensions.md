@@ -29,6 +29,8 @@
 | `pigasus stats` | hidden CLI subcommand generating local session usage & cost HTML dashboard | `internal/app/subcommands/stats`, `internal/features/stats` |
 | `pigasus mic-serve` | local audio server over `JETSKI-AUDIO/1` (`micwire`); exposes real-time `MicWireStats` | [`remote-agents.md`](remote-agents.md) §3.6 |
 | `/wire` & `Ctrl+Shift+W` | interactive TUI Wire Diagnostics HUD overlay; real-time RTT, TTFT, packets and tok/s rate | `internal/ui/views/wirehud` |
+| `/debug` inspector | the reference's `/logs` is the log file only; openagy renames the command to `/debug` (keeping `/logs` as an alias) and adds four full-viewport views over the same surface: the next turn's wire sizes, the conversation's steps folded by turn, the HTTP exchanges this session made, and the measured context occupancy. `/context` stays the reference's single inline view | `internal/ui/views/debugpanel`, [`tui.md`](tui.md) §"The `/debug` inspector" |
+| `/debug` reader (`v`, `t`) | the lists carry excerpts; `v` pulls a row's whole body from the host on demand, and `t` cycles raw ↔ indented JSON ↔ YAML with the document's key order preserved | `internal/ui/views/debugpanel/reader.go`, `pretty.go`, `internal/tui/panel_seams_reader.go`, [`tui.md`](tui.md) §"The reader" |
 | Trajectory Cold Storage | tiering folded turns (<= checkpoint boundary) to disk to bound heap in 200+ turn sessions | `actor/trajectory.go` |
 | Dynamic Routing Failover | multi-provider fallback chain (CloudCode -> Gateway -> Claude/GPT) with typed error interception | `internal/infra/backend/failover` |
 | Plugin Runtime Hot-Reload | hot-reloading tool catalogs & MCP providers during active turn on filesystem changes | `internal/features/plugins/watch` |
@@ -45,6 +47,15 @@ and `TestVocabularyDispatchedMatchesTheHostTable` fail. In a local session
 `/upload` and `/triggers` answer `… only available in a --remote-agent session.`
 (`/terminal` was promoted to `slashcommands.Default` and works locally via
 `LocalTerminalService` backed by `rcterminal`).
+
+One superset command is **visible on purpose**. `/yolo [on|off]` is the running
+session's `--dangerously-skip-permissions`: it drops the permission prompts
+*and* the terminal sandbox without a restart. Its row lives in
+`slashcommands.Default`, not `Hidden`, because a user has to be able to find it
+— so `Test_PickerCatalogMatchesRef` counts it (118) and
+`TestYoloIsRegisteredAndVisible` pins the registration. The gates themselves,
+and why one command must touch both, are in
+[`permissions.md`](permissions.md) §"/yolo".
 
 Everything else a remote session uses — `@` files, `WAITING` prompts,
 `/continue`, `/permissions`, `/plugin`, `/skills`, `/diff` — is **parity**,

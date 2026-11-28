@@ -77,9 +77,6 @@ type Panel struct {
 	submenu bool
 	// submenuCursor is the selected value inside the submenu.
 	submenuCursor int
-	// submenuOrigVal is the value the submenu opened on, so Esc can put
-	// the theme back.
-	submenuOrigVal string
 	// memory holds the values of the rows the reference never persists
 	// (Enable Telemetry toggles without touching settings.json), keyed
 	// by settings key.

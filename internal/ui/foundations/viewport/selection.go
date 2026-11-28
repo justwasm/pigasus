@@ -100,6 +100,36 @@ func SelectionText(rows []string, sr, sc, er, ec int) string {
 	return string(out)
 }
 
+// SelectionTextWithoutGutter is SelectionText for a numbered document:
+// every row's first gutter cells are the line number and its padding, not
+// the document, so they are dropped from the copy.
+//
+// The pointer's columns are relative to the drawn row, which includes the
+// gutter. A column inside the gutter means "from the start of the text",
+// and a column past it is shifted left by the gutter so the cut lands on
+// the character the pointer was over. Without this, dragging from the left
+// edge of a viewer pastes the numbers and the padding with the text.
+func SelectionTextWithoutGutter(rows []string, sr, sc, er, ec, gutter int) string {
+	if gutter <= 0 {
+		return SelectionText(rows, sr, sc, er, ec)
+	}
+	shift := func(col int) int {
+		if col <= gutter {
+			return 0
+		}
+		return col - gutter
+	}
+	trimmed := make([]string, 0, er-sr+1)
+	for r := sr; r <= er && r < len(rows); r++ {
+		plain := ansi.Strip(rows[r])
+		trimmed = append(trimmed, ansi.Cut(plain, gutter, ansi.StringWidth(plain)))
+	}
+	if len(trimmed) == 0 {
+		return ""
+	}
+	return SelectionText(trimmed, 0, shift(sc), len(trimmed)-1, shift(ec))
+}
+
 // isPromptContinuation reports whether row b is a soft-wrapped continuation of user prompt row a.
 // In AGY 1.5.12: copying a long prompt with the mouse in altscreen mode no longer puts a line break
 // wherever the prompt wrapped on screen; a prompt you sent now copies as you typed it without soft-wrap newlines.

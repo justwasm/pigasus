@@ -19,43 +19,13 @@ import (
 // The zero value is usable. Methods are safe for concurrent use: the
 // compaction worker posts its result while the UI goroutine reads it.
 type CompactionRuntime struct {
-	mu        sync.Mutex
-	compactor compaction.ManualCompactor
-	done      chan compaction.GenericDoneMsg
+	mu   sync.Mutex
+	done chan compaction.GenericDoneMsg
 }
 
 // NewCompactionRuntime returns an empty compaction runtime.
 func NewCompactionRuntime() *CompactionRuntime {
 	return &CompactionRuntime{}
-}
-
-// Compactor returns the wired compactor, or nil when the generic
-// summarizer path should run.
-func (c *CompactionRuntime) Compactor() compaction.ManualCompactor {
-	if c == nil {
-		return nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.compactor
-}
-
-// SetCompactor installs the compactor. A nil compactor selects the
-// generic summarizer.
-func (c *CompactionRuntime) SetCompactor(compactor compaction.ManualCompactor) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	c.compactor = compactor
-	c.mu.Unlock()
-}
-
-// IsCompacting reports whether the wired compactor is mid-compaction.
-// A nil compactor is never compacting.
-func (c *CompactionRuntime) IsCompacting() bool {
-	compactor := c.Compactor()
-	return compactor != nil && compactor.IsCompacting()
 }
 
 // Done returns the channel a no-program generic compaction posts its

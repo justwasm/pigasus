@@ -26,12 +26,7 @@ func TestGroupLabel(t *testing.T) {
 		return Step{Name: name, Title: title}
 	}
 	label := func(steps []Step) string {
-		verb, count, detail := GroupSummary(steps)
-		out := verb + " " + count
-		if detail != "" {
-			out += " " + detail
-		}
-		return out
+		return GroupSummary(steps).String()
 	}
 	for _, tc := range []struct {
 		name  string
@@ -83,27 +78,27 @@ func TestGroupLabel_FileStep_CountUsesFileVocabulary(t *testing.T) {
 	step := func(name, title string) Step {
 		return Step{Name: name, Title: title}
 	}
-	verb, count, detail := GroupSummary([]Step{step("view_file", "Read(a.go)")})
-	if verb != "Explored" || count != "1 file" || detail != "(a.go)" {
-		t.Errorf("single read batch = (%q, %q, %q), want (Explored, 1 file, (a.go))", verb, count, detail)
+	sum := GroupSummary([]Step{step("view_file", "Read(a.go)")})
+	if sum.Verb != "Explored" || sum.Count != "1 file" || sum.Detail != "(a.go)" {
+		t.Errorf("single read batch = (%q, %q, %q), want (Explored, 1 file, (a.go))", sum.Verb, sum.Count, sum.Detail)
 	}
-	verb, count, detail = GroupSummary([]Step{
+	sum = GroupSummary([]Step{
 		step("view_file", "Read(a.go)"),
 		step("view_file", "Read(b.go)"),
 	})
-	if verb != "Explored" || count != "2 files" || detail != "(a.go · b.go)" {
-		t.Errorf("double read batch = (%q, %q, %q), want (Explored, 2 files, (a.go · b.go))", verb, count, detail)
+	if sum.Verb != "Explored" || sum.Count != "2 files" || sum.Detail != "(a.go · b.go)" {
+		t.Errorf("double read batch = (%q, %q, %q), want (Explored, 2 files, (a.go · b.go))", sum.Verb, sum.Count, sum.Detail)
 	}
-	verb, count, detail = GroupSummary([]Step{step("write_file", "Create(a.go)")})
-	if verb != "Edited" || count != "1 file" || detail != "(a.go)" {
-		t.Errorf("single write batch = (%q, %q, %q), want (Edited, 1 file, (a.go))", verb, count, detail)
+	sum = GroupSummary([]Step{step("write_file", "Create(a.go)")})
+	if sum.Verb != "Edited" || sum.Count != "1 file" || sum.Detail != "(a.go)" {
+		t.Errorf("single write batch = (%q, %q, %q), want (Edited, 1 file, (a.go))", sum.Verb, sum.Count, sum.Detail)
 	}
-	verb, count, detail = GroupSummary([]Step{
+	sum = GroupSummary([]Step{
 		step("write_file", "Create(a.go)"),
 		step("edit_file", "Edit(b.go)"),
 	})
-	if verb != "Edited" || count != "2 files" || detail != "(a.go · b.go)" {
-		t.Errorf("write+edit batch = (%q, %q, %q), want (Edited, 2 files, (a.go · b.go))", verb, count, detail)
+	if sum.Verb != "Edited" || sum.Count != "2 files" || sum.Detail != "(a.go · b.go)" {
+		t.Errorf("write+edit batch = (%q, %q, %q), want (Edited, 2 files, (a.go · b.go))", sum.Verb, sum.Count, sum.Detail)
 	}
 }
 
@@ -112,30 +107,30 @@ func TestGroupSummary_ExternalAgentTools(t *testing.T) {
 		return Step{Name: name, Title: title}
 	}
 	// External Claude/ACP Read tools
-	verb, count, detail := GroupSummary([]Step{
+	sum := GroupSummary([]Step{
 		step("Read", "Read(/path/to/a.go)"),
 		step("Read", "Read(/path/to/b.go)"),
 	})
-	if verb != "Explored" || count != "2 files" || detail != "(a.go · b.go)" {
-		t.Errorf("external read batch = (%q, %q, %q), want (Explored, 2 files, (a.go · b.go))", verb, count, detail)
+	if sum.Verb != "Explored" || sum.Count != "2 files" || sum.Detail != "(a.go · b.go)" {
+		t.Errorf("external read batch = (%q, %q, %q), want (Explored, 2 files, (a.go · b.go))", sum.Verb, sum.Count, sum.Detail)
 	}
 
 	// External Bash tools
-	verb, count, detail = GroupSummary([]Step{
+	sum = GroupSummary([]Step{
 		step("Bash", "Bash(echo one)"),
 		step("Bash", "Bash(echo two)"),
 	})
-	if verb != "Ran" || count != "2 commands" || detail != "(echo one · echo two)" {
-		t.Errorf("external bash batch = (%q, %q, %q), want (Ran, 2 commands, (echo one · echo two))", verb, count, detail)
+	if sum.Verb != "Ran" || sum.Count != "2 commands" || sum.Detail != "(echo one · echo two)" {
+		t.Errorf("external bash batch = (%q, %q, %q), want (Ran, 2 commands, (echo one · echo two))", sum.Verb, sum.Count, sum.Detail)
 	}
 
 	// External Edit + Write tools
-	verb, count, detail = GroupSummary([]Step{
+	sum = GroupSummary([]Step{
 		step("Edit", "Edit(/tmp/a.go)"),
 		step("writefile", "Create(/tmp/b.go)"),
 	})
-	if verb != "Edited" || count != "2 files" || detail != "(a.go · b.go)" {
-		t.Errorf("external edit batch = (%q, %q, %q), want (Edited, 2 files, (a.go · b.go))", verb, count, detail)
+	if sum.Verb != "Edited" || sum.Count != "2 files" || sum.Detail != "(a.go · b.go)" {
+		t.Errorf("external edit batch = (%q, %q, %q), want (Edited, 2 files, (a.go · b.go))", sum.Verb, sum.Count, sum.Detail)
 	}
 }
 
@@ -200,12 +195,12 @@ func TestSearchWeb_ReferenceForms(t *testing.T) {
 	if got := RunningSpinnerText("search_web"); got != "Searching web" {
 		t.Errorf("spinner = %q, want %q", got, "Searching web")
 	}
-	verb, count, detail := GroupSummary([]Step{
+	sum := GroupSummary([]Step{
 		{Name: "search_web", Title: "WebSearch(a)"},
 		{Name: "search_web", Title: "WebSearch(b)"},
 	})
-	if verb != "Explored" || count != "2 searches" || detail != "(a · b)" {
-		t.Errorf("batch = (%q, %q, %q), want (Explored, 2 searches, (a · b))", verb, count, detail)
+	if sum.Verb != "Explored" || sum.Count != "2 searches" || sum.Detail != "(a · b)" {
+		t.Errorf("batch = (%q, %q, %q), want (Explored, 2 searches, (a · b))", sum.Verb, sum.Count, sum.Detail)
 	}
 }
 
@@ -217,14 +212,14 @@ func TestSearchWeb_ReferenceForms(t *testing.T) {
 // source of the step surface, and this file is one of those sources.
 func TestStepTitle_GroupLabel_NoErroredConstabulary(t *testing.T) {
 	legacy := "Error" + "ed"
-	verb, count, detail := GroupSummary([]Step{
+	sum := GroupSummary([]Step{
 		{Name: "run_command", Title: "Bash(true)"},
 		{Name: "run_command", Title: "Bash(false)"},
 	})
-	if verb != "Ran" || count != "2 commands" || detail != "(true · false)" {
-		t.Fatalf("GroupSummary = (%q, %q, %q); want (Ran, 2 commands, (true · false))", verb, count, detail)
+	if sum.Verb != "Ran" || sum.Count != "2 commands" || sum.Detail != "(true · false)" {
+		t.Fatalf("GroupSummary = (%q, %q, %q); want (Ran, 2 commands, (true · false))", sum.Verb, sum.Count, sum.Detail)
 	}
-	joined := verb + " " + count + " " + detail
+	joined := sum.String()
 	if strings.Contains(joined, legacy) || strings.Contains(joined, "Failed") || strings.Contains(joined, "failed") {
 		t.Fatalf("group header carries failure wording: %q", joined)
 	}

@@ -131,15 +131,20 @@ func TestExhaustive_EveryRowSubmenuInteraction(t *testing.T) {
 	}
 }
 
-// TestExhaustive_ColorSchemeLivePreviewAndCancel verifies that moving through
-// the Color Scheme submenu previews schemes and Esc reverts to original scheme.
-func TestExhaustive_ColorSchemeLivePreviewAndCancel(t *testing.T) {
+// TestExhaustive_ColorSchemePreviewIsCardOnly verifies that moving through
+// the Color Scheme submenu previews nothing globally and Esc reverts
+// nothing — the preview is the card, not the frame around it.
+//
+// 【一手】 agy 1.5.18 (tuialign 46_scheme_chrome_fixed): the chrome stays on
+// the committed scheme while the card follows the cursor, so there is no
+// global application to make and none to undo.
+func TestExhaustive_ColorSchemePreviewIsCardOnly(t *testing.T) {
 	testHome(t, map[string]any{"colorScheme": "dark"})
 
-	var previewed []string
+	var applied []string
 	seams := Seams{
 		ApplyTheme: func(scheme string) tea.Cmd {
-			previewed = append(previewed, scheme)
+			applied = append(applied, scheme)
 			return nil
 		},
 	}
@@ -161,16 +166,15 @@ func TestExhaustive_ColorSchemeLivePreviewAndCancel(t *testing.T) {
 	p.SetCursor(csIdx)
 	p.HandleKey(tea.Key{Code: tea.KeyEnter}) // Open submenu
 
-	previewed = nil
-	p.HandleKey(tea.Key{Code: tea.KeyDown}) // preview next
-	if len(previewed) == 0 {
-		t.Error("KeyDown in Color Scheme did not trigger live preview")
+	p.HandleKey(tea.Key{Code: tea.KeyDown}) // move the preview cursor
+	if len(applied) != 0 {
+		t.Errorf("a move in Color Scheme applied a theme: %v", applied)
 	}
 
-	// Esc should revert to "dark"
+	// Esc closes the submenu; the committed scheme was never disturbed.
 	p.HandleKey(tea.Key{Code: tea.KeyEsc})
-	if len(previewed) == 0 || previewed[len(previewed)-1] != "dark" {
-		t.Errorf("Esc in Color Scheme did not revert to 'dark', got %v", previewed)
+	if len(applied) != 0 {
+		t.Errorf("Esc applied a theme: %v", applied)
 	}
 }
 
@@ -248,8 +252,12 @@ func TestExhaustive_VoiceModeGating(t *testing.T) {
 		return count
 	}
 
-	if got := countVoiceChildren(); got != 4 {
-		t.Fatalf("expected 4 Voice Mode children initially, got %d", got)
+	// A fresh home stores no voiceMode, which is "auto": the children are
+	// collapsed. They are shown only once the mode is explicitly live, so
+	// the catalogue matches the reference's own row count on a clean
+	// install (agy 1.5.18: 20 rows; ours adds Voice Mode and nothing else).
+	if got := countVoiceChildren(); got != 0 {
+		t.Fatalf("expected the Voice Mode children to be collapsed while the mode is auto, got %d", got)
 	}
 
 	// Find Voice Mode row

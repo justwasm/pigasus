@@ -41,7 +41,7 @@ Internal engineering tools for UI component inspection, AST inventory generation
 | Command | Package | Built by `make build` | Purpose & Key Dependencies |
 |---|---|---|---|
 | `storybook` | `cmd/storybook` | Yes (`./bin/storybook`, symlink `./bin/storyboard`) | Interactive Antigravity TUI Component Storybook & Playground (`internal/ui/storybook`, `github.com/justwasm/storybook`) for browsing and testing UI components in isolation. See [`tui-storybook-blueprint.md`](tui-storybook-blueprint.md). |
-| `tui-inventory` | `cmd/tui-inventory` | Yes (`./bin/tui-inventory`) | AST & reverse-engineered TUI symbol inventory generator scanning `internal/ui` and `out/extracted-1.5.17/seeds/funcs.txt` to emit [`tui_component_inventory.json`](tui_component_inventory.json). |
+| `tui-inventory` | `cmd/tui-inventory` | Yes (`./bin/tui-inventory`) | AST & reverse-engineered TUI symbol inventory generator scanning `internal/ui` and `out/extracted-1.5.18/seeds/funcs.txt` to emit [`tui_component_inventory.json`](tui_component_inventory.json). |
 | `agy-canary` | `cmd/agy-canary` | Yes (`./bin/agy-canary`) | Automated upstream binary monitor & drift defense tool (`internal/infra/referencedrift`) checking `reference.lock.json` against a live `agy` binary (`-check`, `-json`, `-update*`). See [`reference-drift.md`](reference-drift.md). |
 
 ---

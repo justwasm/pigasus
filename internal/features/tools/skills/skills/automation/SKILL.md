@@ -24,10 +24,11 @@ timers (use the `schedule` tool instead).
 3.  **Turn 3 — Task Prompt**: Ask what the agent should do on each run and
     refine into a self-contained prompt.
 4.  **Turn 4 — Write `sidecar.json`**: Create
-    `~/.gemini/jetski/sidecars/<slug>/sidecar.json` with `"builtin":
-    "schedule"`, `"args": {"schedule": "<cron>", "prompt": "<prompt>"}`.
-5.  **Turn 5 — Optional Test Run**: Offer to test the prompt immediately via
-    `agentapi new-conversation`.
+    `<configDir>/sidecars/<sidecar-id>/sidecar.json` with `"builtin":
+    "schedule"` and `"args": ["CRON_TZ=<zone> <cron>", "agentapi",
+    "new-conversation", "--", "<prompt>"]`.
+5.  **Turn 5 — Optional Test Run**: Offer to execute the task once in the
+    current conversation to verify and record `agent_permissions`.
 
 --------------------------------------------------------------------------------
 
@@ -140,10 +141,9 @@ Create the configuration file at:
     required for `"builtin": "schedule"` and continuous daemons; `"on-failure"`
     or `"never"` apply only to one-shot `"command"` sidecars) — never proto enum
     names like `"SIDECAR_RESTART_POLICY_ALWAYS"` or `"unless-stopped"`.
--   Never place `sidecar.json` or scripts inside an ephemeral CitC workspace
-    (`/google/src/cloud/<user>/<workspace>/...`) or point symlinks in
-    `~/.gemini/config/` to an ephemeral CitC workspace that may later be
-    deleted.
+-   Never place `sidecar.json` or scripts inside an ephemeral workspace or
+    temporary directory, or point symlinks in `~/.gemini/config/` to an
+    ephemeral workspace that may later be deleted.
 
 > [!CAUTION] **Never Hallucinate Tools or Permissions**: - Do **NOT** guess or
 > invent MCP servers (`mcp(...)`) or CLI commands (`command(...)`) that you have
@@ -245,7 +245,7 @@ When the user agrees to a test run:
         -   `write_file(<absolute_path>)` — e.g.,
             `write_file(/Users/alice/digests)` (never `write_file(*)` or
             `write_file(/)`).
-        -   `mcp(<server_name>/<tool_name>)` — e.g., `mcp(buganizer/get_bugs)`
+        -   `mcp(<server_name>/<tool_name>)` — e.g., `mcp(github/list_issues)`
             (only for real MCP tools actually called; never `mcp(*)`).
         -   `read_url(<domain>)` / `execute_url(<domain>)` — e.g.,
             `read_url(github.com)` (never `read_url(*)`).

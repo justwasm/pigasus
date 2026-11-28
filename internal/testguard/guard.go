@@ -111,7 +111,49 @@ func InstallConfigOnly() string {
 	os.Setenv("OPENAGY_DISABLE_KEYCHAIN", "1")
 	os.Setenv("JETSKI_OAUTH_TOKEN", "")
 	os.Setenv("ANTIGRAVITY_REFRESH_TOKEN", "")
+	clearEndpointEnv()
 	return dir
+}
+
+// clearEndpointEnv un-sets the endpoint variables a developer's shell may
+// carry, so a test resolves the compiled-in endpoint table rather than the
+// machine it happens to be running on.
+//
+// Why it matters: the launcher exports `CLOUD_CODE_URL=http://127.0.0.1:<port>`
+// for the reference binary, and `go test` inherits it. `endpoints.cloudCode`
+// lets that variable override every other source — including the configuration
+// file this package just pinned — so a transport test that asks
+// `endpoints.Current()` for "the default CloudCode host" gets the developer's
+// local proxy. The failure is not a wrong assertion, it is a test measuring a
+// different deployment: `TestCloudCodeImageSandboxFailover` sent its "primary"
+// request to the proxy and its mirror request to Google, then reported
+// `calls primary/mirror = 0/1`.
+//
+// A test that *needs* an endpoint variable still sets it with t.Setenv, which
+// runs after this and is restored by the test.
+func clearEndpointEnv() {
+	for _, name := range endpointEnvNames {
+		os.Unsetenv(name)
+	}
+}
+
+// endpointEnvNames is every environment variable the endpoint resolver reads,
+// with the reader each one belongs to (see TestEndpointEnvListCoversTheResolver).
+//
+// The list is exhaustive on purpose: a variable missing here is a variable a
+// test follows to the machine, and the failure it causes is a test measuring a
+// different deployment rather than a wrong assertion — the expensive kind.
+var endpointEnvNames = []string{
+	"CLOUD_CODE_URL",                 // endpoints.cloudCode
+	"OPENAGY_UPSTREAM",               // the proxy launcher's upstream
+	"OPENAGY_VOICE_ALT_BACKEND",      // endpoints.voice
+	"PIGASUS_VOICE_ALT_BACKEND",      // endpoints.voice
+	"OPENAGY_VOICE_URL",              // endpoints.voice
+	"GOOGLE_GEMINI_BASE_URL",         // endpoints.voice
+	"OPENAGY_VOICE_AICODE",           // endpoints.voiceAICode
+	"JETSKI_VOICE_ADDR",              // endpoints.voiceAICode
+	"ANTIGRAVITY_RC_ORIGIN_PATTERNS", // endpoints origin allowlist
+	"OPENAGY_WRAPPER_ADDR",           // agyproxy.EnvAddr: the local proxy's listen address
 }
 
 // Run is Install plus `m.Run` plus the cleanup, for a package's TestMain:

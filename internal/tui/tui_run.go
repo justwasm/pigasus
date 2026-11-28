@@ -106,12 +106,13 @@ import (
 // banner row. The `%s` placeholders receive the rendered art row
 // from `renderLogoRow(logoArt[i])` (16 cols wide), and 2 spaces pad
 // the gutter so banner text begins at column 18.
-var logoLines = []string{
-	"%s  " + cBlueBoldOpen + "Pigasus CLI " + cliVersion + "\x1b[0m",
-	"%s  " + cDimGrayOpen + "%s" + cDimGrayClose,
-	"%s  " + cDimGrayOpen + "%s" + cDimGrayClose,
-	"%s  " + cDimGrayOpen + "%s" + cDimGrayClose,
-}
+// logoLines used to hold the four banner rows as pre-formatted strings.
+// They were built once at package init, which froze the colour scheme
+// that was live at startup: the account, model and cwd rows kept the
+// startup scheme's DimFg forever, while the title row (formatted at call
+// time) followed /config. renderBannerWithTheme now formats all four
+// rows itself, so nothing here may bake an escape sequence into a
+// package-level string.
 
 // separatorWidth is the v1.3.5 binary 1:1 horizontal separator
 // width. Cycle 80: ref capture showed 220 chars (cycle 78 used 200
@@ -642,6 +643,12 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 		return renderTUIWithFlags(w, fs)
 	}
 	clilog.Logf("tui", "interactive session starting")
+	// Record the HTTP exchanges this session makes, so /logs → Requests can
+	// show what actually went over the wire. It is armed here, before any
+	// backend is built, because the recorder is installed into the client
+	// at construction time; a session that enables it later would have a
+	// gap in the record exactly where the first turn is.
+	backendselect.EnableRecording()
 	return termguard.Run(func() error {
 		canonicalCwd, shouldExit, err := checkWorkspaceTrustGate(w, fs)
 		if err != nil || shouldExit {
@@ -1013,14 +1020,19 @@ func renderBannerWithTheme(w io.Writer, ev *seasonal.Event, email, model, tier, 
 		return
 	}
 	artRows := tuilib.RenderLogoLines()
-	fmt.Fprintf(w, "%s  "+cBlueBoldOpen+"%s "+cliVersion+"\x1b[0m\n", artRows[0], branding.Current().CLIName)
+	fmt.Fprintf(w, "%s  %s%s %s\x1b[0m\n", artRows[0], cBlueBoldOpen, branding.Current().CLIName, cliVersion)
 	emailLine := email
 	if tier != "" {
 		emailLine += " (" + tier + ")"
 	}
-	fmt.Fprintf(w, logoLines[1]+"\n", artRows[1], emailLine)
-	fmt.Fprintf(w, logoLines[2]+"\n", artRows[2], model)
-	fmt.Fprintf(w, logoLines[3]+"\n", artRows[3], tuilib.ShortenCwd(cwd))
+	// The body rows are formatted here rather than from the package-level
+	// logoLines: those were built once at init, so they froze the scheme
+	// that was live at startup and the account, model and cwd lines never
+	// moved when /config changed the scheme. The title row above already
+	// read cBlueBoldOpen at call time; these three now do the same.
+	fmt.Fprintf(w, "%s  %s%s%s\n", artRows[1], cDimGrayOpen, emailLine, cDimGrayClose)
+	fmt.Fprintf(w, "%s  %s%s%s\n", artRows[2], cDimGrayOpen, model, cDimGrayClose)
+	fmt.Fprintf(w, "%s  %s%s%s\n", artRows[3], cDimGrayOpen, tuilib.ShortenCwd(cwd), cDimGrayClose)
 	if !tuilib.EnvHideLogoOn() {
 		fmt.Fprintln(w, artRows[4])
 	} else {

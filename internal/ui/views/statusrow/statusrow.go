@@ -7,9 +7,14 @@
 // The row is the reference's own:
 //
 //	? for shortcuts                    Gemini 3.8 Flash · high · 2 tasks
-//	esc to cancel                      auto · MiniMax M3
+//	esc to cancel                      plan · MiniMax M3
 //	press ctrl+c again to exit         MiniMax M3
 //	⠿  Compacting context… (12s)        MiniMax M3
+//
+// Only the stored-empty default draws no prefix — the row is just the model.
+// The three real modes each name themselves, `auto` included, so that every
+// stop of the shift+tab cycle is visibly distinct. Which modes carry one is
+// palette.StatusModePrefix's question.
 //
 // The left segment is the hint, the right segment is the session's
 // identity, and the space between them is the padding. The rules that
@@ -244,38 +249,113 @@ func leftSegment(s State) (string, string) {
 	return left, leftPlain
 }
 
-// leftHint is the plain text of the left segment.
-//
-// The rules, in order: a visible picker says "esc to cancel" (except
-// the /model popup, which drops the hint); a streaming turn says the
-// same; queued messages ask for "up"; a non-empty buffer clears the
-// hint entirely; bash mode replaces it with its own.
-func leftHint(s State) string {
-	leftPlain := "? for shortcuts"
+// hintDefault is the row's hint when no rule claims it.
+const hintDefault = "? for shortcuts"
 
-	if s.PickerVisible {
-		leftPlain = "esc to cancel"
-		// The reference's "/model <query>" popup drops the cancel
-		// hint: its status row keeps the left segment empty.
-		//
-		// 【一手】 agy 1.4.6, live.
-		if s.PickerModelMode {
-			leftPlain = ""
+// hintRule is one entry in the hint's precedence chain.
+//
+// when decides whether the rule claims the segment, and text is what it
+// writes when it does. An empty text is a real answer — it clears the
+// segment — which is why the chain is "first rule that matches wins" rather
+// than "first non-empty text wins".
+//
+// text is a func rather than a constant because a rule's wording can depend
+// on the state that made it match: the picker's hint is the cancel hint,
+// except in the /model popup, where it is nothing. Keeping the refinement
+// inside its own rule is what stops a broad rule above it from answering
+// first.
+type hintRule struct {
+	// name is the rule's own label, so a test can say which rule won
+	// instead of only which string came out.
+	name string
+	when func(State) bool
+	text func(State) string
+}
+
+// hintText wraps a constant as a hintRule's text.
+func hintText(s string) func(State) string {
+	return func(State) string { return s }
+}
+
+// hintRules is the hint's precedence, highest first.
+//
+// The chain used to be a sequence of assignments — each `if` overwriting
+// leftPlain — so precedence was encoded in the *order of the statements* and
+// the last matching rule won. That reads bottom-up, and adding a rule meant
+// deciding where in the middle to insert it. Here the slice is the
+// precedence: the first matching rule wins, and a new rule goes where it
+// belongs in the list rather than in the middle of a function body.
+//
+// The relative order is the reference's, and it is not arbitrary:
+//
+//	bash mode > non-empty buffer > queued > streaming > picker > /model picker
+//
+// Bash mode outranks the buffer because arming "!" and then typing a command
+// still has to say the mode is armed — the command is what bash mode is for.
+// The buffer outranks everything else below it because a composer with text
+// in it needs no hint: the user is already typing. Queued outranks streaming
+// because a queued prompt is the more specific thing to say. The /model
+// picker's empty answer is the least specific, so it loses to all of them.
+//
+// Every rule below the first is written to be independent of the others, so
+// one can be read on its own. The picker guard is repeated rather than
+// hoisted into a shared prefix: hoisting it is what made the old version hard
+// to read, and the repetition is what lets a rule stand alone.
+//
+// 【一手】 agy 1.4.6, live: the "/model <query>" popup keeps the left segment
+// empty rather than showing the cancel hint.
+var hintRules = []hintRule{
+	{
+		name: "bash-mode",
+		when: func(s State) bool { return s.BashMode && !s.PickerVisible && !s.HelpActive },
+		text: hintText(" activated bash mode · esc to cancel"),
+	},
+	{
+		name: "composer-has-text",
+		when: func(s State) bool { return (!s.BufferEmpty || s.ResumePickerActive) && !s.PickerVisible },
+		text: hintText(""),
+	},
+	{
+		name: "queued-prompts",
+		when: func(s State) bool { return s.Queued > 0 && !s.PickerVisible },
+		text: hintText("  Press up to edit queued messages"),
+	},
+	{
+		name: "streaming",
+		when: func(s State) bool { return s.Streaming && !s.PickerVisible },
+		text: hintText("esc to cancel"),
+	},
+	{
+		name: "picker",
+		when: func(s State) bool { return s.PickerVisible },
+		// A picker says "esc to cancel" — except the /model popup, which
+		// leaves the segment empty. The two are one rule rather than two
+		// entries because the popup is a refinement of the picker, not a
+		// thing that can be true on its own: PickerModelMode without
+		// PickerVisible is not a state the host produces, and splitting
+		// them let a broader picker rule above answer first.
+		text: pickerHint,
+	},
+}
+
+// pickerHint is the picker rule's text: the cancel hint, or empty for the
+// /model popup.
+func pickerHint(s State) string {
+	if s.PickerModelMode {
+		return ""
+	}
+	return "esc to cancel"
+}
+
+// leftHint is the plain text of the left segment: the first rule that claims
+// the segment, or hintDefault when none does.
+func leftHint(s State) string {
+	for _, r := range hintRules {
+		if r.when(s) {
+			return r.text(s)
 		}
 	}
-	if s.Streaming && !s.PickerVisible && leftPlain != "" {
-		leftPlain = "esc to cancel"
-	}
-	if s.Queued > 0 && !s.PickerVisible {
-		leftPlain = "  Press up to edit queued messages"
-	}
-	if (!s.BufferEmpty || s.ResumePickerActive) && !s.PickerVisible {
-		leftPlain = ""
-	}
-	if s.BashMode && !s.PickerVisible && !s.HelpActive {
-		leftPlain = " activated bash mode · esc to cancel"
-	}
-	return leftPlain
+	return hintDefault
 }
 
 // rightInfo is the row's right half.
@@ -299,9 +379,22 @@ func rightSegment(s State) rightInfo {
 		statusModel = s.Model
 	}
 	modePlain, modeStyled := "", ""
-	if s.Mode != "" {
-		modePlain = s.Mode + " · "
-		modeStyled = palette.StatusModeColor(s.Mode) + s.Mode + palette.DimGrayOpen + " · "
+	if prefix := palette.StatusModePrefix(s.Mode); prefix != "" {
+		// The mode is a prefix only when it has a word: the stored-empty
+		// default draws nothing, `plan`, `accept-edits` and `auto` draw
+		// "<mode> · ". Only the default is anonymous, so no shift+tab stop
+		// renders the same as another.
+		//
+		// The mode word takes the mode's colour and the separator that
+		// follows it goes back to the dim foreground: agy paints
+		// accept-edits as #859900 and the "· " after it as #657B83.
+		//
+		// The close is StatusModeClose, not DimGrayOpen: auto's word is
+		// opened bold, and a colour-only close would leave the bold on the
+		// separator and on the model behind it — the row would render the
+		// model bold in auto mode and plain in the other two.
+		modePlain = prefix
+		modeStyled = palette.StatusModeColor(s.Mode) + s.Mode + palette.StatusModeClose(s.Mode) + " · "
 	}
 
 	cells := statusCells(s)
@@ -353,11 +446,17 @@ func buildRight(statusModel string, s State, cells string) (string, string) {
 // session's identity.
 //
 // The reference's built-in row carries the mode, the model and the effort
-// tier and nothing else (【一手】 agy 1.4.7's own status row: "auto ·
-// Gemini 3.8 Flash · high"). The cells below are the clone's own reading
-// of the documentation, which asks the status line for the agent state,
-// the context usage and the credit balance
+// tier and nothing else. The cells below are the clone's own reading of
+// the documentation, which asks the status line for the agent state, the
+// context usage and the credit balance
 // (official-docs/cli/statusline.md:13,148 and official-docs/cli/credits.md:11).
+//
+// 【一手】 This comment used to quote agy 1.4.7's row as "auto · Gemini 3.8
+// Flash · high". Re-measured on agy 1.5.18 (tuialign scene 49), the
+// default and auto modes draw NO prefix: the row is "Gemini 3.8 Flash ·
+// high", and only plan and accept-edits add "<mode> · ". The 1.4.7 quote
+// is therefore either a transcription error or a behaviour that changed;
+// either way, do not cite it as evidence that auto carries a prefix.
 //
 // Every cell is omitted when its fact is absent: a cell without a fact
 // would be a guess.

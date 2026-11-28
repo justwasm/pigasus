@@ -308,6 +308,7 @@ func newGatewayClientForModel(m models.Model, timeout int) backend.Client {
 		pool = gateway.SharedKeyPool(cacheKey, accounts)
 	}
 	return gateway.NewGatewayWithConfig(gateway.GatewayConfig{
+		HTTPClient:        recordingClient(nil),
 		URL:               strings.TrimSpace(m.APIURL),
 		APIKey:            strings.TrimSpace(m.APIKey),
 		ExternalModel:     strings.TrimSpace(m.ExternalModelName),
@@ -464,8 +465,9 @@ func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID Catal
 	// rebuilt transport installs a fresh one.
 	router.SetFallback(credential.DefaultTokenSource())
 	client := cloudcode.NewCloudCodeWithConfig(cloudcode.CloudCodeConfig{
-		Model:     slug,
-		TokenFunc: router.TokenFuncForModel(slug),
+		Model:      slug,
+		TokenFunc:  router.TokenFuncForModel(slug),
+		HTTPClient: recordingClient(nil),
 	})
 	return accountrouting.Wrap(client, logWriter)
 }

@@ -12,7 +12,7 @@
 //
 // The distinguishing signal is NOT captured from a live enterprise account.
 // It is recovered from the reference's own 1.5.17 web bundle
-// (out/extracted-1.5.17/web-assets/main.js), which classifies the same failure
+// (out/extracted-1.5.18/web-assets/main.js; recovered at 1.5.17, unchanged at 1.5.18), which classifies the same failure
 // the CLI reports:
 //
 //	const oza = z.object({error: z.object({message: z.string(),

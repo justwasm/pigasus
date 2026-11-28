@@ -7,9 +7,12 @@
 package statusrow
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 // plain strips the SGR escapes so a test can assert the text.
@@ -118,6 +121,178 @@ func TestLeftHint_PickerWins(t *testing.T) {
 	s.Queued = 2
 	if got := leftHint(s); got != "esc to cancel" {
 		t.Errorf("leftHint = %q, want the picker's cancel hint", got)
+	}
+}
+
+// TestLeftHint_Precedence — the rules are a precedence chain, and the order
+// in hintRules is that precedence.
+//
+// Each case turns on two rules at once and asserts which one wins. The old
+// form encoded this in the order of its statements, so a rule inserted in the
+// wrong place silently changed the answer; here the slice is the order, and
+// this test is what pins it.
+func TestLeftHint_Precedence(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mut  func(*State)
+		want string
+		// winner is the rule that must claim the segment.
+		winner string
+	}{
+		{
+			name:   "bash mode beats the buffer",
+			mut:    func(s *State) { s.BashMode = true; s.BufferEmpty = false },
+			want:   " activated bash mode · esc to cancel",
+			winner: "bash-mode",
+		},
+		{
+			name:   "bash mode beats queued",
+			mut:    func(s *State) { s.BashMode = true; s.Queued = 2 },
+			want:   " activated bash mode · esc to cancel",
+			winner: "bash-mode",
+		},
+		{
+			name:   "the buffer beats queued",
+			mut:    func(s *State) { s.BufferEmpty = false; s.Queued = 2 },
+			want:   "",
+			winner: "composer-has-text",
+		},
+		{
+			name:   "the buffer beats streaming",
+			mut:    func(s *State) { s.BufferEmpty = false; s.Streaming = true },
+			want:   "",
+			winner: "composer-has-text",
+		},
+		{
+			name:   "queued beats streaming",
+			mut:    func(s *State) { s.Queued = 2; s.Streaming = true },
+			want:   "  Press up to edit queued messages",
+			winner: "queued-prompts",
+		},
+		{
+			// Both rules say the same thing, so the text alone cannot
+			// tell them apart — the winner can. The picker owns the
+			// segment even while the turn streams, which is why its
+			// empty /model answer is not overridden by streaming either.
+			name:   "the picker beats streaming",
+			mut:    func(s *State) { s.Streaming = true; s.PickerVisible = true },
+			want:   "esc to cancel",
+			winner: "picker",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := base()
+			tc.mut(&s)
+			if got := leftHint(s); got != tc.want {
+				t.Errorf("leftHint = %q, want %q", got, tc.want)
+			}
+			if got := winningRule(s); got != tc.winner {
+				t.Errorf("rule %q claimed the segment, want %q", got, tc.winner)
+			}
+		})
+	}
+}
+
+// TestLeftHint_MatchesTheOldCascade — the rule table answers exactly what the
+// assignment cascade it replaced answered, over every reachable combination.
+//
+// The refactor changed the mechanism (last match wins -> first match wins) and
+// therefore reversed the precedence list. That is easy to get subtly wrong —
+// the first attempt at this table did, letting a broad "picker" rule answer
+// before the /model popup's empty one. Eight booleans is small enough to
+// enumerate exhaustively, so this does, rather than sampling.
+func TestLeftHint_MatchesTheOldCascade(t *testing.T) {
+	for mask := 0; mask < 1<<8; mask++ {
+		bit := func(i int) bool { return mask&(1<<i) != 0 }
+		s := base()
+		s.PickerVisible = bit(0)
+		s.PickerModelMode = bit(1)
+		s.Streaming = bit(2)
+		s.BufferEmpty = bit(3)
+		s.ResumePickerActive = bit(4)
+		s.BashMode = bit(5)
+		s.HelpActive = bit(6)
+		if bit(7) {
+			s.Queued = 2
+		}
+		if got, want := leftHint(s), hintCascade(s); got != want {
+			t.Errorf("mask %d: leftHint = %q, the cascade said %q (state: picker=%v model=%v streaming=%v empty=%v resume=%v bash=%v help=%v queued=%d)",
+				mask, got, want,
+				s.PickerVisible, s.PickerModelMode, s.Streaming, s.BufferEmpty,
+				s.ResumePickerActive, s.BashMode, s.HelpActive, s.Queued)
+		}
+	}
+}
+
+// hintCascade is the assignment cascade the rule table replaced, kept here as
+// the equivalence oracle.
+//
+// It is the original implementation verbatim, and it stays because the
+// refactor's whole claim is "same answers". A future rule-table change that
+// alters an answer has to either keep this oracle agreeing or say why not.
+func hintCascade(s State) string {
+	leftPlain := hintDefault
+
+	if s.PickerVisible {
+		leftPlain = "esc to cancel"
+		if s.PickerModelMode {
+			leftPlain = ""
+		}
+	}
+	if s.Streaming && !s.PickerVisible && leftPlain != "" {
+		leftPlain = "esc to cancel"
+	}
+	if s.Queued > 0 && !s.PickerVisible {
+		leftPlain = "  Press up to edit queued messages"
+	}
+	if (!s.BufferEmpty || s.ResumePickerActive) && !s.PickerVisible {
+		leftPlain = ""
+	}
+	if s.BashMode && !s.PickerVisible && !s.HelpActive {
+		leftPlain = " activated bash mode · esc to cancel"
+	}
+	return leftPlain
+}
+
+// winningRule returns the name of the rule that claims the segment, or "" for
+// the default.
+func winningRule(s State) string {
+	for _, r := range hintRules {
+		if r.when(s) {
+			return r.name
+		}
+	}
+	return ""
+}
+
+// TestHintRules_AreWellFormed — every rule is complete and the names are
+// unique.
+//
+// The rule name is what a failure reports, so a missing name or a duplicate
+// would make two different bugs read the same.
+func TestHintRules_AreWellFormed(t *testing.T) {
+	seen := map[string]int{}
+	for i, r := range hintRules {
+		if r.name == "" {
+			t.Errorf("rule %d has no name", i)
+		}
+		if prev, dup := seen[r.name]; dup {
+			t.Errorf("rule %d repeats the name %q from rule %d", i, r.name, prev)
+		}
+		seen[r.name] = i
+		if r.when == nil {
+			t.Errorf("rule %q has no condition, so it would match everything", r.name)
+		}
+		if r.text == nil {
+			t.Errorf("rule %q has no text, so it would panic when it matches", r.name)
+		}
+	}
+	// The default must not be a rule: a rule would claim the segment and
+	// the chain's fallback would become dead.
+	for _, r := range hintRules {
+		if r.when(base()) {
+			t.Errorf("rule %q matches the idle state, so hintDefault is unreachable", r.name)
+		}
 	}
 }
 
@@ -266,18 +441,181 @@ func TestRightSegment_Model(t *testing.T) {
 	}
 }
 
-// TestRightSegment_Mode — the mode is painted in the mode's colour and
-// counted on its own for the padding.
+// TestRightSegment_Mode — a mode that carries a prefix is painted in the
+// mode's colour and counted on its own for the padding.
+//
+// The cycle and which modes carry a prefix are pinned live by tuialign
+// scene 49_mode_cycle_order; this test covers the drawing given a mode.
 func TestRightSegment_Mode(t *testing.T) {
+	s := base()
+	s.Mode = "plan"
+	right := rightSegment(s)
+	if right.modePlain != "plan · " {
+		t.Errorf("modePlain = %q, want %q", right.modePlain, "plan · ")
+	}
+	if !strings.Contains(plain(right.styled), "plan · Gemini 3.8 Flash") {
+		t.Errorf("right = %q, want the mode in front of the model", plain(right.styled))
+	}
+
+	// The mode word takes the mode's colour; the separator after it goes
+	// back to the dim foreground.
+	if !strings.Contains(right.styled, palette.StatusModeColor("plan")+"plan"+palette.StatusModeClose("plan")+" · ") {
+		t.Errorf("right = %q, want the mode in its own colour and the separator dim", right.styled)
+	}
+}
+
+// TestRightSegment_AutoHasPrefix — auto names itself on the status row.
+//
+// This diverges from agy 1.5.18, which paints nothing for auto. A cycle stop
+// that renders identically to a dropped row is unusable: plan -> auto ->
+// accept-edits has no way to tell the middle stop landed. auto takes the dim
+// foreground so it reads as the baseline rather than competing with plan's
+// accent and accept-edits' green.
+func TestRightSegment_AutoHasPrefix(t *testing.T) {
 	s := base()
 	s.Mode = "auto"
 	right := rightSegment(s)
 	if right.modePlain != "auto · " {
 		t.Errorf("modePlain = %q, want %q", right.modePlain, "auto · ")
 	}
-	if !strings.Contains(plain(right.styled), "auto · Gemini 3.8 Flash") {
+	if plain(right.styled) != "auto · Gemini 3.8 Flash" {
 		t.Errorf("right = %q, want the mode in front of the model", plain(right.styled))
 	}
+	if !strings.HasPrefix(right.styled, palette.DimGrayBoldOpen) {
+		t.Errorf("right = %q, want auto painted with the dim foreground", right.styled)
+	}
+}
+
+// TestRender_ModelStylingIndependentOfMode — changing the mode must not
+// restyle the model.
+//
+// The bug this pins: `auto` paints its word with the dim foreground *and*
+// bold, and the mode's close was a colour-only escape (DimGrayOpen), which
+// leaves the intensity alone. Under auto the bold therefore ran on through
+// the " · " and the model, so the model read bold in auto and plain in plan
+// and accept-edits — switching mode appeared to change the model's font
+// weight, though the model never moved. The row also ended with the terminal
+// still bold, which bled into whatever was drawn after it.
+//
+// The assertion walks the SGR escapes and compares the *state* in effect at
+// the model's first character, which is the only place the difference shows.
+func TestRender_ModelStylingIndependentOfMode(t *testing.T) {
+	model := "Gemini 3.8 Flash"
+	states := map[string]string{}
+	for _, mode := range []string{"", "auto", "plan", "accept-edits"} {
+		s := base()
+		s.Mode = mode
+		states[mode] = sgrStateAt(Render(s), model)
+	}
+
+	want := states[""]
+	for _, mode := range []string{"auto", "plan", "accept-edits"} {
+		if states[mode] != want {
+			t.Errorf("mode %q renders the model as [%s], but no mode renders it as [%s]; switching mode must not restyle the model",
+				mode, states[mode], want)
+		}
+	}
+}
+
+// TestRender_RowEndsWithoutAttributes — the row must not leave an SGR
+// attribute on for whatever the terminal draws next.
+//
+// The status row is the last thing on the screen, so a bold or a colour it
+// leaves open bleeds into the shell prompt after exit.
+func TestRender_RowEndsWithoutAttributes(t *testing.T) {
+	for _, mode := range []string{"", "auto", "plan", "accept-edits"} {
+		s := base()
+		s.Mode = mode
+		if got := sgrStateAtEnd(Render(s)); got != "" {
+			t.Errorf("mode %q leaves [%s] set at the end of the row, want nothing", mode, got)
+		}
+	}
+}
+
+// sgrStateAt returns the SGR attributes in effect at the first rune of
+// needle, as a canonical string.
+func sgrStateAt(s, needle string) string {
+	idx := strings.Index(s, needle)
+	if idx < 0 {
+		return "<needle absent>"
+	}
+	return sgrState(s[:idx])
+}
+
+// sgrStateAtEnd returns the SGR attributes in effect after the last rune.
+func sgrStateAtEnd(s string) string { return sgrState(s) }
+
+// sgrState replays the SGR escapes in s and returns the attributes left set.
+//
+// It understands the codes the status row emits: bold, faint, italic,
+// underline, the resets 0 / 22 / 23 / 24, the default foreground 39 and the
+// two foreground forms (38;2;r;g;b and 38;5;n).
+func sgrState(s string) string {
+	var (
+		fg                  string
+		bold, faint, italic bool
+		under               bool
+	)
+	for i := 0; i < len(s); i++ {
+		if s[i] != 0x1b || i+1 >= len(s) || s[i+1] != '[' {
+			continue
+		}
+		j := i + 2
+		start := j
+		for j < len(s) && s[j] != 'm' {
+			j++
+		}
+		if j >= len(s) {
+			break
+		}
+		params := strings.Split(s[start:j], ";")
+		i = j
+		for k := 0; k < len(params); k++ {
+			n, err := strconv.Atoi(params[k])
+			if err != nil {
+				continue
+			}
+			switch {
+			case n == 0:
+				fg, bold, faint, italic, under = "", false, false, false, false
+			case n == 1:
+				bold = true
+			case n == 2:
+				faint = true
+			case n == 3:
+				italic = true
+			case n == 4:
+				under = true
+			case n == 22:
+				bold, faint = false, false
+			case n == 23:
+				italic = false
+			case n == 24:
+				under = false
+			case n == 39:
+				fg = ""
+			case n == 38 && k+1 < len(params) && params[k+1] == "2" && k+4 < len(params):
+				fg = "rgb(" + strings.Join(params[k+2:k+5], ",") + ")"
+				k += 4
+			case n == 38 && k+1 < len(params) && params[k+1] == "5" && k+2 < len(params):
+				fg = "ansi(" + params[k+2] + ")"
+				k += 2
+			}
+		}
+	}
+	var parts []string
+	if fg != "" {
+		parts = append(parts, "fg="+fg)
+	}
+	for _, a := range []struct {
+		name string
+		on   bool
+	}{{"bold", bold}, {"faint", faint}, {"italic", italic}, {"underline", under}} {
+		if a.on {
+			parts = append(parts, a.name)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // TestRightSegment_Agent — the --agent's name wraps the model.

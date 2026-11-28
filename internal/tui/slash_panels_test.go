@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -124,6 +125,13 @@ func mkPanel(kind panelregistry.Kind, cmd string, cursor int) *RootModel {
 	}
 	if kind == panelregistry.Projects {
 		m.overlays.panel.proj = m.newProjectsPanel()
+	}
+	// The /artifact picker owns its own cursor, the preview toggle and the
+	// detail viewer, so the panel is built with the host's seams and the
+	// cursor is handed to it.
+	if kind == panelregistry.Artifact {
+		m.overlays.panel.art = m.newArtifactPanel()
+		m.overlays.panel.art.SetCursor(cursor)
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
@@ -402,10 +410,13 @@ func TestRewindExitNotice(t *testing.T) {
 	}
 }
 
-// TestPanelContextRendersThroughPackage — the host's /context panel
-// renders the rows the contextpanel package owns: the host gathers the
-// session's facts and the package draws them. The layout itself is
-// pinned by the package's own tests; this test pins the wiring.
+// TestPanelContextRendersThroughPackage pins that /context is the
+// reference's own single view, byte for byte.
+//
+// The panel is a usage breakdown and the reference draws it inline with no
+// tab bar. The clone briefly gave it tabs for two extra views; those moved
+// to /logs, where a full-viewport diagnostics surface belongs, so the bar
+// is gone and this panel's rows are the package's rows with nothing added.
 func TestPanelContextRendersThroughPackage(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
 	m.session.model = "Gemini 3.8 Flash (High)"
@@ -417,8 +428,16 @@ func TestPanelContextRendersThroughPackage(t *testing.T) {
 	}
 	assertLines(t, got, want)
 	if len(got) == 0 || got[0] != "└ Context Usage" {
-		t.Fatalf("row 0 = %q, want the title", got)
+		t.Fatalf("row 0 = %q, want the reference's title with no tab bar above it", firstOr(got))
 	}
+}
+
+// firstOr returns the first row, or "" for an empty frame.
+func firstOr(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
 }
 
 // /context closes silently on Esc.
@@ -672,29 +691,27 @@ func TestPanelChangelogLayout(t *testing.T) {
 		t.Errorf("title = %q", plain[0])
 	}
 	// Tagline + bullets + counter; assert at least the headline
-	// version "1.4.1" and the line counter survive (SGR-stripped).
+	// version and the line counter survive (SGR-stripped).
 	// Cycle 207 added the blank row REF shows between the title and the
 	// tagline, so the window opens at 18 rows rather than the cycle-201 17.
 	//
 	// The embedded changelog_reference.txt is a verbatim `agy changelog`
-	// capture. Re-captured against the 1.4.10 binary on 2026-10-29, the
-	// feed's newest section is 1.4.9 — the 1.4.10 release notes are in the
-	// public repository but the served feed does not carry them yet — so
-	// the panel opens on 1.4.9.
+	// capture, so the version the panel opens on moves with every reference
+	// bump (1.4.9 → … → 1.5.17 at 1.5.18). Asserting a *specific* version
+	// here means this test has to be edited on every bump, and a test that
+	// gets edited on every bump stops being read. The shape is what matters:
+	// a "## <version>" heading, at least one "•" bullet, and the counter.
 	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	total := spec.Total
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "## 1.4.11") && !strings.Contains(joined, "## 1.") {
-		t.Errorf("missing version heading: %s", joined)
+	if !regexp.MustCompile(`(?m)^\s*## \d+\.\d+\.\d+`).MatchString(joined) {
+		t.Errorf("missing a version heading: %s", joined)
 	}
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", total)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Added /thinking") &&
-		!strings.Contains(joined, "Added Gemini 4 Neon") &&
-		!strings.Contains(joined, "Added split view to the Remote Control browser view") &&
-		!strings.Contains(joined, "Added accept-edits mode to --remote-agent sessions") {
-		t.Errorf("missing opening bullet: %s", joined)
+	if !strings.Contains(joined, "•") {
+		t.Errorf("missing the opening bullet row: %s", joined)
 	}
 	last := termcolor.StripSGR(plain[len(plain)-1])
 	if !strings.Contains(last, "Navigate") {
@@ -2831,13 +2848,14 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Added /thinking") &&
-		!strings.Contains(text, "Added Gemini 4 Neon") &&
-		!strings.Contains(text, "Added split view to the Remote Control browser view") &&
-		!strings.Contains(text, "Added accept-edits mode to --remote-agent sessions") {
-		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
+	// Structural, not a specific bullet: the fixture is a verbatim
+	// `agy changelog` capture, so its newest section moves with every
+	// reference bump. Asserting "one of four historical bullets appears"
+	// made this test fail on each bump without anything being broken.
+	if !regexp.MustCompile(`(?m)^\s*•`).MatchString(text) {
+		t.Errorf("viewer missing a bullet row:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(text, "## 1.4.11") && !strings.Contains(text, "## 1.") {
+	if !regexp.MustCompile(`(?m)^\s*## \d+\.\d+\.\d+`).MatchString(text) {
 		t.Errorf("viewer missing the version header row:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n"), "## 1.4.3") {
@@ -3685,8 +3703,9 @@ func TestConfigSearchKeyHandling(t *testing.T) {
 	}
 }
 
-// TestColorSchemeLiveThemeUpdate pins the host's seam: the panel asks
-// the host to repaint, and the host's live theme follows.
+// TestColorSchemeLiveThemeUpdate pins the host's seam on a commit: ←/→
+// cycles the row, the host repaints and the theme persists. A move inside
+// the submenu is not a commit and must not repaint anything.
 func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 	origScheme, _ := palette.CurrentScheme()
 	cycle196TestHome(t, map[string]any{"colorScheme": "terminal"})
@@ -3708,28 +3727,23 @@ func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 		t.Fatal("expected the submenu to be open")
 	}
 
-	// 2. Move down to "light" (index 1).
+	// 2. Walking the values previews the card and nothing else.
 	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
-	if mdrender.CurrentColorScheme() != "light" {
-		t.Fatalf("expected the mdrender live theme 'light', got %q", mdrender.CurrentColorScheme())
+	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
+	if mdrender.CurrentColorScheme() != "terminal" {
+		t.Fatalf("a move inside the submenu repainted globally: %q", mdrender.CurrentColorScheme())
 	}
 
-	// 3. Move down to "solarized light" (index 2).
-	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
-	if mdrender.CurrentColorScheme() != "solarized light" {
-		t.Fatalf("expected the mdrender live theme 'solarized light', got %q", mdrender.CurrentColorScheme())
-	}
-
-	// 4. Cancel with Esc: the original theme comes back.
+	// 3. Cancel with Esc.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
 	if m.overlays.panel.cfg.SubmenuOpen() {
 		t.Fatal("expected the submenu to be closed")
 	}
 	if mdrender.CurrentColorScheme() != "terminal" {
-		t.Fatalf("expected the mdrender live theme reverted to 'terminal', got %q", mdrender.CurrentColorScheme())
+		t.Fatalf("expected the mdrender live theme still 'terminal', got %q", mdrender.CurrentColorScheme())
 	}
 
-	// 5. ←/→ on the main list cycles live and persists.
+	// 4. ←/→ on the main list cycles live and persists.
 	handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyRight})
 	if !handled || cmd == nil {
 		t.Fatalf("expected KeyRight to return handled=true and a clear-screen command")

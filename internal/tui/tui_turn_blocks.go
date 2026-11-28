@@ -12,7 +12,6 @@ import (
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/core/backend"
-	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -215,34 +214,6 @@ func (m *RootModel) rerenderLiveSteps() {
 		m.viewport.rowsCacheDirty = true
 	}
 	m.applyTranscriptDocument(doc)
-}
-
-// appendCompactResult renders the completion of a PiG-driven
-// compaction. The reference (agy 1.4.5) draws a centred
-// "Conversation compacted" rule plus a centred stats line instead of a
-// transcript bullet; the same two rows are used here.
-//
-// PiG's end event only carries the token counts, so the stats line
-// omits the step count and the summary size the reference reports
-// (both are passed as "absent"). See
-// docs/cycles/auto-compact-parity/captures.md.
-func (m *RootModel) appendCompactResult(msg compactDoneMsg) {
-	if msg.Err != nil {
-		m.conversation.response = append(m.conversation.response,
-			uirows.NoticeCompact("Compact failed: "+msg.Err.Error()),
-			"",
-		)
-		return
-	}
-	stats := compaction.StatsRow(m.viewport.width, 0, msg.TokensBefore, msg.TokensAfter, -1, -1)
-	if msg.Aborted {
-		stats += " (aborted)"
-	}
-	m.conversation.response = append(m.conversation.response,
-		compaction.DividerRow(m.viewport.width),
-		stats,
-		"",
-	)
 }
 
 var separator = palette.Rule(separatorWidth)

@@ -901,6 +901,12 @@ func formatFailoverNotice(ev failover.Event) string {
 }
 
 // emitCheckpointEvent maps a checkpoint progress event to a Compact frame.
+//
+// It maps and nothing else. The compaction history is recorded where the
+// frame is consumed (tui's turnCollector), not here: a local turn reaches
+// that consumer through this frame, and a remote backend reaches it with a
+// frame of its own and no checkpoint policy behind it. Recording here as
+// well put one compaction in the history twice for every local turn.
 func emitCheckpointEvent(emit func(agentlink.Frame) bool, ev checkpoint.Event) {
 	if emit == nil {
 		return

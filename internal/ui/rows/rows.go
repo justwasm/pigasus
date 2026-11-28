@@ -34,7 +34,9 @@
 package rows
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/justwasm/pigasus/palette"
 )
@@ -54,6 +56,50 @@ const (
 func NoticeCompact(text string) string {
 	return palette.WarningBlueOpen + noticeGlyph + "  " + palette.WarningBlueClose +
 		palette.SubtleOpen + text + subtleClose
+}
+
+// CompactingLine renders the in-progress compaction row: the Braille
+// spinner, the phrase, the elapsed clock and the cancel hint.
+//
+//	⣾  Compacting conversation… (10s · esc to cancel)
+//
+// It is the *only* place a running compaction is drawn: the reference puts
+// this row where "Generating…" and "Working…" appear, inside the
+// conversation, and puts nothing in the status row. A compaction shown in
+// both places would read as two compactions.
+//
+// wantsTokens is the "before → after" pair the reference prints once the
+// summary has reported its sizes; it is empty while the summary is still
+// running, because there is no "after" to name yet.
+func CompactingLine(frame string, elapsed time.Duration, cancellable bool) string {
+	text := "Compacting conversation\u2026 (" + compactElapsed(elapsed)
+	if cancellable {
+		text += " \u00b7 esc to cancel"
+	}
+	text += ")"
+	return compactSpinnerSpan(frame) + palette.SubtleOpen + text + subtleClose
+}
+
+// compactElapsed renders the compaction clock the way the reference's own
+// labels do: whole seconds, and minutes past a minute.
+func compactElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	secs := int(d.Seconds())
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	return fmt.Sprintf("%dm %02ds", secs/60, secs%60)
+}
+
+// compactSpinnerSpan renders the spinner glyph in the row's own dim grey,
+// the way the status row draws it.
+func compactSpinnerSpan(frame string) string {
+	if frame == "" {
+		frame = "\u28be"
+	}
+	return palette.DimGrayOpen + frame + "  " + palette.DimGrayClose
 }
 
 // NoticeIndented renders the indented notice row: the bold-blue

@@ -326,7 +326,7 @@ func LiveRowsWithPreambleAndCheckpoint(model string, used, free, contextMax int,
 	}
 	for _, c := range cats {
 		rows = append(rows, Row{
-			Text: fmt.Sprintf("%s %s: %s tokens %s", c.Marker, c.Label, TokenLabel(c.Tokens), Pct(c.Tokens, contextMax)),
+			Text: fmt.Sprintf("%s %s: %s%s tokens %s", c.Marker, c.Label, estimateMarkOpen(c), TokenLabel(c.Tokens), Pct(c.Tokens, contextMax)),
 			Pad:  5,
 		})
 	}
@@ -344,6 +344,21 @@ func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Cate
 		preamble = "Estimated after compaction · updates next turn"
 	}
 	return LiveRowsWithPreamble(model, used, free, contextMax, cats, preamble)
+}
+
+// estimateMarkOpen marks a row whose count is a built-in figure rather than a
+// measurement.
+//
+// The mark is an SGR span, not a character: the reference's capture pins this
+// panel's layout byte for byte (see the rows' own captures), so inserting a
+// "~" would put this row one column out of step with agy and shift every cell
+// after it. A dimmed count reads as "not a hard number" without moving
+// anything, and an unestimated row emits nothing at all.
+func estimateMarkOpen(c Category) string {
+	if c.Estimated {
+		return palette.SubtleOpen
+	}
+	return ""
 }
 
 // CheckpointRow is the checkpoint-buffer row.

@@ -12,6 +12,17 @@ type Compaction struct {
 	CompactStepsSummarized int
 	CompactReason          string
 	CompactJustHappened    bool
+
+	// CompactLiveInTranscript says the running compaction draws its live
+	// row inside the conversation instead of the status row.
+	//
+	// A manual /compact owns a conversation row: the reference puts
+	// "Compacting conversation…" where "Generating…" appears. The automatic
+	// checkpoint has no such row — it runs inside a turn whose own spinner
+	// already owns the live line — so it keeps the status row.
+	//
+	// One compaction, one place: when this is set the status row stays out.
+	CompactLiveInTranscript bool
 }
 
 // ResetCompaction clears compaction telemetry.
@@ -24,6 +35,7 @@ func (s *Store) ResetCompaction() {
 	s.CompactStepsSummarized = 0
 	s.CompactReason = ""
 	s.CompactJustHappened = false
+	s.CompactLiveInTranscript = false
 }
 
 // ClearCompactStatusNotice clears only the transient status row notice telemetry.

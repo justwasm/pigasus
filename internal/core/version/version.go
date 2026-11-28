@@ -39,17 +39,17 @@ package version
 // behavioural pin the remaining parity surfaces were re-evidenced
 // against.
 //
-// The installed binary now prints 1.5.17, and the recovered artifacts
-// under out/extracted-1.5.17/ were re-extracted from exactly that
+// The installed binary now prints 1.5.18, and the recovered artifacts
+// under out/extracted-1.5.18/ were re-extracted from exactly that
 // release (seeds, //go:embed tree, web ZIP, descriptor protos, and the
 // changelog feed).
 //
-// The 1.5.16 → 1.5.17 delta is recorded in scratch/re/1.5.17-delta.md.
-// The bump is an evidence update, not a behavioural claim: the embedded
-// changelog feed is byte-identical to 1.5.16, the proto additions
-// (RunCommandToolConfig.env, PolicyGuardian scan modes and coverage
-// areas, MemoryConfig/AgentPluginConfig) and the six new
-// RemoteAgentProxy RPCs are catalogued there but not implemented here.
-// No live parity was performed — the reference account is suspended, so
-// the binary could be extracted but not driven.
-const Reference = "1.5.17"
+// The 1.5.17 → 1.5.18 delta is recorded in docs/guide/reference-drift.md
+// ("The 1.5.17 → 1.5.18 delta"). The bump is an evidence update, not a
+// behavioural claim: the embedded feed moved this time (it is fetched,
+// not embedded — see changelog_data_test.go), remote_agent_proxy gained
+// the conversation-sidecar and MCP-app RPCs, and the language server
+// gained List/SetAgentWorkspacePermissions. None of those are implemented
+// here. No live parity was performed — the reference account is
+// suspended, so the binary could be extracted but not driven.
+const Reference = "1.5.18"

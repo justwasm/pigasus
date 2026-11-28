@@ -46,9 +46,15 @@ var commandPanels = map[string]Kind{
 	"pool": Accounts,
 	// /terminal opens the interactive virtual terminal panel.
 	"terminal": Terminal,
-	// /logs opens the live-updating session log viewer panel.
-	"logs": Logs,
-	"log":  Logs,
+	// /debug opens the live-updating diagnostics surface. Its first view
+	// is the session log file, which is what the command used to be
+	// called; the surface has since grown the Wire, Trajectory, Requests
+	// and Context views, so the name follows the use.
+	"debug": Debug,
+	// /logs is the command's old name, kept as an alias: it is what every
+	// muscle memory and every document in the tree reaches for.
+	"logs": Debug,
+	"log":  Debug,
 }
 
 // CommandPanel returns the panel a slash command opens.

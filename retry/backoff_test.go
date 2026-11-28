@@ -191,10 +191,10 @@ func TestCapAppliesToEveryRetryPath(t *testing.T) {
 // says was lowered.
 //
 // The "no test accidentally depends on" framing matters because the
-// retry package is consumed by tests in cmd/wagyu and internal/pigrt
-// that time the actual sleep; a single misnamed constant (e.g.
-// 240s where 30s was meant) would silently double the test wall-clock
-// time without flagging the regression. This test catches that.
+// retry package is consumed by tests that time the actual sleep; a
+// single misnamed constant (e.g. 240s where 30s was meant) would
+// silently double the test wall-clock time without flagging the
+// regression. This test catches that.
 func TestNoTestAccidentallyDependsOnFourMinuteCap(t *testing.T) {
 	const preCap = 4 * time.Minute
 	checks := []struct {

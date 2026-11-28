@@ -8,7 +8,8 @@
 // # Where the strings come from
 //
 // The notice is not invented here: it is the reference's own copy, recovered
-// from the 1.5.17 web bundle (out/extracted-1.5.17/web-assets/main.js), which
+// from the 1.5.17 web bundle (still present verbatim in the 1.5.18 bundle at
+// out/extracted-1.5.18/web-assets/main.js), which
 // renders it as a non-dismissible warning:
 //
 //	case "prepaidBalanceExhausted": return {

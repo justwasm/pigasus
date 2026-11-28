@@ -13,7 +13,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/session/slashactions"
-	"github.com/justwasm/pigasus/internal/app/subagent/builtin"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
@@ -34,10 +33,9 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/keybindings"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/rows"
-	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/hostactions"
-	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
@@ -211,6 +209,7 @@ func init() {
 		"wire":             (*RootModel).slashWire,
 		"persona":          (*RootModel).slashPersona,
 		"skin":             (*RootModel).slashSkin,
+		"yolo":             (*RootModel).slashYolo,
 	}
 }
 
@@ -251,8 +250,8 @@ func (m *RootModel) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *RootModel) StartManualCompact(instructions string) {
-	m.startManualCompact(instructions)
+func (m *RootModel) StartManualCompact(instructions string) tea.Cmd {
+	return m.startManualCompact(instructions)
 }
 
 func (m *RootModel) HostActionSeams() hostactions.Seams {
@@ -371,11 +370,11 @@ func (m *RootModel) ResumeConversationByID(target string) error {
 	return nil
 }
 
-// ShowLogs opens the full-viewport, live-updating /logs viewer panel without
+// ShowDebug opens the full-viewport, live-updating /logs viewer panel without
 // appending anything to the conversation transcript.
-func (m *RootModel) ShowLogs(args string) tea.Cmd {
+func (m *RootModel) ShowDebug(args string) tea.Cmd {
 	if m.openSlashPanel("logs") {
-		return logspanel.Tick()
+		return debugpanel.Tick()
 	}
 	return nil
 }
@@ -450,114 +449,33 @@ func (m *RootModel) sendAsPrompt(token, prompt string) tea.Cmd {
 	return tea.Batch(m.streamPrompt(prompt), tickCmd)
 }
 
-func boostPrompt() string {
-	return fmt.Sprintf("<ORCHESTRATOR>\n%s\n</ORCHESTRATOR>", builtin.OrchestratorPrompt())
-}
-
-func (m *RootModel) handleChainedSlashCommands(cmds []string, task string) (bool, tea.Cmd) {
-	if len(cmds) == 0 {
-		return false, nil
-	}
-
-	var hasBoost, hasPlan, hasGoal, hasLearn, hasGrillMe, hasTeamwork bool
-	var skillPrompts []string
-
-	for _, c := range cmds {
-		name := c
-		if canonical, ok := slashcommands.Canonical(c); ok {
-			name = canonical
-		}
-		switch name {
-		case "boost":
-			hasBoost = true
-		case "plan":
-			hasPlan = true
-		case "goal":
-			hasGoal = true
-		case "learn":
-			hasLearn = true
-		case "grill-me":
-			hasGrillMe = true
-		case "teamwork-preview", "teamwork":
-			hasTeamwork = true
-		default:
-			if prompt, ok := m.LookupSkillPrompt(c, task); ok {
-				skillPrompts = append(skillPrompts, prompt)
-			} else {
-				return false, nil
-			}
-		}
-	}
-
-	// 1. Compose state modifiers
-	if hasPlan {
-		m.session.mode = permissions.ModePlan
-		if m.session.policy != nil {
-			m.session.policy.Mode = permissions.ModePlan
-		}
-		m.prompt.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
-		m.prompt.modeHintDismissed = false
-	}
-
-	if hasGoal {
-		if m.session.activeGoal != nil && m.session.activeGoal.IsActive() {
-			m.session.activeGoal.State = convstore.GoalStateCancelled
-		}
-		goalText := task
-		if goalText == "" {
-			goalText = "Help me set a clear goal for this session"
-		}
-		m.session.activeGoal = convstore.NewGoalState(goalText, m.session.messageCount())
-	}
-
-	// 2. Compose prompts
-	var parts []string
-	if task != "" {
-		parts = append(parts, task)
-	}
-	if hasPlan {
-		parts = append(parts, slashactions.PlanPrompt())
-	}
-	if hasGoal {
-		parts = append(parts, slashactions.GoalPrompt())
-	}
-	if hasLearn {
-		parts = append(parts, slashactions.LearnPrompt())
-	}
-	if hasGrillMe {
-		parts = append(parts, slashactions.GrillMePrompt())
-	}
-	if hasTeamwork {
-		parts = append(parts, slashactions.TeamworkPrompt())
-	}
-	for _, sp := range skillPrompts {
-		parts = append(parts, sp)
-	}
-
-	inner := strings.Join(parts, "\n\n")
-
-	var finalPrompt string
-	if hasBoost {
-		if inner != "" {
-			finalPrompt = fmt.Sprintf("%s\n\n#### Current Task to Execute\n\n**Task**: %s", boostPrompt(), inner)
-		} else {
-			finalPrompt = boostPrompt()
-		}
-	} else {
-		finalPrompt = inner
-	}
-
-	// 3. Display echo: > /boost /plan /goal <task>
-	var tokenParts []string
-	for _, c := range cmds {
-		tokenParts = append(tokenParts, "/"+c)
-	}
-	token := strings.Join(tokenParts, " ")
-	if task != "" {
-		token += " " + task
-	}
-
-	return true, m.sendAsPrompt(token, finalPrompt)
+// sendAsMention answers a prompt-sending slash command the way the reference
+// does: the user turn is the command text verbatim and the instruction is an
+// @-mention expansion inside <ADDITIONAL_METADATA>.
+//
+// token is what the echo prints and what the transcript row shows; raw is the
+// turn text (token plus any argument the user typed); body is the expansion
+// text, wrapper tags included exactly as the reference ships them (the
+// captures show <LEARN>…</LEARN>, <GRILL_ME>…</GRILL_ME>, and a bare body for
+// /goal).
+func (m *RootModel) sendAsMention(token, raw, body string) tea.Cmd {
+	m.pushHistory(token)
+	m.prompt.input.Reset()
+	m.conversation.streaming = true
+	m.prompt.promptHistory.Reset()
+	m.conversation.response = append(m.conversation.response, "> "+token)
+	m.conversation.liveStart = len(m.conversation.response)
+	m.conversation.liveSteps = nil
+	m.conversation.activeTool = ""
+	m.conversation.thinking = false
+	m.prompt.picker.Reset()
+	m.appendUserTurnWithMentions(raw, []backend.Mention{{
+		Name: token,
+		Kind: backend.MentionKindSlashCommand,
+		Body: body,
+	}})
+	tickCmd := func() tea.Msg { return m.conversation.spinner.Tick() }
+	return tea.Batch(m.streamPrompt(raw), tickCmd)
 }
 
 func (m *RootModel) slashPlan(args string) (bool, tea.Cmd) {
@@ -576,11 +494,20 @@ func (m *RootModel) slashPlan(args string) (bool, tea.Cmd) {
 	m.prompt.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
 	m.prompt.modeHintDismissed = false
 
-	prompt := slashactions.PlanPrompt()
+	// /plan is an agent mode, not a prompt-sending command. The reference
+	// sets the mode and sends the turn verbatim — the command text plus
+	// whatever the user typed — and never sends the <PLAN> instruction:
+	// twenty live 1.5.18 captures across the TUI, `--mode plan` and `-p`
+	// contain zero occurrences of it, and /plan is absent from the
+	// reference's own picker (typing it bare answers "Unknown command").
+	// The <PLAN> literal exists in the binary (slashcmd.PlanPrompt) but
+	// nothing on this path reaches it, so prepending it here would send the
+	// model a block the reference never sends.
+	raw := "/plan"
 	if trimmed != "" {
-		prompt = trimmed + "\n\n" + prompt
+		raw = "/plan " + trimmed
 	}
-	return true, m.sendAsPrompt("/plan", prompt)
+	return true, m.sendAsPrompt("/plan", raw)
 }
 
 func (m *RootModel) slashGoal(args string) (bool, tea.Cmd) {
@@ -596,16 +523,29 @@ func (m *RootModel) slashGoal(args string) (bool, tea.Cmd) {
 		m.session.activeGoal.State = convstore.GoalStateCancelled
 	}
 	goalText := trimmed
-	prompt := slashactions.GoalPrompt()
-	if trimmed != "" {
-		prompt = trimmed + "\n\n" + prompt
-	} else {
+	if goalText == "" {
 		goalText = "Help me set a clear goal for this session"
 	}
 	m.session.activeGoal = convstore.NewGoalState(goalText, m.session.messageCount())
-	return true, m.sendAsPrompt("/goal", prompt)
+	// The reference expands /goal as a mention like the others, but ships
+	// its body bare — no wrapper tag. Captured: `/goal ship the release`
+	// produces the turn verbatim plus the 535 B body as an expansion.
+	raw := "/goal"
+	if trimmed != "" {
+		raw = "/goal " + trimmed
+	}
+	return true, m.sendAsMention("/goal", raw, slashactions.GoalPrompt())
 }
 
+// slashLearn answers /learn, and /learn <text>.
+//
+// The argument handling matches the other prompt-sending commands (/goal,
+// /plan, /teamwork-preview): the text the user typed after the command is
+// prepended to the instruction with a blank line between them, so the model
+// sees the user's own words before the standing procedure. /learn used to
+// drop it — `slashLearn` took `args` and never read it — which meant the one
+// thing /learn exists to capture (what just went wrong, in the user's words)
+// was the one thing it threw away.
 func (m *RootModel) slashLearn(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "/") {
@@ -614,7 +554,11 @@ func (m *RootModel) slashLearn(args string) (bool, tea.Cmd) {
 			return m.handleChainedSlashCommands(cmds, task)
 		}
 	}
-	return true, m.sendAsPrompt("/learn", slashactions.LearnPrompt())
+	raw := "/learn"
+	if trimmed != "" {
+		raw = "/learn " + trimmed
+	}
+	return true, m.sendAsMention("/learn", raw, "<LEARN>\n"+slashactions.LearnPrompt()+"</LEARN>")
 }
 
 // slashTeamwork answers /teamwork-preview (and its /teamwork alias).
@@ -632,11 +576,18 @@ func (m *RootModel) slashTeamwork(args string) (bool, tea.Cmd) {
 			return m.handleChainedSlashCommands(cmds, task)
 		}
 	}
-	prompt := slashactions.TeamworkPrompt()
+	// /teamwork-preview is not a prompt-sending command either: three live
+	// 1.5.18 captures (both spellings in the TUI, and `-p`) send the turn
+	// verbatim with no expansion, and the system instruction for those turns
+	// names teamwork nowhere. The <TEAMWORK> literal exists in the binary but
+	// no captured path reaches it, so sending it would put a block in front
+	// of the model that the reference never sends. See
+	// devutils/wirealign/slashprompts.go (the teamwork entry is NotSent).
+	raw := "/teamwork-preview"
 	if trimmed != "" {
-		prompt = trimmed + "\n\n" + prompt
+		raw = "/teamwork-preview " + trimmed
 	}
-	return true, m.sendAsPrompt("/teamwork-preview", prompt)
+	return true, m.sendAsPrompt("/teamwork-preview", raw)
 }
 
 func (m *RootModel) slashSwarm(args string) (bool, tea.Cmd) {
@@ -673,11 +624,31 @@ func (m *RootModel) slashBoost(args string) (bool, tea.Cmd) {
 			return m.handleChainedSlashCommands(cmds, task)
 		}
 	}
-	prompt := boostPrompt()
+	// /boost sends the turn verbatim, with no expansion — captured from agy
+	// 1.5.18: `/boost analyze the retry layer` produces a 160 B turn with
+	// nothing in <ADDITIONAL_METADATA> but the timestamp.
+	//
+	// The reason is NOT that the reference has no /boost body. It has one:
+	// the binary carries the <ORCHESTRATOR>\n%s\n</ORCHESTRATOR> format string
+	// (0x3d25678) and the full owl.OrchestratorPrompt body (1249 B, with the
+	// remainder in the neighbouring pool strings), and the clone's
+	// builtin.OrchestratorPrompt reproduces that body line for line — 26 of
+	// 26 paragraphs, every line found in the reference. So the clone's
+	// <ORCHESTRATOR> block is an accurate recovery, not an invention.
+	//
+	// What it is NOT is a block the reference sends to *this* account. The
+	// gate is server-side: AdminControls.FeatureControls.MultiagentControls
+	// carries boost_command_disabled (proto field 1), and on this account it
+	// is set. The same message carries teamwork_preview_command_disabled
+	// (field 2), which is why /teamwork-preview behaves identically. When the
+	// flag is clear the reference expands /boost into <ORCHESTRATOR>; we
+	// reproduce the disabled behaviour because that is the only one
+	// observable here, and wirealign records the pin as contingent.
+	raw := "/boost"
 	if clean != "" {
-		prompt = fmt.Sprintf("%s\n\n#### Current Task to Execute\n\n**Task**: %s", prompt, clean)
+		raw = "/boost " + clean
 	}
-	return true, m.sendAsPrompt("/boost", prompt)
+	return true, m.sendAsPrompt("/boost", raw)
 }
 
 func (m *RootModel) slashGrillMe(args string) (bool, tea.Cmd) {
@@ -688,11 +659,11 @@ func (m *RootModel) slashGrillMe(args string) (bool, tea.Cmd) {
 			return m.handleChainedSlashCommands(cmds, task)
 		}
 	}
-	prompt := slashactions.GrillMePrompt()
+	raw := "/grill-me"
 	if clean != "" {
-		prompt = clean + "\n\n" + prompt
+		raw = "/grill-me " + clean
 	}
-	return true, m.sendAsPrompt("/grill-me", prompt)
+	return true, m.sendAsMention("/grill-me", raw, "<GRILL_ME>\n"+slashactions.GrillMePrompt()+"</GRILL_ME>")
 }
 
 // ---- slash_helpers.go ----

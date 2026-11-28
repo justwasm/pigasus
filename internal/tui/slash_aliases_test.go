@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justwasm/pigasus/internal/app/session/slashactions"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
@@ -150,22 +151,37 @@ func TestChainedSlashCommands_BoostPlanGoal(t *testing.T) {
 	if echoRow != wantEcho {
 		t.Errorf("echoRow = %q, want %q", echoRow, wantEcho)
 	}
-	// Verify session history prompt composition
+	// The turn carries the command text the user typed. The instructions ride
+	// in <ADDITIONAL_METADATA> as one @-mention block per expandable command,
+	// which is the reference's shape — not a concatenated prompt.
+	//
+	// This test used to assert the old shape: a single prompt with the bodies
+	// joined and /boost's invented <ORCHESTRATOR> block in front. Two of those
+	// three are things the reference never sends (/boost expands nothing, and
+	// /plan's body never rides in the turn), so the assertions moved to the
+	// wire, where the shape is actually visible.
 	if len(m.SessionMessages()) == 0 {
 		t.Fatalf("expected session message")
 	}
 	prompt := m.SessionMessages()[0].Content
-	if !strings.Contains(prompt, "<ORCHESTRATOR>") {
-		t.Errorf("prompt missing <ORCHESTRATOR>, got:\n%s", prompt)
-	}
 	if !strings.Contains(prompt, "refactor engine") {
 		t.Errorf("prompt missing task, got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "Help me create a plan") {
-		t.Errorf("prompt missing PlanPrompt, got:\n%s", prompt)
+	wire := lastUserWire(m)
+	// /plan and /boost are verbatim: no body, and no <ORCHESTRATOR>.
+	if strings.Contains(wire, "<ORCHESTRATOR>") {
+		t.Errorf("wire carries /boost's retired <ORCHESTRATOR> block:\n%s", wire)
 	}
-	if !strings.Contains(prompt, "Help me set a clear goal") {
-		t.Errorf("prompt missing GoalPrompt, got:\n%s", prompt)
+	if strings.Contains(wire, slashactions.PlanPrompt()) {
+		t.Errorf("wire carries /plan's body, which the reference never sends:\n%s", wire)
+	}
+	// /goal is the one command here that expands, so its body must be present,
+	// as a [Slash Command] mention rather than as turn text.
+	if !strings.Contains(wire, "/goal is a [Slash Command]:") {
+		t.Errorf("wire missing /goal's mention header:\n%s", wire)
+	}
+	if !strings.Contains(wire, slashactions.GoalPrompt()) {
+		t.Errorf("wire missing GoalPrompt body:\n%s", wire)
 	}
 }
 

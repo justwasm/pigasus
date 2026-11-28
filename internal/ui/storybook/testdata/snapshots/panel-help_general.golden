@@ -4,7 +4,7 @@
 01: |Pigasus CLI understands your codebase, makes edits with your permission,        |
 02: |and executes commands — right from your terminal.                               |
 03: |                                                                                |
-04: |Version 1.5.17                                                                  |
+04: |Version 1.5.18                                                                  |
 05: |dev@openagy.org (high)                                                          |
 06: |Workspace:      /workspace/workspace                                            |
 07: |Project Config: ~/.gemini/config/projects/default-cli-project.json              |

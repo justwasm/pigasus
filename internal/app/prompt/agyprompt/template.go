@@ -177,8 +177,8 @@ type SlashCommand struct {
 }
 
 // DefaultSlashCommands is the list the reference sends for a default
-// conversation. The text is verified against the 1.5.9 capture
-// (testdata/capture_1.5.9.txt); the reference itself keeps the list in a
+// conversation. The text is verified against the 1.5.14 capture
+// (testdata/capture_1.5.14.txt); the reference itself keeps the list in a
 // runtime registry, which the recovered templates do not carry.
 func DefaultSlashCommands() []SlashCommand {
 	return []SlashCommand{

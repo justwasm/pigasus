@@ -166,6 +166,8 @@ func goldenPanel(kind panelregistry.Kind) (m *RootModel) {
 		m.overlays.panel.prov = m.newProviderPanel()
 	case panelregistry.Accounts:
 		m.overlays.panel.acct = m.newAccountsPanel()
+	case panelregistry.Artifact:
+		m.overlays.panel.art = m.newArtifactPanel()
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
@@ -285,9 +287,9 @@ func TestPanelRowCounts(t *testing.T) {
 	}
 
 	// The artifact panel's rows follow the conversation, so its count is
-	// the host's artifact list rather than a constant. This used to be
-	// pinned to zero, which is half of what kept /artifact answering
-	// "No artifacts" for a conversation full of them.
+	// the panel's own row list — which is the host's artifact list. This
+	// used to be pinned to zero, which is half of what kept /artifact
+	// answering "No artifacts" for a conversation full of them.
 	m := goldenPanel(panelregistry.Artifact)
 	wantRows := len(m.Artifacts())
 	if got := m.panelRegistry().RowCount(panelregistry.Artifact); got != wantRows {

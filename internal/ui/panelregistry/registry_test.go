@@ -30,8 +30,15 @@ func TestKindProperties(t *testing.T) {
 	if !Permissions.OwnsEarlyKeys() || Tasks.OwnsEarlyKeys() {
 		t.Errorf("unexpected OwnsEarlyKeys result")
 	}
-	if !Tasks.IsList() || !Artifact.IsList() || !CodeSearch.IsList() || !Context.IsList() {
+	if !Tasks.IsList() || !CodeSearch.IsList() || !Context.IsList() {
 		t.Errorf("unexpected IsList result")
+	}
+	if Artifact.IsList() {
+		// /artifact owns its whole keyboard: the picker's cursor, the
+		// preview, the editor chord and the viewer's scroll. Routing it
+		// through the list rule would hand its keys to two owners, which
+		// is what made the old static list look navigable but never move.
+		t.Errorf("/artifact must own its keys, not follow the list rule")
 	}
 	if Model.IsList() || Config.IsList() || Usage.IsList() {
 		t.Errorf("Model, Config and Usage are not list panels")
@@ -70,12 +77,17 @@ func TestKindRoutes(t *testing.T) {
 		Help:        RoutePanel,
 		History:     RoutePanel,
 		Terminal:    RoutePanel,
+		// The /artifact picker owns its whole keyboard: the cursor, the
+		// inline preview, the editor chord and the detail viewer's
+		// scroll. It is not on the list rule — a list rule would swallow
+		// ↑/↓ without moving the cursor, which is what made the old
+		// static list look navigable but never move.
+		Artifact: RoutePanel,
 		// The search route: the panel owns the keys of its result list
 		// and lets the rest through to the list rule.
 		CodeSearch: RouteSearch,
 		// The list rule: every key but Ctrl+C.
-		Artifact: RouteList,
-		Context:  RouteList,
+		Context: RouteList,
 		// The document viewer.
 		Usage:     RouteViewer,
 		Changelog: RouteViewer,
@@ -184,6 +196,9 @@ func TestRegistry(t *testing.T) {
 
 // TestRegistryListRule pins the list rule: every key is swallowed, except
 // Ctrl+C — the global "leave" key — and Esc leaves the panel.
+//
+// /context is the fixture because it is the list panel that still follows the
+// list rule; /artifact owns its keyboard now and is pinned in TestKindRoutes.
 func TestRegistryListRule(t *testing.T) {
 	closed := 0
 	r := New()
@@ -191,7 +206,7 @@ func TestRegistryListRule(t *testing.T) {
 		Seams: Seams{Close: func() tea.Cmd { closed++; return nil }},
 	})
 
-	handled, _, claimed := r.HandleKey(Artifact, tea.Key{Code: tea.KeyEsc})
+	handled, _, claimed := r.HandleKey(Context, tea.Key{Code: tea.KeyEsc})
 	if !handled || !claimed {
 		t.Errorf("Esc: expected the key to be handled and claimed, got (%v, %v)", handled, claimed)
 	}
@@ -199,12 +214,12 @@ func TestRegistryListRule(t *testing.T) {
 		t.Errorf("Esc: the panel was closed %d times, want 1", closed)
 	}
 
-	handled, _, claimed = r.HandleKey(Artifact, tea.Key{Code: 'c', Mod: tea.ModCtrl})
+	handled, _, claimed = r.HandleKey(Context, tea.Key{Code: 'c', Mod: tea.ModCtrl})
 	if handled || !claimed {
 		t.Errorf("Ctrl+C: expected the key to be claimed but not handled, got (%v, %v)", handled, claimed)
 	}
 
-	handled, _, claimed = r.HandleKey(Artifact, tea.Key{Code: 'x', Text: "x"})
+	handled, _, claimed = r.HandleKey(Context, tea.Key{Code: 'x', Text: "x"})
 	if !handled || !claimed {
 		t.Errorf("a letter: expected the key to be handled and claimed, got (%v, %v)", handled, claimed)
 	}

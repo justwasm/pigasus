@@ -1,34 +1,20 @@
 package session
 
 import (
-	"context"
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/core/compaction"
 )
 
-// fakeCompactor is the smallest ManualCompactor: it reports a state and
-// records the compact call.
-type fakeCompactor struct {
-	compacting bool
-	called     bool
-}
-
-func (f *fakeCompactor) IsCompacting() bool { return f.compacting }
-func (f *fakeCompactor) Compact(_ context.Context, _ string) error {
-	f.called = true
-	return nil
-}
-func (f *fakeCompactor) SubscribeManual(func(any)) func() { return func() {} }
-
-// TestCompactionRuntime_CompactorSeam pins the runtime: the compactor is
-// optional, a nil one is never compacting, and the done channel is the
-// no-program hand-off.
-func TestCompactionRuntime_CompactorSeam(t *testing.T) {
+// TestCompactionRuntime_DoneChannel pins the runtime's remaining seam: the
+// no-program result channel the generic summarizer hands its result to.
+//
+// The compactor seam that used to live here (Compactor / SetCompactor /
+// IsCompacting) was deleted with the manual /compact path: it had no
+// production implementation, and the runtime it was meant to wrap
+// (pigrt.Runtime) is no longer in the tree.
+func TestCompactionRuntime_DoneChannel(t *testing.T) {
 	var c CompactionRuntime
-	if c.Compactor() != nil || c.IsCompacting() {
-		t.Fatal("empty runtime reports a compactor")
-	}
 	if c.Done() != nil {
 		t.Fatal("empty runtime has a done channel")
 	}
@@ -40,20 +26,13 @@ func TestCompactionRuntime_CompactorSeam(t *testing.T) {
 	}
 }
 
-// TestCompactionRuntime_IsCompacting pins the forwarded state.
-func TestCompactionRuntime_IsCompacting(t *testing.T) {
-	var c CompactionRuntime
-	comp := &fakeCompactor{compacting: true}
-	c.SetCompactor(comp)
-	if !c.IsCompacting() {
-		t.Fatal("IsCompacting did not read the compactor")
+// TestCompactionRuntime_NilReceiverIsSafe pins the zero-value contract: the
+// model calls through a possibly-nil runtime, so the accessors must not
+// panic on one.
+func TestCompactionRuntime_NilReceiverIsSafe(t *testing.T) {
+	var c *CompactionRuntime
+	if c.Done() != nil {
+		t.Fatal("nil runtime returned a channel")
 	}
-	comp.compacting = false
-	if c.IsCompacting() {
-		t.Fatal("IsCompacting stayed true")
-	}
-	c.SetCompactor(nil)
-	if c.IsCompacting() {
-		t.Fatal("a nil compactor reports compacting")
-	}
+	c.SetDone(make(chan compaction.GenericDoneMsg, 1))
 }

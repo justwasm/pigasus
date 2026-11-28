@@ -1,0 +1,40 @@
+NAME "Control: /config when a non-default mode is stored"
+WINDOW 100 34
+TARGET both
+SETTINGS '{"agentMode":"plan","showTips":false}'
+
+# The control for scenes 56/57.
+#
+# 57 booted with `agentMode: "auto"` and agy's Agent Mode row read "default",
+# not "auto". Two readings fit that:
+#
+#   F1  agy folds auto onto default — the reference's default mode IS auto
+#       (AGY 1.5.7), so one state, one label.
+#   F2  agy's /config ignores the `--settings` overlay, so the row shows the
+#       file's own (absent) value and says nothing about auto at all.
+#
+# They differ exactly here: store `plan`, a mode that is not the default.
+# Under F1 the row must read "plan". Under F2 it reads "default" too, and
+# scene 57's reading was an artefact rather than a finding.
+#
+# The submenu is photographed after the row, because it carries the count:
+# scene 56 saw agy offer three rows with nothing stored. If agy offers four
+# here with plan current, the count depends on the current value and the
+# earlier comparison was not like-for-like.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+TYPE "/config"
+ENTER
+WAIT_TEXT "Color Scheme" 20s
+SLEEP 600ms
+SNAPSHOT "01_row_with_plan_stored"
+
+ENTER
+WAIT_TEXT "accept-edits" 20s
+SLEEP 600ms
+SNAPSHOT "02_submenu_with_plan_stored"
+
+DIFF
+CLEANUP

@@ -16,8 +16,8 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	uirows "github.com/justwasm/pigasus/internal/ui/rows"
 	"github.com/justwasm/pigasus/internal/ui/views/codesearchpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
-	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/pluginsui"
 	"github.com/justwasm/pigasus/internal/ui/views/providerpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
@@ -25,14 +25,6 @@ import (
 )
 
 // ---- tui_update_ticks.go ----
-
-func (m *RootModel) updateCompactDoneMsg(msg compactDoneMsg) (tea.Model, tea.Cmd) {
-	m.appendCompactResult(msg)
-	if msg.CustomInstructions != "" && msg.Err == nil && !msg.Aborted {
-		return m, m.streamPrompt(msg.CustomInstructions)
-	}
-	return m, nil
-}
 
 func (m *RootModel) updateBashDoneMsg(msg bashDoneMsg) (tea.Model, tea.Cmd) {
 	// A preempted command's completion arrives after its successor started;
@@ -79,16 +71,39 @@ func (m *RootModel) updateUsageQuotaTickMsg() (tea.Model, tea.Cmd) {
 	return m, usagepanel.QuotaTick()
 }
 
-func (m *RootModel) updateLogsTickMsg() (tea.Model, tea.Cmd) {
-	if m.overlays.panel.kind != panelregistry.Logs {
+// updateDebugTickMsg refreshes the open /logs surface.
+//
+// The tick exists for the Logs view: it is a tail of a file that grows
+// under the panel, so it must be re-read. The two inspector views are
+// not a tail — they describe steps the panel is handed on demand — so
+// repainting them four times a second rebuilt a frame nothing had
+// changed, and any count that *did* move shifted every row under the
+// user's cursor. On a long Wire body that reads as flicker while
+// scrolling.
+//
+// So the tick only repaints the view that can have changed. The panel's
+// cached facts are invalidated for the same reason and under the same
+// condition (see debugpanel.Panel.Invalidate).
+func (m *RootModel) updateDebugTickMsg() (tea.Model, tea.Cmd) {
+	if m.overlays.panel.kind != panelregistry.Debug {
 		return m, nil
 	}
+	if p := m.overlays.panel.debugp; p != nil && p.View() != debugpanel.ViewLogs {
+		// A background turn can still add steps; let the next draw of
+		// this view read the host's facts again rather than a memo.
+		p.Invalidate()
+		return m, debugpanel.Tick()
+	}
+	// The Logs view is a tail of a growing file: the tick is what makes
+	// it live, so both the tail memo and the frame are dropped.
+	m.InvalidateLogsTail()
 	m.invalidateViewCache()
-	return m, logspanel.Tick()
+	return m, debugpanel.Tick()
 }
 
 func (m *RootModel) updateCompactStartMsg(msg compactStartMsg) (tea.Model, tea.Cmd) {
 	m.session.store.CompactStart = msg.StartedAt
+	m.session.store.CompactLiveInTranscript = false
 	m.session.store.CompactEnd = time.Time{}
 	m.session.store.CompactSpinnerFrame = 0
 	m.session.store.CompactReason = msg.Reason
@@ -105,8 +120,11 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 	m.session.store.CompactStepsSummarized = msg.Steps
 	m.session.store.CompactJustHappened = true
 	m.conversation.compactHappenedThisTurn = true
-	m.conversation.compactBlockIdx = len(m.conversation.blocks)
-	m.conversation.compactStepIdx = len(m.conversation.liveSteps)
+	// The checkpoint's summary stands in for every step taken so far. The
+	// panel counts the steps after this prefix, so the turn's own later
+	// tools still count while the compacted ones do not. The call hands back
+	// what it replaced, which is what the banner's "before" figure adds.
+	toolTokens := m.markCompacted()
 
 	if msg.Summary != "" || msg.Resume != "" {
 		requests := compaction.UserRequests(m.SessionMessages(), compaction.MaxUserRequests)
@@ -147,6 +165,7 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 		overhead := compaction.ContextOverheadTokens(m.systemPrompt(), modelDeclarationsJSON())
 		beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(
 			msg.TokensBefore,
+			toolTokens,
 			0,
 			msg.EstimatedTokensAfter,
 			0,
@@ -159,6 +178,12 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 		if took < 0 {
 			took = 0
 		}
+		// The compaction history is recorded by the collector that turned
+		// the frame into this message (see turnCollector.compact), not
+		// here. This handler runs after the frame has already been
+		// recorded, and recording it again would count one compaction
+		// twice — a history that says "2 runs" for one is worse than no
+		// history, because the reader has no way to tell.
 
 		m.conversation.response = append(m.conversation.response,
 			compaction.DividerRow(m.viewport.width),
@@ -185,6 +210,11 @@ func (m *RootModel) updateCompactSpinnerTickMsg() (tea.Model, tea.Cmd) {
 	m.session.store.CompactSpinnerFrame++
 	if m.session.store.CompactSpinnerFrame >= 8 {
 		m.session.store.CompactSpinnerFrame = 0
+	}
+	// The live row carries the spinner and the clock, so the tick repaints
+	// it in place: one row that animates, not one row per frame.
+	if m.repaintCompactingLine() {
+		m.viewport.rowsCacheDirty = true
 	}
 	return m, compactSpinnerTick()
 }
@@ -228,9 +258,6 @@ func (m *RootModel) updateCSTickMsg() (tea.Model, tea.Cmd) {
 
 func (m *RootModel) updateCompactEvents(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
-	case compactDoneMsg:
-		mod, cmd := m.updateCompactDoneMsg(msg)
-		return mod, cmd, true
 	case genericCompactDoneMsg:
 		cmd := m.applyGenericCompactResult(msg, msg.CustomInstructions)
 		return m, cmd, true
@@ -403,11 +430,35 @@ func (m *RootModel) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case codesearchpanel.TickMsg:
 		mod, cmd := m.updateCSTickMsg()
 		return mod, cmd, true
-	case logspanel.TickMsg:
-		mod, cmd := m.updateLogsTickMsg()
+	case debugpanel.TickMsg:
+		mod, cmd := m.updateDebugTickMsg()
 		return mod, cmd, true
+	case debugpanel.ReaderMsg:
+		return m.updateLogsReaderMsg(msg)
+	case contextHydrateMsg:
+		return m.updateContextHydrateMsg(msg)
 	}
 	return m, nil, false
+}
+
+// updateContextHydrateMsg folds a cold step's body back into the
+// Trajectory view.
+//
+// Enter on a cold row is the read, and the row it was pressed on has to
+// stop saying "body not in memory" once the answer lands — otherwise the
+// key does nothing a user can see. Before this handler existed the panel
+// queued the read and the answer was dropped on the floor, so the row
+// never changed and looking at the honesty of the note was the only way
+// to tell the key had been heard at all.
+func (m *RootModel) updateContextHydrateMsg(msg contextHydrateMsg) (tea.Model, tea.Cmd, bool) {
+	if msg.err == nil && msg.step.Idx != 0 {
+		if m.overlays.panel.ctxHydrated == nil {
+			m.overlays.panel.ctxHydrated = make(map[int64]convstore.Step)
+		}
+		m.overlays.panel.ctxHydrated[msg.index] = msg.step
+	}
+	m.invalidateViewCache()
+	return m, nil, true
 }
 
 // ---- tui_update_login.go ----

@@ -6,6 +6,7 @@ package streampipe
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -249,7 +250,7 @@ func TestPipelineResume_ExhaustionSurfacesTerminalError(t *testing.T) {
 	if err == nil {
 		t.Fatal("no error chunk: exhaustion must be reported")
 	}
-	if !isModelCapacityErr(err) {
+	if !isMidStreamRetryable(err) {
 		t.Fatalf("error = %v, want the model-capacity failure", err)
 	}
 	if got := joinedText(chunks); got != "Hello " {
@@ -257,15 +258,21 @@ func TestPipelineResume_ExhaustionSurfacesTerminalError(t *testing.T) {
 	}
 }
 
-// TestPipelineResume_NonCapacityErrorsUnchanged pins the pre-existing behaviour
-// for a 500 and a 400: no retry, one attempt, the failure surfaces as a terminal
-// error chunk.
+// TestPipelineResume_NonCapacityErrorsUnchanged pins the behaviour for
+// failures that describe *this answer* rather than the model's availability: a
+// 400 keeps failing on the first attempt, and the failure surfaces as a
+// terminal error chunk.
+//
+// A 500 deliberately moved out of this list: the gateway reports an upstream
+// failure as an SSE `error` frame, so `gateway: upstream 500: Unknown error`
+// used to end a turn with no retry at all even though the open path would have
+// retried the same status (AGY 1.5.0). See
+// TestPipelineResume_MidStream500IsRetried.
 func TestPipelineResume_NonCapacityErrorsUnchanged(t *testing.T) {
 	cases := []struct {
 		name  string
 		frame string
 	}{
-		{name: "500", frame: "!server"},
 		{name: "400", frame: "!badrequest"},
 	}
 	for _, tc := range cases {
@@ -279,8 +286,8 @@ func TestPipelineResume_NonCapacityErrorsUnchanged(t *testing.T) {
 			if err == nil {
 				t.Fatal("want a terminal error")
 			}
-			if isModelCapacityErr(err) {
-				t.Fatalf("error = %v, want a non-capacity failure", err)
+			if isMidStreamRetryable(err) {
+				t.Fatalf("error = %v, want a non-retryable failure", err)
 			}
 			if got := joinedText(chunks); got != "Hello " {
 				t.Fatalf("delivered text = %q, want %q", got, "Hello ")
@@ -289,5 +296,55 @@ func TestPipelineResume_NonCapacityErrorsUnchanged(t *testing.T) {
 				t.Fatalf("Done chunks = %d, want 1", n)
 			}
 		})
+	}
+}
+
+// TestPipelineResume_MidStream500IsRetried pins the user-reported failure: a
+// turn died with `gateway: upstream 500: Unknown error` and never retried.
+//
+// The gateway turns an upstream error frame into an *apierror.HTTPError, the
+// same type the status line produces, so a mid-stream 500 must be retried on
+// exactly the schedule the open path uses — and the answer that arrives on the
+// retry must reach the caller once, without the failed attempt's prefix.
+func TestPipelineResume_MidStream500IsRetried(t *testing.T) {
+	fastRetries(t)
+	srv := scriptedServer(t,
+		"data: Hello \ndata: !server\n",
+		"data: Hello \ndata: world\ndata: , done\n",
+	)
+
+	chunks := runPipeline(t, context.Background(), 3, srv)
+
+	if got := joinedText(chunks); got != "Hello world, done" {
+		t.Fatalf("delivered text = %q, want %q", got, "Hello world, done")
+	}
+	if err := firstError(chunks); err != nil {
+		t.Fatalf("caller saw an error for a stream that resumed: %v", err)
+	}
+	if n := countDone(chunks); n != 1 {
+		t.Fatalf("Done chunks = %d, want 1", n)
+	}
+}
+
+// TestPipelineResume_Exhausted500ReportsTheUpstreamError proves the retry has a
+// floor: when the gateway answers 500 on every attempt the turn fails with the
+// upstream error itself, not with a generic "max retries" wrapper, so the
+// transcript row still names the cause the user can act on.
+func TestPipelineResume_Exhausted500ReportsTheUpstreamError(t *testing.T) {
+	fastRetries(t)
+	srv := scriptedServer(t, "data: !server\n")
+
+	chunks := runPipeline(t, context.Background(), 2, srv)
+
+	err := firstError(chunks)
+	if err == nil {
+		t.Fatal("no error chunk: an exhausted budget must end the stream loudly")
+	}
+	var he *apierror.HTTPError
+	if !errors.As(err, &he) || he.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("error = %v, want the upstream 500 to surface", err)
+	}
+	if n := countDone(chunks); n != 1 {
+		t.Fatalf("Done chunks = %d, want 1", n)
 	}
 }

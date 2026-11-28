@@ -1,0 +1,47 @@
+NAME "How many states the shift+tab cycle really has (answered: four — see 49)"
+WINDOW 100 34
+TARGET both
+SETTINGS '{"agentMode":"plan","showTips":false}'
+
+# ANSWERED: four. official-docs/cli/modes.md gives the lap as
+# default > accept-edits > auto > plan > default, so `default` is its own
+# stop and not a synonym for `auto`. 49_mode_cycle_order asserts that lap as
+# a table; this scene is kept as the experiment that framed the question, and
+# photographs four presses for the record.
+#
+# Why the count alone could not settle it: on a host whose terminal sandbox is
+# unavailable the binary declines auto ("Auto mode is not available: it needs
+# the OS terminal sandbox...") and shows default's screen for both, so the
+# cycle here is the three-stop one the documentation describes for that case.
+# A count taken on this host measures the degraded cycle, not the shipped one.
+#
+# The question it was written to answer: is `default` a stop in the cycle, or
+# is it the same state as `auto`?
+#
+#     M1  four states   default -> accept-edits -> auto -> plan -> default
+#     M2  three states  default/auto -> accept-edits -> plan -> default/auto
+#
+# The status row settles the count. The composer row is photographed next to
+# it for a different reason: auto names itself there ("Auto mode: edits &
+# safe commands auto-approved (shift+tab to cycle)" is in agy's string
+# table), so a bare ">" means the binary is in default, not in auto.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+SNAPSHOT "01_boot_plan"
+
+KEYS "BTab"
+SLEEP 900ms
+SNAPSHOT "02_after_one"
+
+KEYS "BTab"
+SLEEP 900ms
+SNAPSHOT "03_after_two"
+
+KEYS "BTab"
+SLEEP 900ms
+SNAPSHOT "04_after_three"
+
+DIFF
+CLEANUP

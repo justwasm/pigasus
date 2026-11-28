@@ -1,0 +1,45 @@
+NAME "/grill-me Slash Command Alignment"
+WINDOW 100 30
+
+# TARGET pigasus, for the same reason as 44_learn_slash_command: /grill-me
+# starts a model turn, and an unauthenticated agy stops at the OAuth prompt
+# before any turn begins. The instruction bytes are pinned by
+# `go run ./devutils/wirealign test`; this covers the TUI behaviour.
+TARGET pigasus
+
+SETTINGS {"showTips":false}
+
+# The reference's instruction asks the model to interview the user through the
+# ask_question tool, so the mock answer is a single question with a
+# recommendation — the shape the instruction asks for.
+MOCK_TURN
+  THOUGHT "Walking the design tree, one decision at a time..." TOKENS 60 DELAY 100ms
+  TEXT "First decision: where does the retry budget live? I recommend the transport layer, because it already owns the attempt count."
+  USAGE PROMPT 9000 CANDIDATES 20 THOUGHTS 60
+  FINISH STOP
+
+BOOT
+WAIT_READY 10s
+
+# One Enter: the picker submits a command the composer already spells out in
+# full. This used to need two — the picker completed the row and returned
+# without submitting — which is what fix(tui): "Enter on a fully typed slash
+# command submits it" changed.
+TYPE "/grill-me"
+ENTER
+
+EXPECT_TEXT "> /grill-me" 10s
+EXPECT_TEXT "I recommend" 20s
+SNAPSHOT "01_grillme_turn_complete"
+
+# The argument survives: the text after the command is prepended to the
+# instruction.
+TYPE "/grill-me the retry layer design"
+ENTER
+
+EXPECT_TEXT "> /grill-me" 10s
+EXPECT_TEXT "I recommend" 20s
+SNAPSHOT "02_grillme_with_argument"
+
+DIFF
+CLEANUP

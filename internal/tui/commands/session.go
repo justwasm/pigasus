@@ -13,7 +13,7 @@ import (
 type SessionHost interface {
 	HostActionSeams() hostactions.Seams
 	SlashRespond(cmd, msg string, extra ...string)
-	StartManualCompact(instructions string)
+	StartManualCompact(instructions string) tea.Cmd
 	TurnEngine() any
 	IsStreaming() bool
 	SetInputNotice(msg string)
@@ -26,8 +26,8 @@ type SessionHost interface {
 	OpenResumePicker() error
 	// ResumeConversationByID resumes a specific conversation by ID or prefix.
 	ResumeConversationByID(id string) error
-	// ShowLogs opens the live-updating session log viewer panel.
-	ShowLogs(args string) tea.Cmd
+	// ShowDebug opens the live-updating diagnostics surface (/debug).
+	ShowDebug(args string) tea.Cmd
 }
 
 // RegisterSessionCommands attaches the session-level commands — clear,
@@ -64,8 +64,7 @@ func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 			return true, nil
 		}
 		instructions := strings.TrimSpace(args)
-		h.StartManualCompact(instructions)
-		return true, nil
+		return true, h.StartManualCompact(instructions)
 	})
 
 	// "/model <name>" is a direct setter — the reference changes the model
@@ -93,10 +92,11 @@ func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 		return true, nil
 	})
 
-	d.Register("logs", func(args string) (bool, tea.Cmd) {
-		return true, h.ShowLogs(args)
-	})
-	d.Register("log", func(args string) (bool, tea.Cmd) {
-		return true, h.ShowLogs(args)
+	// /debug is the surface's name. /logs and /log are aliases in the
+	// catalogue rather than handlers here: Dispatch resolves an alias to
+	// its canonical name before it looks a handler up, so a second
+	// registration under the old name would never be reached.
+	d.Register("debug", func(args string) (bool, tea.Cmd) {
+		return true, h.ShowDebug(args)
 	})
 }

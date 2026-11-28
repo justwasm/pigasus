@@ -51,6 +51,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/modelargpopup"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
 	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 )
@@ -87,7 +88,7 @@ func (m *RootModel) submitInitialPrompt(prompt string) tea.Cmd {
 }
 
 func (m *RootModel) cycleMode() {
-	var next string
+	var next permissions.AgentMode
 	if m.session.remoteAgent {
 		next = permissions.NextRemoteAgentMode(m.session.mode)
 	} else {
@@ -130,23 +131,68 @@ func (m *RootModel) reloadPluginsAndMCP() {
 		m.tools.catalog = catalog
 	}
 	m.registerSubagentQuestionTool(m.tools.catalog)
+	m.rebuildToolSurface()
+}
 
+// rebuildToolSurface re-derives the advertised declarations and the
+// tool runner from what the session already holds: the catalogue, the
+// sandbox and the policy.
+//
+// It is the half of reloadPluginsAndMCP that a mid-session state change
+// needs. The other half — reading the MCP configuration from the
+// config home and replacing the process-global provider — is a plugin
+// reload's business, not a permission switch's, and doing it for every
+// state change would re-read the user's files from paths the command
+// has no reason to touch.
+//
+// The two values that must be re-derived together are the declarations
+// (AdvertisedToolDeclsWithSandbox decides whether run_command offers
+// the bypass-sandbox parameter) and the runner (it holds a *copy* of
+// the sandbox). Rebuilding only one leaves the surface describing a
+// sandbox it does not have.
+func (m *RootModel) rebuildToolSurface() {
+	if m == nil || m.tools.catalog == nil {
+		return
+	}
 	decls := toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, m.tools.catalog, m.tools.sandbox.Enabled)
 	decls = m.registerTerminalTool(m.tools.catalog, decls)
 	decls = m.registerUpdateStepsTool(m.tools.catalog, decls)
-	var runner backend.ToolRunner
-	if m.session.policy != nil {
-		runner = &permissionRunner{
-			inner:   &toolrunner.RegistryRunner{Reg: m.tools.catalog},
-			policy:  m.session.policy,
-			sandbox: m.tools.sandbox,
-			hook:    m.hookToolGate,
-			post:    m.hookPostToolUse,
-		}
-	} else {
-		runner = &toolrunner.RegistryRunner{Reg: m.tools.catalog}
+	m.enableTools(decls, m.newToolRunner())
+}
+
+// newToolRunner builds the runner that gates this session's tool calls.
+//
+// One owner for the wiring: the policy, the sandbox copy, the hooks and
+// the voice seam. It used to be assembled at three sites, and they had
+// drifted — the plugin-reload one had lost the voice notification seam.
+func (m *RootModel) newToolRunner() backend.ToolRunner {
+	if m.session.policy == nil {
+		return &toolrunner.RegistryRunner{Reg: m.tools.catalog}
 	}
-	m.enableTools(decls, runner)
+	return m.permissionRunnerFor(m.tools.catalog)
+}
+
+// permissionRunnerFor builds the gated runner over a specific
+// catalogue. applyAgentSwitch hands in the catalogue it just built; the
+// ordinary paths pass m.tools.catalog.
+func (m *RootModel) permissionRunnerFor(catalog *tools.Registry) *permissionRunner {
+	return &permissionRunner{
+		inner:    &toolrunner.RegistryRunner{Reg: catalog},
+		policy:   m.session.policy,
+		sandbox:  m.tools.sandbox,
+		hook:     m.hookToolGate,
+		post:     m.hookPostToolUse,
+		onPrompt: m.onPermissionPrompt(),
+	}
+}
+
+// onPermissionPrompt is the voice seam: when a permission prompt opens,
+// a dictate-mode session says so out loud. Nil when the session has no
+// voice surface, which keeps the runner's nil check meaningful.
+func (m *RootModel) onPermissionPrompt() func(permissionprompt.Request) {
+	return func(req permissionprompt.Request) {
+		m.notifyVoiceWaitingOnUser(formatPermissionForVoice(req))
+	}
 }
 
 func agentToolRegistry(workspace, agentBody string) *tools.Registry {
@@ -225,11 +271,12 @@ func (m *RootModel) applyAgentSwitch(name, body string) {
 		decls = m.registerTerminalTool(catalog, decls)
 		decls = m.registerUpdateStepsTool(catalog, decls)
 		m.enableTools(decls, &permissionRunner{
-			inner:   &toolrunner.RegistryRunner{Reg: catalog},
-			policy:  m.session.policy,
-			sandbox: m.tools.sandbox,
-			hook:    m.hookToolGate,
-			post:    m.hookPostToolUse,
+			inner:    &toolrunner.RegistryRunner{Reg: catalog},
+			policy:   m.session.policy,
+			sandbox:  m.tools.sandbox,
+			hook:     m.hookToolGate,
+			post:     m.hookPostToolUse,
+			onPrompt: m.onPermissionPrompt(),
 		})
 	}
 	m.conversation.response = nil
@@ -240,6 +287,7 @@ func (m *RootModel) applyAgentSwitch(name, body string) {
 	m.conversation.blocks = nil
 	m.conversation.liveSteps = nil
 	m.conversation.activeTool = ""
+	m.forgetConversationState()
 	m.session.autoTitle = ""
 	m.session.conversationID = newConversationID()
 	// The conversation changed, so the session did too: the documented
@@ -551,8 +599,8 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 			narrationStart:        time.Now(),
 			wireSettingsPending:   true,
 			hooks:                 hooks.NewManager(),
-			mode:                  initialMode,
-			startMode:             initialMode,
+			mode:                  permissions.AgentMode(initialMode),
+			startMode:             permissions.AgentMode(initialMode),
 		},
 		turn: TurnService{
 			backend: b,

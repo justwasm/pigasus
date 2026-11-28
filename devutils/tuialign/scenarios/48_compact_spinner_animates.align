@@ -1,0 +1,49 @@
+NAME "The compaction spinner animates while the compaction runs"
+WINDOW 100 30
+TARGET both
+# agentMode must not be "plan": agy's plan mode refuses /compact outright
+# ("Unknown command: /compact"), so the probe would measure nothing.
+SETTINGS '{"showTips":false,"agentMode":"auto"}'
+
+# A running compaction must show a spinner that MOVES. Snapshots taken
+# 150 ms apart while the compaction is in flight catch the frame; two
+# captures in a row that name the same glyph are a static row.
+#
+# The mock turn's delay holds the compaction open long enough for three
+# captures, so "the same glyph three times" cannot be a slow tick.
+
+MOCK_TURN
+  THOUGHT "Summarising the conversation so far." TOKENS 80 DELAY 300ms
+  DELAY 6000ms
+  TEXT "Summary written."
+  USAGE PROMPT 40000 CANDIDATES 40 THOUGHTS 80
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 15s
+
+# Put something in the conversation so there is something to compact.
+TYPE "hello"
+ENTER
+WAIT_TEXT "Summary written." 20s
+SLEEP 1200ms
+
+TYPE "/compact"
+ENTER
+
+# Three captures while the compaction is in flight: the glyph must differ
+# between at least two of them.
+SLEEP 700ms
+SNAPSHOT "01_compacting_a"
+SLEEP 400ms
+SNAPSHOT "02_compacting_b"
+SLEEP 400ms
+SNAPSHOT "03_compacting_c"
+SLEEP 400ms
+SNAPSHOT "04_compacting_d"
+
+SLEEP 5000ms
+SNAPSHOT "05_after"
+
+DIFF
+CLEANUP

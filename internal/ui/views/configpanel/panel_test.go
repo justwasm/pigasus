@@ -149,10 +149,10 @@ func TestPanelLayout(t *testing.T) {
 		t.Errorf("title = %q", plain[0])
 	}
 	// Cursor-bearing list: 10 setting rows; the counter reads
-	// "[1-10 of 25 items]" verbatim from REF.
+	// "[1-10 of 21 items]" verbatim from REF.
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "[1-10 of 25 items]") {
-		t.Errorf("missing 1-10 of 25 counter: %s", joined)
+	if !strings.Contains(joined, "[1-10 of 21 items]") {
+		t.Errorf("missing 1-10 of 21 counter: %s", joined)
 	}
 	// Cursor movement shifts the "> " marker. Cycle 193 finds it
 	// by scanning rather than depending on row-index arithmetic
@@ -193,15 +193,15 @@ func TestPanelLayout(t *testing.T) {
 func TestCatalogueGate(t *testing.T) {
 	testHome(t, map[string]any{})
 	p := New(Seams{})
-	if got := len(p.Catalogue()); got != 25 {
-		t.Errorf("catalogue with default settings = %d rows, want 25", got)
+	if got := len(p.Catalogue()); got != 21 {
+		t.Errorf("catalogue with default settings = %d rows, want 21", got)
 	}
 
 	testHome(t, map[string]any{"editorMode": "vim"})
 	p = New(Seams{})
 	rows := p.Catalogue()
-	if len(rows) != 26 {
-		t.Fatalf("catalogue with editorMode=vim = %d rows, want 26", len(rows))
+	if len(rows) != 22 {
+		t.Fatalf("catalogue with editorMode=vim = %d rows, want 22", len(rows))
 	}
 	if rows[7].Name != "Editor Mode" || rows[8].Name != "Editor Mode › Insert First" {
 		t.Errorf("rows[7]=%q rows[8]=%q, want Editor Mode then its Insert First child",
@@ -379,8 +379,12 @@ func TestCycle197_ConfigPanelNoCounterWhenAllFit(t *testing.T) {
 	testHome(t, map[string]any{})
 	p := New(Seams{})
 	lines := plainLines(p, 50, 0)
-	if len(lines) != 36 {
-		t.Errorf("panel = %d lines at height 50, want 36 (live REF)", len(lines))
+	// 21 catalogue rows plus the 11 chrome lines (title, search box,
+	// descriptions, footer). 20 of the rows are the reference's; the
+	// 21st is Voice Mode, whose children stay collapsed until the mode is
+	// explicitly live.
+	if len(lines) != 32 {
+		t.Errorf("panel = %d lines at height 50, want 32 (21 rows + 11 chrome)", len(lines))
 	}
 	for _, l := range lines {
 		if strings.Contains(l, "items]") {
@@ -390,7 +394,7 @@ func TestCycle197_ConfigPanelNoCounterWhenAllFit(t *testing.T) {
 	// The windowed fallback (height unknown) still shows the counter.
 	p2 := New(Seams{})
 	joined := strings.Join(plainLines(p2, 0, 0), "\n")
-	if !strings.Contains(joined, "[1-10 of 25 items]") {
+	if !strings.Contains(joined, "[1-10 of 21 items]") {
 		t.Errorf("unknown height should keep the windowed counter:\n%s", joined)
 	}
 }
@@ -940,6 +944,17 @@ func TestColorSchemePreviewCardRendering(t *testing.T) {
 //
 // The theme is the host's, so the panel asks for it through the seam —
 // the panel only decides *when* the scheme changes.
+// TestColorSchemeLiveThemeUpdate pins when the theme is applied: only when
+// the choice is committed or cycled, never while the cursor walks the
+// submenu.
+//
+// 【一手】 agy 1.5.18 (tuialign 46_scheme_chrome_fixed): pressing ↓ in the
+// Color Scheme submenu recolours the preview card alone — the banner, the
+// two rules around the prompt, the "Keyboard:" footer and the status row
+// all stay on the committed scheme (measured #5F6368 → #5F6368 under
+// light → dark) while the card's own border moves (#DADCE0 → #3C4043).
+// The card is drawn from the hovered scheme by BuildPreviewLines, so the
+// panel has nothing to apply on a move.
 func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 	testHome(t, map[string]any{"colorScheme": "terminal"})
 	var applied []string
@@ -956,34 +971,29 @@ func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 		t.Fatal("expected the submenu to be open")
 	}
 
-	// 2. Move down to "light" (index 1).
+	// 2. Walking the values applies nothing: the card is the preview.
 	p.HandleKey(tea.Key{Code: tea.KeyDown})
-	if len(applied) == 0 || applied[len(applied)-1] != "light" {
-		t.Fatalf("expected the live theme %q, got %v", "light", applied)
+	p.HandleKey(tea.Key{Code: tea.KeyDown})
+	if len(applied) != 0 {
+		t.Fatalf("a move inside the submenu applied a theme: %v", applied)
 	}
 
-	// 3. Move down to "solarized light" (index 2).
-	p.HandleKey(tea.Key{Code: tea.KeyDown})
-	if applied[len(applied)-1] != "solarized light" {
-		t.Fatalf("expected the live theme %q, got %v", "solarized light", applied)
-	}
-
-	// 4. Cancel with Esc: the original scheme comes back.
+	// 3. Esc closes without applying anything — there was nothing to undo.
 	p.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if p.SubmenuOpen() {
 		t.Fatal("expected the submenu to close")
 	}
-	if applied[len(applied)-1] != "terminal" {
-		t.Fatalf("expected the live theme to revert to %q, got %v", "terminal", applied)
+	if len(applied) != 0 {
+		t.Fatalf("Esc applied a theme: %v", applied)
 	}
 
-	// 5. ←/→ on the main list cycles live and persists.
+	// 4. ←/→ on the main list cycles live and persists.
 	handled, cmd := p.HandleKey(tea.Key{Code: tea.KeyRight})
 	if !handled || cmd == nil {
 		t.Fatalf("expected KeyRight to return handled=true and a clear-screen command")
 	}
-	if applied[len(applied)-1] != "light" {
-		t.Fatalf("expected the live theme %q after →, got %v", "light", applied)
+	if len(applied) != 1 || applied[0] != "light" {
+		t.Fatalf("expected exactly the committed theme %q, got %v", "light", applied)
 	}
 	if got := p.SettingValue(rowIndex(t, p, "Color Scheme")); got != "light" {
 		t.Errorf("the row's display = %q, want %q", got, "light")

@@ -70,12 +70,22 @@ func (m *RootModel) recordTrajectoryCalls(steps []toolsteps.Step) {
 			status = 4
 		}
 		convSteps = append(convSteps, convstore.Step{
-			Type:        convstore.StepToolCall,
-			Status:      status,
-			ToolName:    s.Name,
-			ToolArgs:    s.Args,
+			Type:     convstore.StepToolCall,
+			Status:   status,
+			ToolName: s.Name,
+			ToolArgs: s.Args,
+			// The two halves of the collapsed line, kept apart the way
+			// the reference stores them: the verb in ToolPrefix and the
+			// noun phrase in ToolSummary. Joining them is the reader's
+			// job, and it can only do that once.
+			//
+			// Step.Summary is the *display* line ("Ran (go build ./...)"),
+			// verb already included. Storing it verbatim put the verb in
+			// the title field, and every reader that re-attached the
+			// prefix printed "Ran Ran (go build ./...)".
+			ToolPrefix:  convstore.RenderPrefix(s.Name),
+			ToolSummary: convstore.TitleFromSummary(s.Summary, s.Name, s.Args),
 			ToolResult:  s.Result,
-			ToolSummary: s.Summary,
 		})
 	}
 	if sup := m.session.sup(); sup != nil {
@@ -88,4 +98,9 @@ func (m *RootModel) resetTrajectory() {
 	if sup := m.session.sup(); sup != nil {
 		sup.Clear()
 	}
+	// The /context panel's hydrated bodies belong to the conversation
+	// that just ended: a new conversation numbers its steps from zero
+	// again, so a map keyed by index alone would answer a new step with
+	// the old conversation's body.
+	m.overlays.panel.ctxHydrated = nil
 }

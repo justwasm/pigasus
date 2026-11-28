@@ -71,10 +71,16 @@ func (m *RootModel) isFullViewportPanel() bool {
 	if kind == panelregistry.None {
 		return false
 	}
-	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff || kind == panelregistry.Terminal || kind == panelregistry.Logs {
+	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff || kind == panelregistry.Terminal || kind == panelregistry.Debug {
 		return true
 	}
 	if kind == panelregistry.Tasks && m.overlays.panel.tp != nil && m.overlays.panel.tp.Detail() {
+		return true
+	}
+	if kind == panelregistry.Artifact && m.overlays.panel.art != nil && m.overlays.panel.art.Viewer() {
+		// The artifact detail viewer is the reference's own full-screen
+		// surface (official-docs/cli/artifacts.md, "Artifact detail
+		// viewer"), so it takes the viewport the way /changelog does.
 		return true
 	}
 	if kind == panelregistry.Agents && m.overlays.panel.ag != nil && m.overlays.panel.ag.DetailMode() {
@@ -328,7 +334,7 @@ func (m *RootModel) View() tea.View {
 	}
 	transcript = m.selectionPass(transcript)
 	body, cursorY := m.viewBody(transcript)
-	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog && m.overlays.panel.kind != panelregistry.Logs {
+	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog && m.overlays.panel.kind != panelregistry.Debug {
 		body = tuilib.FitLines(body, m.viewport.width)
 	}
 	body, cursorY = m.clipViewBody(body, cursorY)
@@ -559,7 +565,7 @@ func (m *RootModel) renderBodyOverlays(b *strings.Builder) {
 
 func (m *RootModel) renderBodyStatusLine(b *strings.Builder) int {
 	subagentCursorY := -1
-	if m.statusLine.visible != "off" && !((m.overlays.panel.kind == panelregistry.Changelog || m.overlays.panel.kind == panelregistry.Logs) && m.viewport.height > 0) {
+	if m.statusLine.visible != "off" && !((m.overlays.panel.kind == panelregistry.Changelog || m.overlays.panel.kind == panelregistry.Debug) && m.viewport.height > 0) {
 		if rows := m.askQuestion.panel.AlertRows(); len(rows) > 0 {
 			for _, row := range rows {
 				b.WriteString(row + "\n")
@@ -604,8 +610,22 @@ func (m *RootModel) viewBody(transcript []string) (string, int) {
 	m.viewport.scrollIndEndX = -1
 
 	if m.isFullViewportPanel() && m.viewport.height > 0 {
+		// The status area is drawn under the panel and is not part of it,
+		// so the panel gets what the status area does not take. The panel
+		// used to be given the whole height and the frame was then
+		// clipped from the top, which ate the panel's own header — the
+		// /logs badge and the view bar — off the screen.
 		m.overlays.panelScreenY = 0
-		m.overlays.panelHeight = m.viewport.height
+		panelRows := m.viewport.height
+		if m.statusLine.visible != "off" {
+			if n := len(statusline.AreaRows(m.statusAreaState())); n > 0 {
+				panelRows -= n
+			}
+		}
+		if panelRows < 1 {
+			panelRows = 1
+		}
+		m.overlays.panelHeight = panelRows
 		b.WriteString(m.panelView())
 		if m.statusLine.visible != "off" {
 			m.writeStatusArea(&b)

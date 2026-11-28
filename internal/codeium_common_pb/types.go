@@ -2209,7 +2209,7 @@ type ArtifactComment struct {
 // 【反编译】 the field set is the getter set, and nothing else: the recovered
 // symbol table carries exactly seven (*ArtifactMetadata).Get* methods —
 // GetArtifactType, GetSummary, GetCreatedAt, GetUpdatedAt, GetVersion,
-// GetRequestFeedback, GetUserFacing (out/extracted-1.5.17/seeds/seeds.txt,
+// GetRequestFeedback, GetUserFacing (out/extracted-1.5.18/seeds/seeds.txt,
 // and identically in the 1.3.4 extract). This struct used to carry
 // Uri/Title/Kind/Author/Tags, which belong to no recovered getter and are a
 // different message; that mismatch is why the artifact layer kept a private

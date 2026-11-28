@@ -102,7 +102,7 @@ func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 // statusModeLabel is the agent mode the built-in status row displays:
 // "auto", "plan", "accept-edits", or "" while the session has no configured mode.
 func (m *RootModel) statusModeLabel() string {
-	return strings.TrimSpace(m.session.mode)
+	return strings.TrimSpace(string(m.session.mode))
 }
 
 // cycleModeLabel is the agent mode reported in the external statusline JSON
@@ -112,18 +112,17 @@ func (m *RootModel) cycleModeLabel() string {
 	return modeLabelFrom(m.session.mode, m.session.startMode)
 }
 
-func modeLabelFrom(mode, start string) string {
-	mode = strings.TrimSpace(mode)
-	if mode == "" || mode == strings.TrimSpace(start) {
+func modeLabelFrom(mode, start permissions.AgentMode) string {
+	if mode == permissions.ModeDefault || mode == start {
 		return ""
 	}
-	return mode
+	return string(mode)
 }
 
 // promptPlaceholder is the composer's placeholder for a session: the live
 // mode's banner.
-func (m *RootModel) promptPlaceholder(mode string) string {
-	return permissions.ModeBanner(strings.TrimSpace(mode))
+func (m *RootModel) promptPlaceholder(mode permissions.AgentMode) string {
+	return permissions.ModeBanner(mode)
 }
 
 func (m *RootModel) ApplyModel(label string) {

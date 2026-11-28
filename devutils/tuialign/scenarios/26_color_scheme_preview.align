@@ -1,0 +1,42 @@
+NAME "Color Scheme preview keeps the long names inside the left column"
+WINDOW 100 40
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 15s
+
+# Open /config
+TYPE "/config"
+ENTER
+SLEEP 900ms
+
+# Walk down to the "Color Scheme" row.
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "01_color_scheme_row"
+
+# Open the preview submenu.
+ENTER
+SLEEP 600ms
+SNAPSHOT "02_preview_top"
+
+# Walk to the long names: colorblind-friendly light / dark.
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "03_preview_colorblind_light"
+
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "04_preview_dark"
+
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "05_preview_colorblind_dark"
+
+DIFF
+CLEANUP

@@ -1,0 +1,61 @@
+NAME "/learn Slash Command Alignment"
+WINDOW 100 30
+
+# TARGET pigasus, not both.
+#
+# The reference half of this scenario needs a signed-in agy: `/learn` starts a
+# model turn, and an unauthenticated agy stops at the OAuth prompt before any
+# turn begins (verified: `HOME=$(mktemp -d) agy -p '/learn'` prints
+# "Authentication required"). The reference account is suspended, so the
+# two-binary diff cannot run on this machine.
+#
+# What that leaves is still worth asserting, and it is the half that can
+# regress: the *clone's* command must echo, start a turn, and send the
+# reference's 2,178-byte instruction. The instruction itself is pinned
+# byte-for-byte by `go run ./devutils/wirealign test` (the /learn entry in
+# devutils/wirealign/slashprompts.go), so this scenario covers the TUI
+# behaviour and wirealign covers the bytes. Flip this to `both` on a machine
+# with a signed-in reference to get the pixel diff too.
+TARGET pigasus
+
+SETTINGS {"showTips":false}
+
+# /learn sends a prompt, so the model answers it. The mock answer is short and
+# deliberately generic: the parity claim here is about what the command puts on
+# the wire and on screen, not about the model's reply.
+MOCK_TURN
+  THOUGHT "Reviewing the recent corrections before proposing a rule..." TOKENS 60 DELAY 100ms
+  TEXT "I found one reusable correction in this session. Proposal written to learning_proposal.md; review it before I touch any rule file."
+  USAGE PROMPT 9000 CANDIDATES 20 THOUGHTS 60
+  FINISH STOP
+
+BOOT
+WAIT_READY 10s
+
+# 1. The echo. Every prompt-sending command echoes its canonical name as
+#    "> /learn"; the cycle-167 shape appended to session state and printed a
+#    fixed line instead. One Enter is enough: the picker submits a command the
+#    composer already spells out in full.
+TYPE "/learn"
+ENTER
+
+EXPECT_TEXT "> /learn" 10s
+SNAPSHOT "01_learn_echo"
+
+# 2. The turn actually runs. The reference starts a turn, so a reply has to
+#    appear; a command that only recorded a note would leave the transcript
+#    without a response.
+EXPECT_TEXT "learning_proposal.md" 20s
+SNAPSHOT "02_learn_turn_complete"
+
+# 3. /learn takes an argument: the text after the command is prepended to the
+#    instruction rather than dropped.
+TYPE "/learn the API endpoint must be read from config, never hardcoded"
+ENTER
+
+EXPECT_TEXT "> /learn" 10s
+EXPECT_TEXT "learning_proposal.md" 20s
+SNAPSHOT "03_learn_with_argument"
+
+DIFF
+CLEANUP

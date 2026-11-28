@@ -261,3 +261,73 @@ func TestBuildStepsSynchronizesUpdatedAssistantStep(t *testing.T) {
 		t.Fatalf("expected RawPayload to be cleared for re-encoding, got %v", modelStep.RawPayload)
 	}
 }
+
+// TestGroupTurnsPartitionsStepsIntoTurns checks that GroupTurns defines turns
+// as user-initiated exchanges and preserves step coverage without dropping steps.
+func TestGroupTurnsPartitionsStepsIntoTurns(t *testing.T) {
+	cases := []struct {
+		name      string
+		steps     []Step
+		wantSpans []TurnSpan
+	}{
+		{
+			name:      "empty",
+			steps:     nil,
+			wantSpans: nil,
+		},
+		{
+			name: "single exchange with tool and reply",
+			steps: []Step{
+				{Idx: 0, Type: StepUserInput, Text: "build it"},
+				{Idx: 1, Type: StepToolCall, ToolName: "run_command"},
+				{Idx: 2, Type: StepModelResponse, Text: "done"},
+			},
+			wantSpans: []TurnSpan{
+				{Index: 1, Start: 0, End: 3},
+			},
+		},
+		{
+			name: "multiple exchanges",
+			steps: []Step{
+				{Idx: 0, Type: StepUserInput, Text: "turn 1"},
+				{Idx: 1, Type: StepToolCall, ToolName: "ls"},
+				{Idx: 2, Type: StepModelResponse, Text: "files"},
+				{Idx: 3, Type: StepUserInput, Text: "turn 2"},
+				{Idx: 4, Type: StepModelResponse, Text: "ok"},
+			},
+			wantSpans: []TurnSpan{
+				{Index: 1, Start: 0, End: 3},
+				{Index: 2, Start: 3, End: 5},
+			},
+		},
+		{
+			name: "prologue before first user step",
+			steps: []Step{
+				{Idx: 0, Type: StepSystemNotice, Text: "daemon started"},
+				{Idx: 1, Type: StepCheckpoint, Summary: "prior session"},
+				{Idx: 2, Type: StepUserInput, Text: "hello"},
+				{Idx: 3, Type: StepModelResponse, Text: "world"},
+			},
+			wantSpans: []TurnSpan{
+				{Index: 1, Start: 0, End: 2},
+				{Index: 2, Start: 2, End: 4},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := GroupTurns(c.steps)
+			if len(got) != len(c.wantSpans) {
+				t.Fatalf("GroupTurns(%s) = %d spans, want %d: %+v", c.name, len(got), len(c.wantSpans), got)
+			}
+			for i, span := range got {
+				want := c.wantSpans[i]
+				if span != want {
+					t.Errorf("span %d = %+v, want %+v", i, span, want)
+				}
+			}
+		})
+	}
+}
+

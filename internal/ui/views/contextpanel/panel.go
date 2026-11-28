@@ -131,6 +131,16 @@ type State struct {
 
 	// ScrollOffset is the vertical scroll offset in rows.
 	ScrollOffset int
+
+	// The *Estimated flags mark a count the host could not measure and
+	// filled from a built-in figure. The row shows a leading "~" so the
+	// user can tell a constant from a measurement.
+	SystemPromptEstimated   bool
+	SystemToolsEstimated    bool
+	RulesEstimated          bool
+	SkillsEstimated         bool
+	SubagentsEstimated      bool
+	SystemMessagesEstimated bool
 }
 
 // TotalUsed returns the unclamped sum of active token categories counted in usage.
@@ -162,6 +172,13 @@ func (st State) breakdown() Breakdown {
 		MCPTools:         st.MCPTools,
 		SystemMessages:   st.SystemMessages,
 		CheckpointBuffer: st.CheckpointBuffer,
+
+		SystemPromptEstimated:   st.SystemPromptEstimated,
+		SystemToolsEstimated:    st.SystemToolsEstimated,
+		RulesEstimated:          st.RulesEstimated,
+		SkillsEstimated:         st.SkillsEstimated,
+		SubagentsEstimated:      st.SubagentsEstimated,
+		SystemMessagesEstimated: st.SystemMessagesEstimated,
 	}
 }
 
@@ -209,27 +226,28 @@ func defaultSystemFileLines() []string {
 }
 
 // Lines renders the /context usage panel, windowed if MaxRows is set.
+//
+// The window is the one MaxContextScroll computes: the head stays pinned
+// above it and the pager and the two footer rows stay pinned below it, so
+// the last body row is reachable exactly when the body is longer than the
+// window. The two used to be different sums, which is why a panel that
+// looked scrollable could refuse to reach its tail.
 func Lines(st State) []string {
 	all := AllLines(st)
 	if st.MaxRows <= 0 || len(all) <= st.MaxRows {
 		return all
 	}
-	header := all[0]
-	footer := all[len(all)-2:] // related line + key hint line
-	body := all[1 : len(all)-2]
+	headLen, tailLen := pinnedRows(st)
+	body := all[headLen : len(all)-tailLen]
 
-	avail := st.MaxRows - 3 // header + 2 footer lines
-	bodyAvail := avail - 2  // reserve 1 line for pager + 1 line for blank separator
-	if bodyAvail < 1 {
-		bodyAvail = 1
-	}
+	bodyAvail := bodyRows(st)
 
 	offset := st.ScrollOffset
 	if offset < 0 {
 		offset = 0
 	}
-	if offset > len(body)-bodyAvail {
-		offset = len(body) - bodyAvail
+	if max := len(body) - bodyAvail; offset > max {
+		offset = max
 	}
 	if offset < 0 {
 		offset = 0
@@ -242,12 +260,12 @@ func Lines(st State) []string {
 	visibleBody := body[offset:end]
 	pager := fmt.Sprintf("  (%d–%d of %d lines)", offset+1, end, len(all))
 
-	result := make([]string, 0, len(visibleBody)+5)
-	result = append(result, header)
+	result := make([]string, 0, len(visibleBody)+6)
+	result = append(result, all[:headLen]...)
 	result = append(result, visibleBody...)
 	result = append(result, pager)
 	result = append(result, "")
-	result = append(result, footer...)
+	result = append(result, all[len(all)-tailLen:]...)
 	return result
 }
 

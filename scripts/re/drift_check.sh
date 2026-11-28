@@ -7,9 +7,9 @@
 #
 # Options:
 #   --binary <PATH>            Path to upstream candidate agy binary
-#   --baseline-dir <PATH>      Baseline extracted directory (default: out/extracted-1.5.17)
-#   --baseline-version <VER>   Baseline reference version (default: 1.5.17)
-#   --simulate-canary          Simulate upstream 1.5.16+ canary drift for verification
+#   --baseline-dir <PATH>      Baseline extracted directory (default: out/extracted-1.5.18)
+#   --baseline-version <VER>   Baseline reference version (default: 1.5.18)
+#   --simulate-canary          Simulate upstream 1.5.18+ canary drift for verification
 #   --update-docs              Update docs/guide/reference-drift.md (default: true)
 #   --no-update-docs           Skip updating documentation
 #   --report-json <PATH>       Path to export JSON report

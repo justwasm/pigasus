@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,15 +193,49 @@ type imageRoundTripper func(*http.Request) (*http.Response, error)
 
 func (f imageRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// endpointHost returns the authority of an endpoint URL, for comparing the
+// request the transport actually dialled with the endpoint it was told to use.
+//
+// The comparison used to be `r.URL.Host == strings.TrimPrefix(endpoint,
+// "https://")`, which only holds for an https:// literal. A configured endpoint
+// need not be one — the clone's documented local-service setup is
+// `"cloudcode": "http://127.0.0.1:8080"` — and then the trim does nothing,
+// `r.URL.Host` ("127.0.0.1:8080") never equals the whole URL, and every request
+// is mistaken for a mirror request.
+func endpointHost(t *testing.T, raw string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		t.Fatalf("endpoint %q has no host: %v", raw, err)
+	}
+	return u.Host
+}
+
 func TestCloudCodeImageSandboxFailover(t *testing.T) {
+	// The primary is the compiled-in host, not endpoints.Current().CloudCode.
+	// isSandboxFailoverEligible accepts either, and naming the constant keeps
+	// the test independent of the machine: the launcher exports
+	// CLOUD_CODE_URL=http://127.0.0.1:<port> for the reference binary, `go test`
+	// inherits it, and Current().CloudCode then answers with the developer's
+	// proxy — which the test took to be "primary", so its primary request went
+	// to the proxy and its mirror request to Google (calls primary/mirror =
+	// 0/1). The round tripper answers every request itself; neither host is
+	// dialled.
+	primaryURL := endpoints.DefaultCloudCode
+	primaryHost := endpointHost(t, primaryURL)
+	mirrorHost := endpointHost(t, endpoints.Current().CloudCodeSandbox)
+
 	for _, failure := range []string{"503", "network"} {
 		for _, sandboxStatus := range []int{200, 401} {
 			t.Run(failure+http.StatusText(sandboxStatus), func(t *testing.T) {
-				primary, mirror := 0, 0
 				var firstBody string
+				var mu sync.Mutex
+				primary, mirror := 0, 0
 				httpClient := &http.Client{Transport: imageRoundTripper(func(r *http.Request) (*http.Response, error) {
 					body, _ := io.ReadAll(r.Body)
-					if r.URL.Host == strings.TrimPrefix(endpoints.Current().CloudCode, "https://") {
+					mu.Lock()
+					defer mu.Unlock()
+					if r.URL.Host == primaryHost {
 						primary++
 						firstBody = string(body)
 						if failure == "network" {
@@ -208,12 +244,12 @@ func TestCloudCodeImageSandboxFailover(t *testing.T) {
 						return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("primary unavailable")), Header: make(http.Header)}, nil
 					}
 					mirror++
-					if r.URL.Host != strings.TrimPrefix(endpoints.Current().CloudCodeSandbox, "https://") || firstBody != string(body) {
+					if r.URL.Host != mirrorHost || firstBody != string(body) {
 						t.Errorf("mirror request = %s %s", r.URL, body)
 					}
 					return &http.Response{StatusCode: sandboxStatus, Body: io.NopCloser(strings.NewReader(cloudCodeImageResponse)), Header: make(http.Header)}, nil
 				})}
-				c := NewCloudCodeWithConfig(CloudCodeConfig{Endpoint: endpoints.Current().CloudCode, AccessToken: "test", HTTPClient: httpClient})
+				c := NewCloudCodeWithConfig(CloudCodeConfig{Endpoint: primaryURL, AccessToken: "test", HTTPClient: httpClient})
 				out, err := c.GenerateImage(backend.ContextWithMaxRetries(context.Background(), 0), backend.ImageGenRequest{Model: "image-model", Prompt: "draw"})
 				if primary != 1 || mirror != 1 {
 					t.Fatalf("calls primary/mirror = %d/%d", primary, mirror)

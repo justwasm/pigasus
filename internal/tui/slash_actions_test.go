@@ -2140,166 +2140,18 @@ func TestSlashCompact_GenericDoneDispatchesTrailingPrompt(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- manual compactor tests (from slash_compact_command_test.go)
+// ---------------------------------------------------------------- compaction result rendering
+//
+// These drive the generic path's result handler, which is the only
+// compaction path in the tree. They used to drive the manual path's
+// appendCompactResult through a fakeCompactor; the fake is gone with the
+// seam it tested, and the rows these assert are the ones the generic path
+// draws.
 
-// fakeCompactor is the cycle-229 test fake for the manualCompactor
-// seam. It records Compact() invocations, exposes an IsCompacting
-// toggle, and stores a slice of listeners the test can fire with
-// synthetic CompactionEndEvents. The listeners are invoked
-// synchronously from `fireEnd` so tests can assert transcript
-// state immediately after publishing the event.
-type fakeCompactor struct {
-	mu sync.Mutex
-
-	// compactCalls records the (customInstructions, time) of every
-	// Compact() invocation the slash command has made.
-	compactCalls []string
-
-	// compactErr is returned by Compact(). When set, the slash
-	// command's goroutine reports it via compactDoneMsg.Err.
-	compactErr error
-
-	// active mirrors Session.IsCompacting(). Tests flip this
-	// before / after a Compact call to simulate PiG's manual
-	// compaction in flight.
-	active bool
-
-	// autoActivate simulates PiG's real behaviour: Compact()
-	// flips active to true on entry and back to false on exit.
-	// Tests that want the slash command to see IsCompacting=true
-	// before its own Compact() runs can disable this with
-	// persistentActive, or set active=true after the slash
-	// command has dispatched its goroutine but before it runs
-	// (which is exactly what the cycle-229 spec's
-	// "already-running" race simulates).
-	autoActivate     bool
-	persistentActive bool
-
-	// listeners is the slice of subscribers the slash command has
-	// attached. The fake's fireEnd walks them in registration
-	// order; the first one is the slash command's one-shot
-	// listener, which unsubscribes itself after receiving the
-	// first end event.
-	listeners []func(any)
-}
-
-// newFakeCompactor returns a fresh fakeCompactor with autoActivate
-// enabled (Compact() flips active true on entry, false on exit — the
-// simplest faithful simulation of PiG's behaviour). Tests that need
-// a different lifecycle flip autoActivate / persistentActive
-// afterwards.
-func newFakeCompactor() *fakeCompactor {
-	return &fakeCompactor{autoActivate: true}
-}
-
-func (f *fakeCompactor) Compact(ctx context.Context, customInstructions string) error {
-	f.mu.Lock()
-	f.compactCalls = append(f.compactCalls, customInstructions)
-	listeners := append([]func(any){}, f.listeners...)
-	if f.autoActivate {
-		f.active = true
-	}
-	err := f.compactErr
-	f.mu.Unlock()
-
-	// Defer the deactivate so the test can observe IsCompacting=true
-	// from inside a synchronous listener — same shape PiG's
-	// coding/session.go:finishCompaction has.
-	if err == nil {
-		go func() {
-			time.Sleep(5 * time.Millisecond)
-			f.mu.Lock()
-			if !f.persistentActive {
-				f.active = false
-			}
-			f.mu.Unlock()
-		}()
-	}
-
-	// Fire a synthetic CompactionStartEvent so the slash command's
-	// listener is exercised on the full path (the production
-	// adapter forwards every event the session emits, including
-	// the start). Tests that only care about the end event can
-	// call fireEnd afterwards with whatever payload they want.
-	startEv := compaction.CompactionStartEvent{Reason: "manual"}
-	for _, listener := range listeners {
-		listener(startEv)
-	}
-	return err
-}
-
-func (f *fakeCompactor) IsCompacting() bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.active
-}
-
-// compactCallArgs returns the customInstructions of every Compact()
-// call so far. Compact() runs on the compaction goroutine, so the read
-// takes the lock the write holds.
-func (f *fakeCompactor) compactCallArgs() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.compactCalls...)
-}
-
-func (f *fakeCompactor) SubscribeManual(listener func(any)) func() {
-	f.mu.Lock()
-	f.listeners = append(f.listeners, listener)
-	idx := len(f.listeners) - 1
-	f.mu.Unlock()
-	return func() {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		// Zero the slot so a stale unsubscribe does not panic
-		// if a second /compact press fires after the listener
-		// already unsubscribed itself.
-		if idx < len(f.listeners) {
-			f.listeners[idx] = nil
-		}
-	}
-}
-
-// fireEnd publishes a synthetic CompactionEndEvent to every
-// currently-registered listener (skipping the nil markers an
-// unsubscribe wrote). Tests call this from the main goroutine so the
-// transcript append happens before the assertion reads m.conversation.response.
-func (f *fakeCompactor) fireEnd(ev compaction.CompactionEndEvent) {
-	f.mu.Lock()
-	listeners := append([]func(any){}, f.listeners...)
-	f.mu.Unlock()
-	for _, listener := range listeners {
-		if listener == nil {
-			continue
-		}
-		listener(ev)
-	}
-}
-
-// mkCompactModel returns a RootModel with m.compaction.Compactor() wired to fake.
-// Mirrors newSlashModel's HOME / ANTIGRAVITY_HOME setup so tests
-// start with a clean settings.json and do not leak state between
-// cases.
-func mkCompactModel(t *testing.T, comp manualCompactor) *RootModel {
-	t.Helper()
-	if comp == nil {
-		comp = newFakeCompactor()
-	}
-	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.session.flags = newStandardFlagSetForTest(t, nil)
-	m.compaction.SetCompactor(comp)
-	return m
-}
-
-// transcriptContains reports whether any line in m.conversation.response contains
-// needle. Cycle 229's slash command emits styled rows — the message
-// line starts with the warning-blue + ⎿ prefix, then the dim gray
-// payload. The assertion uses substring search rather than line
-// equality because the SGR escape sequences are byte-exact-sensitive
-// and a stray whitespace change in the prefix would otherwise
-// invalidate the test for no good reason.
+// transcriptContains reports whether any line in m.conversation.response
+// contains needle. The rows are styled — a warning-blue prefix, then the
+// dim payload — so the assertion is a substring search: a stray whitespace
+// change in the prefix must not invalidate the test.
 func transcriptContains(m *RootModel, needle string) bool {
 	for _, line := range m.conversation.response {
 		if strings.Contains(line, needle) {
@@ -2309,83 +2161,14 @@ func transcriptContains(m *RootModel, needle string) bool {
 	return false
 }
 
-// TestSlashCompactNoArgs — cycle 229 spec: `/compact` (no args)
-// prints "⎿  Compacting context…" then "⎿  Compacted: …" once the
-// CompactionEndEvent arrives.
-func TestSlashCompactNoArgs(t *testing.T) {
-	fake := newFakeCompactor()
-	m := mkCompactModel(t, fake)
-	handled, _ := m.handleSlashCommand("/compact")
-	if !handled {
-		t.Fatal("/compact should be handled")
-	}
-	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.conversation.response)
-	}
-	time.Sleep(20 * time.Millisecond)
-	calls := fake.compactCallArgs()
-	if got := len(calls); got != 1 {
-		t.Fatalf("Compact() called %d times, want 1", got)
-	}
-	if got := calls[0]; got != "" {
-		t.Errorf("Compact(customInstructions) = %q, want empty", got)
-	}
-}
+// TestCompactResultFailureRow pins the failure row: the error text reaches
+// the transcript and is attributed to the compaction, not swallowed.
+func TestCompactResultFailureRow(t *testing.T) {
+	m := mkCompactNoProgModel(t, &fakeStreamClient{summary: "s"})
+	m.setSessionMessages([]backend.Message{{Role: "user", Content: "hello"}})
 
-// TestSlashCompactWithInstructions — `/compact focus on auth code`
-// forwards "focus on auth code" to Compact().
-func TestSlashCompactWithInstructions(t *testing.T) {
-	fake := newFakeCompactor()
-	m := mkCompactModel(t, fake)
-	handled, _ := m.handleSlashCommand("/compact focus on auth code")
-	if !handled {
-		t.Fatal("/compact should be handled")
-	}
-	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.conversation.response)
-	}
-	time.Sleep(20 * time.Millisecond)
-	calls := fake.compactCallArgs()
-	if got := len(calls); got != 1 {
-		t.Fatalf("Compact() called %d times, want 1", got)
-	}
-	if got := calls[0]; got != "focus on auth code" {
-		t.Errorf("Compact(customInstructions) = %q, want %q", got, "focus on auth code")
-	}
-}
+	m.applyGenericCompactResult(genericCompactDoneMsg{Err: context.DeadlineExceeded}, "")
 
-// TestSlashCompactAlreadyRunning — fake.IsCompacting returns true on
-// entry; the slash command must short-circuit with
-// "⎿  Already compacting." and not invoke Compact().
-func TestSlashCompactAlreadyRunning(t *testing.T) {
-	fake := newFakeCompactor()
-	fake.persistentActive = true
-	fake.active = true
-	m := mkCompactModel(t, fake)
-	handled, _ := m.handleSlashCommand("/compact")
-	if !handled {
-		t.Fatal("/compact should be handled")
-	}
-	if !transcriptContains(m, "Already compacting.") {
-		t.Errorf("transcript missing 'Already compacting.' echo:\n%q", m.conversation.response)
-	}
-	if got := len(fake.compactCallArgs()); got != 0 {
-		t.Errorf("Compact() called %d times despite IsCompacting=true, want 0", got)
-	}
-	if transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript unexpectedly contains 'Compacting context…' despite IsCompacting=true:\n%q", m.conversation.response)
-	}
-}
-
-func TestSlashCompactError(t *testing.T) {
-	fake := newFakeCompactor()
-	fake.compactErr = context.DeadlineExceeded
-	m := mkCompactModel(t, fake)
-	m.turn.prog = nil
-	if _, _ = m.handleSlashCommand("/compact"); false {
-	}
-	time.Sleep(100 * time.Millisecond)
-	m.appendCompactResult(compactDoneMsg{Err: fake.compactErr})
 	if !transcriptContains(m, "Compact failed") {
 		t.Errorf("transcript missing 'Compact failed:' echo:\n%q", m.conversation.response)
 	}
@@ -2394,78 +2177,43 @@ func TestSlashCompactError(t *testing.T) {
 	}
 }
 
-func TestSlashCompactTokensReduction(t *testing.T) {
-	m := mkCompactModel(t, newFakeCompactor())
-	m.appendCompactResult(compactDoneMsg{
-		TokensBefore: 184_000,
-		TokensAfter:  42_000,
-		Reason:       "manual",
-	})
+// TestCompactResultDividerAndStats pins the success rows: the reference
+// draws a centred "Conversation compacted" rule and a centred stats line
+// rather than a transcript bullet.
+func TestCompactResultDividerAndStats(t *testing.T) {
+	m := mkCompactNoProgModel(t, &fakeStreamClient{summary: "s"})
+	m.setSessionMessages([]backend.Message{{Role: "user", Content: "hello"}})
+
+	m.applyGenericCompactResult(genericCompactDoneMsg{
+		Summary:     "a summary",
+		StatsBefore: compaction.Stats{Tokens: 184_000, Messages: 12},
+		StatsAfter:  compaction.Stats{Tokens: 42_000, Messages: 1},
+	}, "")
+
 	if !transcriptContains(m, "Conversation compacted") {
 		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.conversation.response)
 	}
-	want := "context 184.0k \u2192 ~42.0k"
-	if !transcriptContains(m, want) {
-		t.Errorf("transcript missing %q:\n%q", want, m.conversation.response)
-	}
-	if transcriptContains(m, "% reduction") {
-		t.Errorf("transcript unexpectedly contains '%% reduction':\n%q", m.conversation.response)
+	if !transcriptContains(m, "context 184.0k") {
+		t.Errorf("transcript missing the before figure in the stats row:\n%q", m.conversation.response)
 	}
 }
 
-func TestSlashCompactZeroTokens(t *testing.T) {
-	m := mkCompactModel(t, newFakeCompactor())
-	m.appendCompactResult(compactDoneMsg{})
-	if !transcriptContains(m, "context 0 \u2192 ~0") {
-		t.Errorf("transcript missing 'context 0 → ~0' fallback:\n%q", m.conversation.response)
-	}
-	if transcriptContains(m, "% reduction") {
-		t.Errorf("transcript unexpectedly contains '%% reduction' on zero-token row:\n%q", m.conversation.response)
-	}
-}
+// TestCompactResultZeroTokens pins the zero-token fallback: a compaction
+// that reports no counts must still draw a readable row, not a blank or a
+// divide-by-zero artifact.
+func TestCompactResultZeroTokens(t *testing.T) {
+	m := mkCompactNoProgModel(t, &fakeStreamClient{summary: "s"})
+	m.setSessionMessages([]backend.Message{{Role: "user", Content: "hello"}})
 
-func TestSlashCompactFullEventFlow(t *testing.T) {
-	fake := newFakeCompactor()
-	m := mkCompactModel(t, fake)
-	m.turn.prog = nil
-	if _, _ = m.handleSlashCommand("/compact"); false {
-	}
-	time.Sleep(50 * time.Millisecond)
-	fake.fireEnd(compaction.CompactionEndEvent{
-		Reason:               "manual",
-		TokensBefore:         50_000,
-		EstimatedTokensAfter: 12_000,
-	})
-	time.Sleep(50 * time.Millisecond)
-	m.appendCompactResult(compactDoneMsg{
-		TokensBefore: 50_000,
-		TokensAfter:  12_000,
-		Reason:       "manual",
-	})
-	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…':\n%q", m.conversation.response)
-	}
-	if !transcriptContains(m, "context 50.0k \u2192 ~12.0k") {
-		t.Errorf("transcript missing 'context 50.0k → ~12.0k':\n%q", m.conversation.response)
-	}
+	m.applyGenericCompactResult(genericCompactDoneMsg{}, "")
+
 	if !transcriptContains(m, "Conversation compacted") {
-		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.conversation.response)
+		t.Errorf("transcript missing the divider on a zero-token result:\n%q", m.conversation.response)
+	}
+	if transcriptContains(m, "% reduction") {
+		t.Errorf("transcript contains a '%% reduction' figure on a zero-token row:\n%q", m.conversation.response)
 	}
 }
-
-func TestSlashCompactCycle167StubPath(t *testing.T) {
-	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.session.flags = newStandardFlagSetForTest(t, nil)
-	if _, _ = m.handleSlashCommand("/compact"); false {
-	}
-	if !transcriptContains(m, "Nothing to compact yet.") {
-		t.Errorf("stub path missing 'Nothing to compact yet.' echo:\n%q", m.conversation.response)
-	}
-}
-
-var _ manualCompactor = (*fakeCompactor)(nil)
 
 func TestStatusRowCompactingSpinner(t *testing.T) {
 	m := &RootModel{}
@@ -2621,18 +2369,17 @@ func TestCompactEndMsg_WithSummary_UpdatesSessionAndTranscript(t *testing.T) {
 	}
 }
 
+// TestSlashBoostPromptFormatting used to assert that /boost sends an
+// <ORCHESTRATOR> envelope with a formatted **Task**: line. The reference sends
+// neither: `/boost analyze the retry layer` is a 160 B turn with nothing but
+// the timestamp in <ADDITIONAL_METADATA>, and the command is absent from the
+// reference's picker (the binary carries a server-issued boostCommandDisabled
+// control). So the assertion inverts: the envelope must not be sent, and the
+// user's text must survive verbatim in the turn.
+//
+// boostPrompt() itself is still built — it is the clone's own orchestrator
+// text, used elsewhere — but /boost no longer puts it on the wire.
 func TestSlashBoostPromptFormatting(t *testing.T) {
-	p := boostPrompt()
-	if !strings.HasPrefix(p, "<ORCHESTRATOR>\n") || !strings.HasSuffix(p, "\n</ORCHESTRATOR>") {
-		t.Fatalf("boostPrompt missing <ORCHESTRATOR> envelope: %q", p)
-	}
-	if !strings.Contains(p, "Solo Routine") || !strings.Contains(p, "Delegation Routine") {
-		t.Fatalf("boostPrompt missing Solo/Delegation routines")
-	}
-	if !strings.Contains(p, "DeepCoder") || !strings.Contains(p, "DeepInvestigator") {
-		t.Fatalf("boostPrompt missing DeepCoder/DeepInvestigator routing")
-	}
-
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
@@ -2640,15 +2387,12 @@ func TestSlashBoostPromptFormatting(t *testing.T) {
 	if !ok || cmd == nil {
 		t.Fatalf("slashBoost returned ok=%v, cmd=%v", ok, cmd)
 	}
-	foundTask := false
-	for _, msg := range m.SessionMessages() {
-		if strings.Contains(msg.Content, "**Task**: Fix memory leak in network buffer") {
-			foundTask = true
-			break
-		}
+	if got, want := lastUserMessage(m), "/boost Fix memory leak in network buffer"; got != want {
+		t.Fatalf("slashBoost turn = %q, want %q", headLine(got), want)
 	}
-	if !foundTask {
-		t.Fatalf("slashBoost did not format **Task**: Fix memory leak in network buffer into conversation: %+v", m.SessionMessages())
+	wire := lastUserWire(m)
+	if strings.Contains(wire, "<ORCHESTRATOR>") {
+		t.Fatalf("slashBoost sent the invented <ORCHESTRATOR> body the reference never sends:\n%s", wire)
 	}
 }
 

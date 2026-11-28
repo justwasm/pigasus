@@ -5,23 +5,23 @@
 02: |  The terminal-first surface to interact with Pigasus agents. Stay in your flow |
 03: |without context switching.                                                      |
 04: |                                                                                |
-05: |  ## 1.5.14                                                                     |
+05: |  ## 1.5.17                                                                     |
 06: |                                                                                |
-07: |  • Added /thinking (/thinking [on|off], saved as "showThinking" in             |
-08: |  settings.json and off by default) to stream the model's full thinking live    |
-09: |  in the transcript while it thinks and keep finished thoughts expanded         |
-10: |  without pressing Ctrl+O.                                                      |
-11: |  • Added a live Overview section to /swarm board on terminals at least 28      |
-12: |  rows tall, showing the swarm's goal, overall task progress (Overview · N of   |
-13: |  M tasks done and any blocked count), and up to six workstream threads with    |
-14: |  status indicators for which workers are working, in review, waiting on a      |
-15: |  peer, failed, or done.                                                        |
-16: |  • Added plan mode to --remote-agent sessions, so a remote agent can research  |
-17: |  and write a plan for your review before editing files or running commands:    |
-18: |  switch to it with Shift+Tab, start in it with --mode plan, or choose plan     |
-19: |  under Agent Mode on the Remote Agent tab of /config.                          |
-20: |  • Added an Agent Mode setting (default, accept-edits, and plan) to the        |
-21: |  (0–20 of 4241 lines)                                                          |
+07: |  • Added mouse cursor placement and text selection inside the prompt box in    |
+08: |  the full screen (altscreen) rendering mode: click to move the cursor, or      |
+09: |  drag and double-click (and double-click-drag by word) to highlight text for   |
+10: |  typing or paste replacement, Backspace/Delete, Ctrl+C copy, and Ctrl+X cut    |
+11: |  without overwriting your clipboard on release. When Vim mode is on, mouse     |
+12: |  selections outside Insert mode enter characterwise Visual mode so Vim         |
+13: |  operators and motions act on the selection, and Normal-mode clicks past the   |
+14: |  end of a line land on the last character.                                     |
+15: |  • Improved background shell command tracking by letting run_command set a     |
+16: |  NotificationTimeoutSeconds wakeup, so the CLI automatically notifies the      |
+17: |  agent when a long-running command is still running instead of spending extra  |
+18: |  turns on separate polling timers.                                             |
+19: |  • Improved the Orchestrator row in /model so that picking the same model and  |
+20: |  thinking Effort for both Planner and Executor runs single-agent directly on   |
+21: |  (0–20 of 4455 lines)                                                          |
 22: |                                                                                |
 23: |  ↑/↓ Navigate · esc Cancel                                                     |
 --- ATTRIBUTE MATRIX ---
@@ -35,16 +35,16 @@
 07: [2:78] fg=#e8eaed
 08: [2:78] fg=#e8eaed
 09: [2:78] fg=#e8eaed
-10: [2:26] fg=#e8eaed
+10: [2:78] fg=#e8eaed
 11: [2:78] fg=#e8eaed
 12: [2:78] fg=#e8eaed
 13: [2:78] fg=#e8eaed
-14: [2:78] fg=#e8eaed
-15: [2:24] fg=#e8eaed
+14: [2:43] fg=#e8eaed
+15: [2:78] fg=#e8eaed
 16: [2:78] fg=#e8eaed
 17: [2:78] fg=#e8eaed
-18: [2:78] fg=#e8eaed
-19: [2:54] fg=#e8eaed
+18: [2:35] fg=#e8eaed
+19: [2:78] fg=#e8eaed
 20: [2:78] fg=#e8eaed
 21: [0:22] fg=#657b83
 22: (plain)

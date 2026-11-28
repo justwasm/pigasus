@@ -8,7 +8,6 @@ import (
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
-	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"github.com/justwasm/pigasus/internal/ui/views/mentionpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/subagentquestionpanel"
@@ -51,52 +50,29 @@ func (m *RootModel) viewerVPWidth() int {
 }
 
 func (m *RootModel) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
-	if m.overlays.panel.kind == panelregistry.Logs {
-		if key.Mod == 0 && (key.Code == 'f' || key.Code == 'F' || key.Text == "f" || key.Text == "F") {
-			m.overlays.panel.logsFollow = !m.overlays.panel.logsFollow
-			if m.overlays.panel.logsFollow {
-				m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
-			}
+	// /logs is a panel now, not a document: it owns the view bar, the
+	// fold keys and the follow toggle, so its keys go to the panel rather
+	// than to the document viewer's scroll handler.
+	if m.overlays.panel.kind == panelregistry.Debug {
+		handled, cmd := m.debugPanel().HandleKey(key)
+		if handled {
 			m.invalidateViewCache()
-			return true, nil
 		}
-		if key.Mod == 0 && (key.Code == 'r' || key.Code == 'R' || key.Text == "r" || key.Text == "R") {
-			if m.overlays.panel.logsFollow {
-				m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
-			}
-			m.invalidateViewCache()
-			return true, nil
-		}
+		return handled, cmd
 	}
-	prevOffset := m.overlays.panel.window
 	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.overlays.panel.window)
 	m.overlays.panel.window = offset
-	if m.overlays.panel.kind == panelregistry.Logs {
-		switch tuilib.ClassifyViewerNavKey(key) {
-		case tuilib.NavUp, tuilib.NavPageUp, tuilib.NavHalfPageUp, tuilib.NavTop:
-			m.overlays.panel.logsFollow = false
-		case tuilib.NavBottom:
-			m.overlays.panel.logsFollow = true
-		case tuilib.NavDown, tuilib.NavPageDown, tuilib.NavHalfPageDown:
-			if offset >= tuiviewer.MaxOffset(m.logsViewerSpec()) {
-				m.overlays.panel.logsFollow = true
-			} else if offset < prevOffset {
-				m.overlays.panel.logsFollow = false
-			}
-		}
-	}
 	return handled, cmd
 }
 
 func (m *RootModel) scrollViewerPanel(delta int) {
-	m.overlays.panel.window = m.viewerPanel().Scroll(delta, m.overlays.panel.window)
-	if m.overlays.panel.kind == panelregistry.Logs {
-		if delta < 0 {
-			m.overlays.panel.logsFollow = false
-		} else if delta > 0 && m.overlays.panel.window >= tuiviewer.MaxOffset(m.logsViewerSpec()) {
-			m.overlays.panel.logsFollow = true
+	if m.overlays.panel.kind == panelregistry.Debug {
+		if m.debugPanel().Scroll(delta) {
+			m.invalidateViewCache()
 		}
+		return
 	}
+	m.overlays.panel.window = m.viewerPanel().Scroll(delta, m.overlays.panel.window)
 }
 
 // listResumeConversations returns the store's conversations for the /resume picker.

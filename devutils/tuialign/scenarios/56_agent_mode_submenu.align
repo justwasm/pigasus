@@ -1,0 +1,44 @@
+NAME "The Agent Mode submenu's own list of choices"
+WINDOW 100 34
+TARGET both
+
+# The question this answers: what are the choices, and which is the default?
+#
+# The catalogue in configpanel.go lists four:
+#
+#     default (stored "")   accept-edits   auto   plan
+#
+# Four is right. This comment used to say `default` and `auto` were one
+# state, on the strength of scene 55's one-press observation. That reading
+# came from a host where agy declines auto ("Auto mode is not available: it
+# needs the OS terminal sandbox...") and shows default's screen for both, so
+# the two photographed identically without being the same state.
+#
+# official-docs/cli/modes.md lists all four as modes and gives the lap as
+# default > accept-edits > auto > plan > default. AGY 1.5.7's "Changed the
+# default Agent Mode from Default to Auto" says which mode a *new session*
+# starts in; it does not remove default from the catalogue. 49_mode_cycle_order
+# asserts the lap; this scene photographs the panel.
+#
+# The submenu is the place that shows the reference's own list, so this
+# photographs it rather than reasoning about it. Agent Mode is the first
+# row, so Enter on the freshly-opened panel opens its submenu.
+#
+# No SETTINGS: the absent-key case is the one that makes the default
+# visible, and an overlay would supply one.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+TYPE "/config"
+ENTER
+WAIT_TEXT "Color Scheme" 20s
+SLEEP 600ms
+
+ENTER
+WAIT_TEXT "accept-edits" 20s
+SLEEP 600ms
+SNAPSHOT "01_agent_mode_submenu"
+
+DIFF
+CLEANUP

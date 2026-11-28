@@ -4,13 +4,14 @@ package customize
 // payloads into.
 //
 // Window is the model's full context window (200 000 for the
-// Gemini-class Antigravity CLI ships; see
-// internal/pigrt/runtime.go's compactContextWindow).
+// Gemini-class Antigravity CLI ships; the owner of that default is
+// internal/features/models/modelctx.DefaultContextWindow).
 //
 // Reserve is the headroom the trimmer leaves for the live
 // conversation and the model's output. The reference's
-// auto-compact threshold (see internal/pigrt.CompactThreshold) maps
-// onto this number; the trimmer uses Reserve as a fixed floor so a
+// auto-compact threshold (the catalog entry's CompactThreshold, read
+// through modelctx.ConfiguredCompactThreshold) maps onto this number;
+// the trimmer uses Reserve as a fixed floor so a
 // caller can decide "I have 50 K tokens of room for everything
 // that isn't the agent's stream" and the trimmer respects it.
 //

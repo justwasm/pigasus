@@ -41,11 +41,11 @@ package streampipe
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
 // tapMode is the per-attempt forwarding mode of an attemptTap.
@@ -258,25 +258,36 @@ func (p Pipeline[Req]) readThrough(ctx context.Context, resp *http.Response, tap
 	return <-errc
 }
 
-// isModelCapacityErr reports whether err is the transient model-capacity
-// failure the 1.5.17 changelog names: a 503 / MODEL_CAPACITY_EXHAUSTED answer
-// for a request the model cannot serve right now, which is worth re-issuing
-// once capacity frees up.
+// isMidStreamRetryable reports whether a failure that arrives *inside* an
+// already-open stream is worth re-issuing the request for.
 //
-// Only 503 qualifies. A 500 is a server fault on this answer, a 400 is a
-// malformed request and a 429 is rate limiting; each keeps exactly the
-// behaviour it had before this fix. A quota or prepaid-balance body is excluded
-// through IsRetryableStatus, the same way the open-path classifier excludes it.
-func isModelCapacityErr(err error) bool {
+// Two changelog rules meet here:
+//
+//   - 1.5.17 — a 503 / MODEL_CAPACITY_EXHAUSTED answer means the model cannot
+//     continue right now, so the request is re-issued and the replayed prefix
+//     is swallowed (the case attemptTap exists for).
+//   - 1.5.0 — "Fixed certain models failing a turn on rate-limit (429) and
+//     server (5xx) errors instead of retrying them, now honoring the server's
+//     Retry-After header." The open path honoured that from the start
+//     (ExecuteWithRetry); a copy of the same failure arriving as an SSE error
+//     frame did not, and that made the gateway's most common upstream failure
+//     (`gateway: upstream 500: Unknown error`) the one shape that killed a
+//     turn with no retry at all, not even the transport's own.
+//
+// The predicate is deliberately the same one the open path uses, so a status
+// the transport would retry before the first byte is also retried after it.
+// Quota, auth and prepaid-balance failures are excluded because retrying them
+// cannot succeed — and because an account-pool switch, not a retry, is the
+// right answer to a spent quota. Everything that is not a typed *HTTPError (a
+// decode failure, a content-filtered or truncated response, a plain reader
+// error) stays non-retryable: those describe *this answer*, not the model's
+// availability.
+func isMidStreamRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	var he *apierror.HTTPError
-	if !errors.As(err, &he) {
+	if apierror.IsQuotaReachedErr(err) || apierror.IsAuthFailureErr(err) {
 		return false
 	}
-	if he.StatusCode != http.StatusServiceUnavailable {
-		return false
-	}
-	return he.IsRetryableStatus()
+	return retry.IsConnectionDropped(err) || apierror.IsRetryableStatusErr(err)
 }

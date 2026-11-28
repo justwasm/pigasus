@@ -23,7 +23,7 @@
       "agy": true,
       "clone": true,
       "cycle": 255,
-      "evidence": "cmd/wagyu/banner_env.go",
+      "evidence": "internal/ui/tuilib/banner_env.go",
       "notes": "AGY 1.1.19: env var suppresses the decorative 24-bit-RGB art row of the startup banner; the version + account rows are kept. Clone parses '1' / 'true' / 'yes' (case-insensitive, whitespace-trimmed) and falls through to 'render' on everything else."
     },
     {
@@ -32,7 +32,7 @@
       "agy": true,
       "clone": true,
       "cycle": 234,
-      "evidence": "internal/cli/subcommand_parity.go",
+      "evidence": "internal/tui/slash_commands_handlers.go",
       "notes": "AGY 1.3.6: `/plugin List` works in any case (was `Unknown subcommand`). Clone resolves the verb through canonical names."
     },
     {
@@ -41,7 +41,7 @@
       "agy": true,
       "clone": true,
       "cycle": 234,
-      "evidence": "internal/cli/subcommand_parity.go",
+      "evidence": "internal/cli/plugin_mgmt.go",
       "notes": "AGY 1.4.1: install path accepts a marketplace name and resolves it; clone mirrors the dispatch."
     },
     {
@@ -50,7 +50,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "internal/convstore/find.go",
+      "evidence": "internal/app/session/convstore/find.go",
       "notes": "AGY 1.4.0: `--continue` resumes the most recent conversation by walking cwd + 8 ancestors + immediate children. Clone ships the same walker."
     },
     {
@@ -59,7 +59,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "cmd/wagyu/continue.go",
+      "evidence": "internal/app/session/convstore/continue.go",
       "notes": "AGY 1.4.0: prints a recoverable banner when no conversation is found. Clone surfaces the same message."
     },
     {
@@ -68,7 +68,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/agent/validate.go",
+      "evidence": "internal/features/agents/list.go",
       "notes": "AGY 1.3.4: invalid names fail fast with the available list in print mode; interactive path shows a banner. Clone matches both surfaces."
     },
     {
@@ -77,7 +77,7 @@
       "agy": true,
       "clone": true,
       "cycle": 118,
-      "evidence": "cmd/wagyu/main.go",
+      "evidence": "internal/cli/lifecycle.go",
       "notes": "AGY 1.4.0: schema errors fire before effort / model errors. Clone preserves the order across the recovered jetski dispatch."
     },
     {
@@ -86,7 +86,7 @@
       "agy": true,
       "clone": true,
       "cycle": 39,
-      "evidence": "internal/cli/jetski.go",
+      "evidence": "internal/cli/lifecycle.go",
       "notes": "AGY 1.3.4: combination exits 2 with the canonical message. Clone recovers the exit code from the jetski dispatch."
     },
     {
@@ -95,7 +95,7 @@
       "agy": true,
       "clone": true,
       "cycle": 99,
-      "evidence": "cmd/wagyu/print_slash.go",
+      "evidence": "internal/printmode/print_slash.go",
       "notes": "AGY 1.3.5: forwards literal `/...` text to the model. Clone routes it through dispatchPrintSlash's gate."
     },
     {
@@ -104,7 +104,7 @@
       "agy": true,
       "clone": true,
       "cycle": 193,
-      "evidence": "cmd/wagyu/slash_panels.go",
+      "evidence": "internal/tui/panel_seams_slash.go",
       "notes": "AGY 1.4.0: 1238-line document, ↑/↓ / pgup/pgdown / ctrl+home / ctrl+end. Clone ships the same panel + pagination counter."
     },
     {
@@ -113,7 +113,7 @@
       "agy": true,
       "clone": true,
       "cycle": 235,
-      "evidence": "cmd/wagyu/slash_changelog_source.go",
+      "evidence": "internal/ui/views/changelog/source.go",
       "notes": "AGY 1.4.1: panel reads internal/cli/testdata/changelog_reference.txt at runtime. Clone walks up from cwd looking for go.mod."
     },
     {
@@ -122,7 +122,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/diff_syntax.go",
+      "evidence": "diffsyntax/syntax.go",
       "notes": "AGY 1.3.5: Aurora-Dark tokens per language. Clone uses chroma/v2's GlobalLexerRegistry."
     },
     {
@@ -131,7 +131,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/slash_diff_fold.go",
+      "evidence": "internal/ui/views/diffpanel/panel_fold.go",
       "notes": "AGY 1.3.5: Ctrl+O folds the nearest hunk, 'f' switches between changes-only and whole-file. Clone tracks both states."
     },
     {
@@ -140,7 +140,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/diff_truncate.go",
+      "evidence": "diffsyntax/truncate.go",
       "notes": "AGY 1.3.6: CJK / ZWJ family-emoji sequences cut at grapheme boundaries. Clone uses x/text/width + x/exp/utf8string."
     },
     {
@@ -149,7 +149,7 @@
       "agy": true,
       "clone": false,
       "cycle": null,
-      "evidence": "cmd/wagyu/slash_viewer_panels.go",
+      "evidence": "internal/tui/panel_seams_context.go",
       "notes": "AGY 1.3.5: only renders rows in the visible window; files > 100K lines or 10 MB disable expand/whole-file. Clone renders the whole file."
     },
     {
@@ -167,7 +167,7 @@
       "agy": true,
       "clone": true,
       "cycle": 228,
-      "evidence": "internal/mdrender/glamour_adapter.go",
+      "evidence": "internal/ui/mdrender/glamour_adapter.go",
       "notes": "AGY 1.4.2: charm.land/glamour/v2 v2.0.1; clone pins the same module version."
     },
     {
@@ -176,8 +176,8 @@
       "agy": true,
       "clone": true,
       "cycle": 252,
-      "evidence": "internal/mdrender/dir_link.go",
-      "notes": "AGY 1.4.0 changelog line 25: directory-links now show the directory name (e.g. 'pipelines/') instead of disappearing. Cycle 252 ships DirLinkTarget / RenderDirLink in internal/mdrender/dir_link.go with deferred recover() around os.Stat, plus an integration point in internal/mdrender/glamour_preprocess.go that substitutes the entire `[label](url)` markdown link with the URL itself (single trailing '/') when DirLinkTarget returns true. Non-directory URLs (including http/https/file/ftp/ssh/ws/wss schemes) are unaffected."
+      "evidence": "internal/ui/mdrender/dir_link.go",
+      "notes": "AGY 1.4.0 changelog line 25: directory-links now show the directory name (e.g. 'pipelines/') instead of disappearing. Cycle 252 ships DirLinkTarget / RenderDirLink in internal/ui/mdrender/dir_link.go with deferred recover() around os.Stat, plus an integration point in internal/ui/mdrender/glamour_preprocess_blocks.go that substitutes the entire `[label](url)` markdown link with the URL itself (single trailing '/') when DirLinkTarget returns true. Non-directory URLs (including http/https/file/ftp/ssh/ws/wss schemes) are unaffected."
     },
     {
       "name": "Markdown glamour rendering (print mode TTY)",
@@ -185,7 +185,7 @@
       "agy": true,
       "clone": true,
       "cycle": 231,
-      "evidence": "cmd/wagyu/print_glamour.go",
+      "evidence": "internal/printmode/print_glamour.go",
       "notes": "AGY 1.4.2: `--print` glamour-on-Done on TTY. Clone routes through glamourTTYCheck + mdrender.ANSI."
     },
     {
@@ -194,7 +194,7 @@
       "agy": true,
       "clone": true,
       "cycle": 229,
-      "evidence": "cmd/wagyu/tui_run.go",
+      "evidence": "internal/tui/substates.go",
       "notes": "AGY 1.4.2: per-chunk prog.Send(backendChunkMsg) into the TUI. Clone coalesces into one growing row + session entry."
     },
     {
@@ -203,7 +203,7 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "cmd/wagyu/tui_run.go",
+      "evidence": "internal/tui/substates.go",
       "notes": "AGY 1.4.2: token-sized deltas extend one row; '\\n' starts a new row. Clone matches the cycle-230 contract."
     },
     {
@@ -212,7 +212,7 @@
       "agy": true,
       "clone": true,
       "cycle": 226,
-      "evidence": "internal/mdrender/mermaid.go",
+      "evidence": "internal/ui/mdrender/mermaid.go",
       "notes": "AGY 1.4.0: handles YAML frontmatter, %%{init:...}%%, %% comments, Mermaid v11 syntax. Clone ships the same frontmatter-aware walker."
     },
     {
@@ -221,7 +221,7 @@
       "agy": true,
       "clone": true,
       "cycle": 226,
-      "evidence": "internal/mdrender/latex.go",
+      "evidence": "internal/ui/mdrender/latex.go",
       "notes": "AGY 1.4.1: Greek expansion '\\alpha' → 'α'. Clone does the same via the cycle-225 control strip."
     },
     {
@@ -230,7 +230,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/diff_syntax.go",
+      "evidence": "diffsyntax/syntax.go",
       "notes": "AGY 1.4.2: chroma/v2 lexers. Clone depends on github.com/alecthomas/chroma/v2 directly."
     },
     {
@@ -248,8 +248,8 @@
       "agy": true,
       "clone": true,
       "cycle": 256,
-      "evidence": "cmd/wagyu/escape_optimizations.go,cmd/wagyu/renderer.go",
-      "notes": "AGY 1.1.19: 'AGY_CLI_DISABLE_ESCAPE_SEQUENCE_OPTIMIZATIONS=1/true/yes (case-insensitive) bypasses the renderer's dirty-rectangle and diffing optimizations and emits the full viewport each frame.' Cycle 256 ships the env-var gate (escapeSequenceOptimizationsBypassed / escapeSequenceOptimizationsEnabled pair, parseBoolish truthy parser), the renderer-level applyRenderer / shouldConsultRenderer seam in cmd/wagyu/renderer.go, and 7 named tests in cmd/wagyu/renderer_test.go covering the truthy/falsy/garbage/case-insensitive/print-mode-bypass cases. Print mode (-p/--print) does not consult the renderer; shouldConsultRenderer gates that explicitly. Bubbletea/v2's cursed_renderer owns the actual byte-level diff; cycle 256 ships the env-var surface, not a render-pipeline fork (out of scope; documented in 硬约束)."
+      "evidence": "internal/tui/tui_view.go,internal/tui/tui_view.go",
+      "notes": "AGY 1.1.19: 'AGY_CLI_DISABLE_ESCAPE_SEQUENCE_OPTIMIZATIONS=1/true/yes (case-insensitive) bypasses the renderer's dirty-rectangle and diffing optimizations and emits the full viewport each frame.' Cycle 256 ships the env-var gate (escapeSequenceOptimizationsBypassed / escapeSequenceOptimizationsEnabled pair, parseBoolish truthy parser), the renderer-level applyRenderer / shouldConsultRenderer seam in internal/tui/tui_view.go, and 7 named tests in internal/tui/tui_run_test.go covering the truthy/falsy/garbage/case-insensitive/print-mode-bypass cases. Print mode (-p/--print) does not consult the renderer; shouldConsultRenderer gates that explicitly. Bubbletea/v2's cursed_renderer owns the actual byte-level diff; cycle 256 ships the env-var surface, not a render-pipeline fork (out of scope; documented in 硬约束)."
     },
     {
       "name": "OSC 8 hyperlink `;` URI encoding",
@@ -257,8 +257,8 @@
       "agy": true,
       "clone": true,
       "cycle": 240,
-      "evidence": "internal/render/url_osc8_encode.go,internal/render/render.go,internal/render/url_osc8_encode_test.go",
-      "notes": "AGY 1.4.1 (changelog_reference.txt:13): 'Fixed clickable links in agent responses whose URL contains `;` opening a URL cut off at the first `;` in terminals and multiplexers that split link sequences on semicolons.' Cycle 240 ships the minimum-viable percent-encoder (`urlForOSC8` + `osc8URIReplacer` in internal/render/url_osc8_encode.go) that percent-encodes the OSC-8-significant characters `;` -> `%3B` and `\\` -> `%5C` in the URI segment of the OSC 8 frame at internal/render/render.go:Hyperlink, plus 7 tests in url_osc8_encode_test.go covering the literal regression case, the backslash-pinned case, the no-special-char byte-identity contract, the empty-input contract, the multi-semicolon encoding, the purity contract, and the integration test that the OSC 8 emitter encodes the URI but leaves the *label* (body) text verbatim. The label-text distinction is what lets callers pass user-facing text like 'Choose: yes; no' as the body without it becoming 'Choose: yes%3B no'. Full RFC 3986 percent-encoding is out of scope (other OSC-significant chars and percent-triplet handling are caller's responsibility, per the bug-report's surface)."
+      "evidence": "render/url_osc8_encode.go,render/render.go,render/url_osc8_encode_test.go",
+      "notes": "AGY 1.4.1 (changelog_reference.txt:13): 'Fixed clickable links in agent responses whose URL contains `;` opening a URL cut off at the first `;` in terminals and multiplexers that split link sequences on semicolons.' Cycle 240 ships the minimum-viable percent-encoder (`urlForOSC8` + `osc8URIReplacer` in render/url_osc8_encode.go) that percent-encodes the OSC-8-significant characters `;` -> `%3B` and `\\` -> `%5C` in the URI segment of the OSC 8 frame at render/render.go:Hyperlink, plus 7 tests in url_osc8_encode_test.go covering the literal regression case, the backslash-pinned case, the no-special-char byte-identity contract, the empty-input contract, the multi-semicolon encoding, the purity contract, and the integration test that the OSC 8 emitter encodes the URI but leaves the *label* (body) text verbatim. The label-text distinction is what lets callers pass user-facing text like 'Choose: yes; no' as the body without it becoming 'Choose: yes%3B no'. Full RFC 3986 percent-encoding is out of scope (other OSC-significant chars and percent-triplet handling are caller's responsibility, per the bug-report's surface)."
     },
     {
       "name": "OSC 7501 Program Status Protocol",
@@ -266,7 +266,7 @@
       "agy": true,
       "clone": true,
       "cycle": 214,
-      "evidence": "cmd/wagyu/program_status.go",
+      "evidence": "internal/ui/views/programstatus/status.go",
       "notes": "AGY 1.4.0: tab/status shows Working/Blocked/Done/Error. Clone emits the OSC sequence after the bubbletea/v2.1 upgrade."
     },
     {
@@ -275,7 +275,7 @@
       "agy": true,
       "clone": true,
       "cycle": 213,
-      "evidence": "cmd/wagyu/hyperlink_probe.go",
+      "evidence": "render/hyperlink_caps.go",
       "notes": "AGY 1.4.0: disables OSC 8 on Apple Terminal, GNU screen, tmux without passthrough. Clone probes LC_TERMINAL + tmux env."
     },
     {
@@ -284,7 +284,7 @@
       "agy": true,
       "clone": true,
       "cycle": 244,
-      "evidence": "cmd/wagyu/tui_run.go,cmd/wagyu/queue_mode_test.go",
+      "evidence": "internal/tui/tui_update_ticks.go,internal/tui/tui_prompt_submit.go",
       "notes": "AGY 1.4.0: alt+m sends using opposite of Queued Messages setting. Cycle 244 ships the alt+m binding, the queueMode flag on runMode, the Enter / Cmd+Enter split when queueMode is on, the status-row '· Queue mode' badge, and the auto-flush of the queued prompt on turnDoneMsg."
     },
     {
@@ -293,7 +293,7 @@
       "agy": true,
       "clone": true,
       "cycle": 92,
-      "evidence": "cmd/wagyu/count_pluralization_test.go",
+      "evidence": "internal/core/plural/plural.go",
       "notes": "AGY 1.3.3: 1 result, 1 match, 1 file, 1 line. Clone emits singular/plural from a single pluralization helper."
     },
     {
@@ -311,7 +311,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "internal/clipboard/osc52.go",
+      "evidence": "internal/features/tools/clipboard/osc52.go",
       "notes": "AGY 1.4.2: writes the selected range via OSC 52. Clone ships the same OSC52 wiring."
     },
     {
@@ -320,7 +320,7 @@
       "agy": true,
       "clone": true,
       "cycle": 228,
-      "evidence": "cmd/wagyu/slash_codesearch.go",
+      "evidence": "internal/ui/views/codesearchpanel/panel.go",
       "notes": "AGY 1.4.0: streamed rg --json with Esc-to-kill. Clone ships the same buffered channel + tick fan-out."
     },
     {
@@ -329,7 +329,7 @@
       "agy": true,
       "clone": true,
       "cycle": 228,
-      "evidence": "internal/codesearch/rg.go",
+      "evidence": "internal/features/tools/codesearch/ripgrep.go",
       "notes": "AGY 1.4.0: spawns rg --json, streams matches. Clone depends on regexp2 (cycle 198) for the same search grammar."
     },
     {
@@ -338,7 +338,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/slash_codesearch.go",
+      "evidence": "internal/ui/views/codesearchpanel/panel.go",
       "notes": "AGY 1.3.6: ellipsis cut at grapheme boundary. Clone uses x/text/width for cut."
     },
     {
@@ -347,7 +347,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "internal/codesearch/rg.go",
+      "evidence": "internal/features/tools/codesearch/ripgrep.go",
       "notes": "AGY 1.4.0: falls back to a local walk when rg can't run (e.g. no PATH). Clone has the synchronous path."
     },
     {
@@ -356,7 +356,7 @@
       "agy": true,
       "clone": true,
       "cycle": 229,
-      "evidence": "cmd/wagyu/slash_commands.go",
+      "evidence": "internal/tui/slash_commands.go",
       "notes": "AGY 1.3.5: `/compact` summarises the conversation; `/compact <msg>` also answers. Clone mirrors the routing."
     },
     {
@@ -365,7 +365,7 @@
       "agy": true,
       "clone": true,
       "cycle": 229,
-      "evidence": "cmd/wagyu/compact_panel.go",
+      "evidence": "internal/core/compaction/cancel.go",
       "notes": "AGY 1.3.5: shows 'Compacting conversation...'; Esc cancels. Clone wires the cycle-228 cancellable-turn contract."
     },
     {
@@ -374,7 +374,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "internal/convstore/title.go",
+      "evidence": "internal/app/session/convstore/title.go",
       "notes": "AGY 1.4.0: title is generated on first message and cached on disk. Clone persists via saveSession."
     },
     {
@@ -383,7 +383,7 @@
       "agy": true,
       "clone": true,
       "cycle": 175,
-      "evidence": "internal/convstore/sqlite.go",
+      "evidence": "internal/app/session/convstore/sqlite.go",
       "notes": "AGY 1.4.0: conversations land in conv DBs. Clone reads them via github.com/ncruces/go-sqlite3."
     },
     {
@@ -392,7 +392,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "internal/convstore/find.go",
+      "evidence": "internal/app/session/convstore/find.go",
       "notes": "AGY 1.4.0: walks cwd + 8 ancestors + immediate children. Clone ships the same walker."
     },
     {
@@ -401,7 +401,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "cmd/wagyu/tui_run.go",
+      "evidence": "internal/tui/substates.go",
       "notes": "AGY 1.4.0: after a crashed session, TUI prompts to resume. Clone arms promptAutoResume on launch."
     },
     {
@@ -410,7 +410,7 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "internal/taskregistry/cache.go",
+      "evidence": "internal/tui/conversation_model.go",
       "notes": "AGY 1.4.0: tasks, file changes, session cost no longer roll back when a bg command finishes. Clone uses m.liveSteps invalidation."
     },
     {
@@ -419,7 +419,7 @@
       "agy": true,
       "clone": true,
       "cycle": 259,
-      "evidence": "internal/agent/bg_finish.go",
+      "evidence": "internal/app/agentturn/bg_finish.go",
       "notes": "AGY 1.4.0: when a bg command finishes or is canceled, the agent stays focused on the original task and resumes from the planned next step. Clone pins originalTask + planIndex at SetPlan, emits a <task-notification> chunk on bg finish (with bg result + 'you were working on:' reminder + next-plan-step pointer), and fires OnReorient so the loop can re-feed recent transcript context. Plan index never advances across the bg interrupt, policy mode never demotes, and the contract holds even when the bg command's final output was empty."
     },
     {
@@ -428,7 +428,7 @@
       "agy": true,
       "clone": true,
       "cycle": 227,
-      "evidence": "cmd/wagyu/auto_compact.go",
+      "evidence": "internal/tui/panel_seams_context.go",
       "notes": "AGY 1.4.0: auto-compact event fires when the model signals context pressure. Clone gates on the same event."
     },
     {
@@ -437,7 +437,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/retrybudget/agent.go",
+      "evidence": "internal/infra/backend/retry/retry.go",
       "notes": "AGY 1.3.4: max 30 s between automatic retries. Clone's retry/agent.go caps waitForRetry at 30s."
     },
     {
@@ -446,7 +446,7 @@
       "agy": true,
       "clone": true,
       "cycle": 266,
-      "evidence": "internal/agent/transient_network.go,internal/agent/auto_continue.go,internal/agent/transient_network_test.go,internal/agent/auto_continue_test.go",
+      "evidence": "internal/app/agentturn/transient_network.go,internal/app/agentturn/turn_error.go,internal/app/agentturn/transient_network_test.go,internal/app/agentturn/turn_error_test.go",
       "notes": "AGY 1.4.x (changelog_reference.txt:10): 'Fixed socket disconnect errors such as broken pipe, software caused connection abort, network is down, and http2: client connection lost (for example after laptop sleep or a Wi-Fi change) stopping the turn with `Agent execution terminated due to error.` instead of retrying automatically and reporting a network error if retries fail.' The clone splits the auto-continue budget by error class — transient network/socket errors get AutoContMaxNetworkDepth (=8) retries, every other class keeps AutoContMaxDepth (=3). IsTransientNetworkErr walks the wrapped-error chain over a verbatim-phrase list (broken pipe, software caused connection abort, network is down, network is unreachable, http2: client connection lost, http2: stream closed, http2: client disconnected, connection reset by peer, connection refused, connection timed out, i/o timeout, no such host, handshake timeout, tls: oversized record received, unexpected eof, eof, use of closed network connection, server closed idle connection, server closed connection) and skips context.Canceled / context.DeadlineExceeded. After the network budget exhausts, the loop wraps the last error in *ErrAutoContNetworkFailed (preserves typed *backend.HTTPError via Unwrap / errors.As) so the TUI can render a clear 'Network error: <last>' banner. Quota / scope / 4xx / non-network permanent errors still fail fast at AutoContMaxDepth, matching the pre-cycle behaviour. 27 tests in 2 files: 18 phrase cases + 1 wrapped-chain + 1 context-precedence + 2 typed-error contract (Error() / Unwrap) + 1 nested Unwrap walk in transient_network_test.go, plus 3 budget-defaults + 1 preset-matrix reconciliation + the existing TestLoop_AutoContGiveUpAfterMaxDepth (which still pins AutoContMaxDepth=3 and 2 banner firings) in auto_continue_test.go."
     },
     {
@@ -455,8 +455,8 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "internal/retrybudget/stall.go",
-      "notes": "AGY 1.3.6: cancel and retry on 5-min stall. Clone uses net.Conn.SetReadDeadline."
+      "evidence": "internal/infra/backend/retry/retry.go",
+      "notes": "AGY 1.3.6: a stream that sends nothing is cancelled and retried. Clone arms a stream idle deadline (retry.StreamIdleTimeout, raised 5m -> 10m in AGY 1.5.10) and returns the typed ErrConnectionStalled, which the turn loop retries. The earlier note's 'net.Conn.SetReadDeadline' was the transport-level idea; the shipped mechanism is the idle timer in internal/infra/backend/retry."
     },
     {
       "name": "Authentication expired banner",
@@ -464,7 +464,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/auth/refresh.go",
+      "evidence": "internal/infra/codeassistclient/refreshing_token_source.go",
       "notes": "AGY 1.3.3: 'Authentication expired. Please log back in.'. Clone prints the same string."
     },
     {
@@ -473,7 +473,7 @@
       "agy": true,
       "clone": true,
       "cycle": 261,
-      "evidence": "internal/auth/oauth_tty.go",
+      "evidence": "internal/features/auth/oauth_tty.go",
       "notes": "AGY 1.1.2: when stdin is piped (echo 'fix bug' | agy -p), the OAuth code paste reads from /dev/tty on POSIX or CONIN$ on Windows instead of the prompt pipe; truly headless runs fail fast with the actionable AGY_OAUTH_TOKEN hint rather than blocking on a read."
     },
     {
@@ -482,8 +482,8 @@
       "agy": true,
       "clone": true,
       "cycle": 263,
-      "evidence": "internal/backend/http_error.go,internal/backend/scope_hint_test.go,cmd/wagyu/api_error.go,cmd/wagyu/api_error_test.go,cmd/wagyu/tui_run.go",
-      "notes": "AGY 1.4.x (changelog_reference.txt:271): 'Improved authentication error messages when OAuth tokens lack required scopes by including explicit instructions to run /logout and /login.' Detection is precise — HTTP 403 plus a body keyword scan over `insufficient_scope`, `missing scope`, `requires scope`, `scope required` (all case-insensitive); a 403 without the keyword does NOT trigger the hint. The canonical constant is backend.OAuthScopeHintMessage ('Run `/logout` then `/login` to refresh your OAuth grant with the required scopes.'). Print mode surfaces the hint in two places: the user-facing `error:` line (upstream body + hint appended) and a new `remediation` field on the AGY_ERROR JSON envelope (omitempty, so the canonical envelope shape for every other failure mode stays unchanged). The TUI handler in cmd/wagyu/tui_run.go now forwards chunk.Error text to m.response via backendChunkMsg with the same conditional hint append — the print path and the interactive path move together. 7 tests in 2 files: 6 predicate/wire tests in internal/backend/scope_hint_test.go (403+insufficient_scope, 403+missing-scope, 403 generic, 401 not enough, case-insensitive, preserves-original-error) plus the print-mode envelope test in cmd/wagyu/api_error_test.go (TestScopeHint_PrintModeRemediation + TestScopeHint_NonScopeErrorHasNoRemediation)."
+      "evidence": "internal/core/apierror/http_error.go,internal/core/apierror/scope_hint_test.go,internal/core/apierror/http_error.go,internal/core/apierror/api_error_test.go,internal/tui/substates.go",
+      "notes": "AGY 1.4.x (changelog_reference.txt:271): 'Improved authentication error messages when OAuth tokens lack required scopes by including explicit instructions to run /logout and /login.' Detection is precise — HTTP 403 plus a body keyword scan over `insufficient_scope`, `missing scope`, `requires scope`, `scope required` (all case-insensitive); a 403 without the keyword does NOT trigger the hint. The canonical constant is backend.OAuthScopeHintMessage ('Run `/logout` then `/login` to refresh your OAuth grant with the required scopes.'). Print mode surfaces the hint in two places: the user-facing `error:` line (upstream body + hint appended) and a new `remediation` field on the AGY_ERROR JSON envelope (omitempty, so the canonical envelope shape for every other failure mode stays unchanged). The TUI handler in internal/tui/substates.go now forwards chunk.Error text to m.response via backendChunkMsg with the same conditional hint append — the print path and the interactive path move together. 7 tests in 2 files: 6 predicate/wire tests in internal/core/apierror/scope_hint_test.go (403+insufficient_scope, 403+missing-scope, 403 generic, 401 not enough, case-insensitive, preserves-original-error) plus the print-mode envelope test in internal/core/apierror/api_error_test.go (TestScopeHint_PrintModeRemediation + TestScopeHint_NonScopeErrorHasNoRemediation)."
     },
     {
       "name": "OAuth device-flow recovery on rate limit",
@@ -491,7 +491,7 @@
       "agy": true,
       "clone": true,
       "cycle": 224,
-      "evidence": "internal/auth/oauth.go",
+      "evidence": "internal/features/auth/oauth.go",
       "notes": "AGY 1.4.0: retries temporary errors instead of locking the session. Clone recovers on 429/5xx."
     },
     {
@@ -500,7 +500,7 @@
       "agy": true,
       "clone": true,
       "cycle": 224,
-      "evidence": "internal/auth/eligibility.go",
+      "evidence": "internal/features/auth/eligibility/eligibility.go",
       "notes": "AGY 1.4.0: no longer locks when the service is briefly unavailable. Clone retries before giving up."
     },
     {
@@ -509,7 +509,7 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "internal/mcpoauth/store.go",
+      "evidence": "internal/features/auth/mcpoauth/policy.go",
       "notes": "AGY 1.3.4: only clear on actual server rejection. Clone keeps the same keep-on-transient policy."
     },
     {
@@ -518,7 +518,7 @@
       "agy": true,
       "clone": true,
       "cycle": 228,
-      "evidence": "internal/subagenttools/invoke.go",
+      "evidence": "internal/app/subagenttools/invoke.go",
       "notes": "AGY 1.4.0: `invoke_subagent`, `send_message`, `manage_subagents`. Clone ships the same three tool descriptors."
     },
     {
@@ -527,7 +527,7 @@
       "agy": true,
       "clone": true,
       "cycle": 218,
-      "evidence": "internal/subagenttools/registry.go",
+      "evidence": "internal/app/subagent/router/manager.go",
       "notes": "AGY 1.4.0: `Manager.Names()` / `NamesWithPrefix()` for the picker. Clone has the same accessor pair."
     },
     {
@@ -536,7 +536,7 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "cmd/wagyu/subagent_question_picker.go",
+      "evidence": "internal/ui/views/subagentquestionpanel/panel.go",
       "notes": "AGY 1.3.6: '<agent> has a question' alert; Ctrl+K / 'a' opens picker. Clone handles the same key."
     },
     {
@@ -545,8 +545,8 @@
       "agy": true,
       "clone": true,
       "cycle": 167,
-      "evidence": "internal/agent/worktree.go",
-      "notes": "AGY 1.3.3: each repo gets its own isolated copy. Clone uses internal/agent.WorktreeIsolation."
+      "evidence": "internal/app/subagenttools/worktree.go",
+      "notes": "AGY 1.2.10: each subagent writes into its own isolated directory. Clone allocates <AgentDir>/worktrees/<subID>/ (allocateSubagentWorktreeDir) and the git path forks a real worktree (git_worktree.go). Note: this is per-SUBAGENT isolation, not the per-repo copy this row's name describes; the per-repo claim is not evidenced."
     },
     {
       "name": "Subagent stop clears pending approvals",
@@ -554,7 +554,7 @@
       "agy": true,
       "clone": true,
       "cycle": 219,
-      "evidence": "internal/subagenttools/lifecycle.go",
+      "evidence": "internal/app/subagent/core/stop.go",
       "notes": "AGY 1.3.3: stopping clears pending approvals right away. Clone clears on Stop()."
     },
     {
@@ -563,7 +563,7 @@
       "agy": true,
       "clone": true,
       "cycle": 205,
-      "evidence": "cmd/wagyu/slash_tasks_panel.go",
+      "evidence": "internal/tui/panels_tasks.go",
       "notes": "AGY 1.3.5: title + rows + footer (up/down/esc). Clone matches the layout."
     },
     {
@@ -572,7 +572,7 @@
       "agy": true,
       "clone": true,
       "cycle": 205,
-      "evidence": "cmd/wagyu/slash_permissions.go",
+      "evidence": "internal/ui/views/permissionspanel/panel.go",
       "notes": "AGY 1.3.4: shared `config.json` for cross-device rules. Clone has the same split."
     },
     {
@@ -581,7 +581,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "cmd/wagyu/always_allow_aas.go",
+      "evidence": "internal/remotecontrol/permissions/dispatcher.go",
       "notes": "AGY 1.3.4: 'Always allow' from Remote Control saved only to shared config. Clone follows."
     },
     {
@@ -590,7 +590,7 @@
       "agy": true,
       "clone": true,
       "cycle": 199,
-      "evidence": "internal/pluginwatch/watcher.go",
+      "evidence": "internal/features/plugins/watch/pluginwatch.go",
       "notes": "AGY 1.4.2: 106 fsnotify symbols in the binary. Clone depends on github.com/fsnotify/fsnotify and flips a staleness flag."
     },
     {
@@ -599,7 +599,7 @@
       "agy": true,
       "clone": true,
       "cycle": 247,
-      "evidence": "internal/mcp/header_substitute.go,internal/pigrt/mcpconfig.go",
+      "evidence": "mcp/header_substitute.go,mcp/agyconfig.go",
       "notes": "AGY 1.4.0: `${VAR}` / `$VAR` / `${VAR:-default}` / `$$` against server-env ∪ host-env (server-env wins). Cycle 247 adds SubstituteHeaderVars, the Headers field on AgyMCPServer, and the mergeServerEnv → SubstituteHeaderVars → extension.NewOrderedStrings wire-up in agyToPiGServer."
     },
     {
@@ -608,8 +608,8 @@
       "agy": true,
       "clone": true,
       "cycle": 234,
-      "evidence": "internal/mcpoauth/state.go",
-      "notes": "AGY 1.4.1: Ready/Error/Connected. Clone has three cycle-235 states (panelRowState)."
+      "evidence": "",
+      "notes": "AGY 1.4.1: `/mcp` shows a server as Ready until its process exits (then Error). GAP: the clone's enum `cortex_pb.McpServerStatus` carries UNSPECIFIED/PENDING/READY/ERROR/DISABLED_BY_ADMIN, but nothing outside the generated file uses it; the /mcp table (internal/app/session/slashactions) renders configured-state only: enabled / disabled / blocked. No readiness tracking is wired."
     },
     {
       "name": "MCP tool _meta antigravity/alwaysLoad flag",
@@ -617,8 +617,8 @@
       "agy": true,
       "clone": true,
       "cycle": 249,
-      "evidence": "internal/mcp/tool_registry.go",
-      "notes": "AGY 1.3.3 line 42: tools/list entries with `_meta: {\"antigravity/alwaysLoad\": true}` land in the core catalog; everything else stays discoverable. Wrong types / non-object _meta default to false with a log warning. Clone parses + dispatches into a ToolRegistry in internal/mcp."
+      "evidence": "mcp/client.go,mcp/alwaysload_test.go,internal/app/tools/web/mcp_alwaysloaded.go,internal/app/session/setup/mcp.go",
+      "notes": "AGY 1.3.3 line 42: tools/list entries with `_meta: {\"antigravity/alwaysLoad\": true}` are advertised to the model as their own tools instead of staying behind the call_mcp_tool aggregator. Only a JSON `true` opts in; false, \"true\", 1, null, a missing key and a non-object _meta all mean not-always-loaded (each pinned by a test). The clone names them `mcp_<server>_<tool>` — single underscores, the spelling the 1.5.18 binary carries in its `mcp_%s_%s` format string and its bundled chrome-devtools instances — and reads the hint once per install through mcp.Pool.AlwaysLoadedTools, which the documented enabledTools/disabledTools lists still gate. Not implemented: the later `force_all_tools_eager` (eager) protocol, which advertises every tool of a server rather than the flagged subset."
     },
     {
       "name": "Plugin marketplace case-insensitive manifest",
@@ -626,7 +626,7 @@
       "agy": true,
       "clone": true,
       "cycle": 234,
-      "evidence": "internal/cli/subcommand_parity.go",
+      "evidence": "internal/cli/subcommands.go",
       "notes": "AGY 1.3.6: `Plugin.json` is found. Clone looks up the manifest case-insensitively."
     },
     {
@@ -635,7 +635,7 @@
       "agy": true,
       "clone": true,
       "cycle": 234,
-      "evidence": "internal/cli/plugin_agents.go",
+      "evidence": "internal/features/plugins/validate/components.go",
       "notes": "AGY 1.4.1: validate also checks skills, subagents, rules. Clone mirrors the same checks."
     },
     {
@@ -644,7 +644,7 @@
       "agy": true,
       "clone": true,
       "cycle": 213,
-      "evidence": "internal/pluginscan/agents.go",
+      "evidence": "internal/features/plugins/core/agents.go",
       "notes": "AGY 1.3.3: root `agents.json` declares subagents. Clone parses it."
     },
     {
@@ -653,7 +653,7 @@
       "agy": true,
       "clone": true,
       "cycle": 205,
-      "evidence": "internal/pluginscan/symlink.go",
+      "evidence": "internal/features/plugins/scan/pluginscan.go",
       "notes": "AGY 1.4.0: resolves `.antigravity-plugin` symlinks. Clone uses filepath.EvalSymlinks."
     },
     {
@@ -662,8 +662,8 @@
       "agy": true,
       "clone": true,
       "cycle": 245,
-      "evidence": "cmd/wagyu/plan_render.go",
-      "notes": "AGY 1.4.0: ellipsis at grapheme boundary. Cycle 245 ships cell-width-aware RenderPlanItems / truncatePlanLine / wrapPlanLine in cmd/wagyu/plan_render.go, plus the runeWidth→cellWidth swap on the 4 audit call sites in internal/render/render.go (Box / DividerWithLabel / Hyperlink / padOrClamp)."
+      "evidence": "internal/planrender/plan_render.go",
+      "notes": "AGY 1.4.0: ellipsis at grapheme boundary. Cycle 245 ships cell-width-aware RenderPlanItems / truncatePlanLine / wrapPlanLine in internal/planrender/plan_render.go, plus the runeWidth→cellWidth swap on the 4 audit call sites in render/render.go (Box / DividerWithLabel / Hyperlink / padOrClamp)."
     },
     {
       "name": "`/btw` side question",
@@ -671,7 +671,7 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "cmd/wagyu/slash_actions.go",
+      "evidence": "internal/tui/panel_seams_slash.go",
       "notes": "AGY 1.4.0: `/btw <question>` fires a parallel turn. Clone matches the full routing."
     },
     {
@@ -680,7 +680,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/hooks/skip.go",
+      "evidence": "internal/features/plugins/hooks/hooks.go",
       "notes": "AGY 1.3.3: `/btw` skips user/workspace hooks. Clone filters hooks for btw turns."
     },
     {
@@ -689,7 +689,7 @@
       "agy": true,
       "clone": true,
       "cycle": 198,
-      "evidence": "cmd/wagyu/panel_rename.go",
+      "evidence": "internal/ui/views/renamepanel/panel.go",
       "notes": "AGY 1.4.0: bubbles/v2/textinput single-line. Clone uses the same component."
     },
     {
@@ -698,7 +698,7 @@
       "agy": true,
       "clone": true,
       "cycle": 253,
-      "evidence": "cmd/wagyu/tui_run.go,cmd/wagyu/tui_viewport.go",
+      "evidence": "internal/tui/substates.go,internal/tui/tui_viewport_scroll.go",
       "notes": "AGY 1.3.3: the prompt stays at the top while scrolling back. Clone pins the most recent prompt ≤ m.scroll when altscreen is on, renders it as a dim/borderless header with a '↳ jump to prompt' hint, and lets the user click or press Enter to jump back to that prompt. Inline mode keeps the cycle-179 sticky bar with its separator rule."
     },
     {
@@ -707,7 +707,7 @@
       "agy": true,
       "clone": true,
       "cycle": 254,
-      "evidence": "cmd/wagyu/shift_tab_test.go,internal/permissions/policy.go",
+      "evidence": "internal/tui/tui_run_test.go,internal/core/policy/permissions/policy.go",
       "notes": "AGY 1.3.5: Shift+Tab cycles Default/Plan/Auto. Cycle 254 wires the keybinding (cycle 104 added it) and pins the cycle order Build -> Default -> Auto -> Plan -> Build; see docs/cycles/cycle-254-shift-tab/deliverable.md."
     },
     {
@@ -716,7 +716,7 @@
       "agy": true,
       "clone": true,
       "cycle": 224,
-      "evidence": "internal/voice/cap.go",
+      "evidence": "internal/ui/views/voice/recording.go",
       "notes": "AGY 1.3.4: caps voice dictation at 3m30s. Clone has the same cap."
     },
     {
@@ -725,7 +725,7 @@
       "agy": true,
       "clone": true,
       "cycle": 219,
-      "evidence": "internal/imagery/webp.go",
+      "evidence": "internal/features/tools/clipboard/paste.go",
       "notes": "AGY 1.4.0: WebP from clipboard scales correctly. Clone uses chroma.io.Decode for non-WebP fallback."
     },
     {
@@ -734,7 +734,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/imagery/webm.go",
+      "evidence": "internal/app/tools/filesystem/webm.go",
       "notes": "AGY 1.3.4: rejects truncated/header-only WebM. Clone probes the moov atom before decoding."
     },
     {
@@ -743,7 +743,7 @@
       "agy": true,
       "clone": true,
       "cycle": 217,
-      "evidence": "cmd/wagyu/slash_plugin_panel.go",
+      "evidence": "internal/ui/views/pluginsui/panel.go",
       "notes": "AGY 1.4.1: Discover tab previews the marketplace page. Clone renders the same preview rows."
     },
     {
@@ -752,7 +752,7 @@
       "agy": true,
       "clone": true,
       "cycle": 219,
-      "evidence": "cmd/wagyu/slash_plugin_panel.go",
+      "evidence": "internal/ui/views/pluginsui/panel.go",
       "notes": "AGY 1.4.1: focus mode after committing a search query. Clone toggles pluginQueryAsleep."
     },
     {
@@ -761,7 +761,7 @@
       "agy": true,
       "clone": true,
       "cycle": 220,
-      "evidence": "cmd/wagyu/slash_plugin_panel.go",
+      "evidence": "internal/ui/views/pluginsui/panel.go",
       "notes": "AGY 1.4.1: first Tab → first-alphabetical match + '/'. Clone matches cycle-220 retract."
     },
     {
@@ -770,7 +770,7 @@
       "agy": true,
       "clone": true,
       "cycle": 218,
-      "evidence": "cmd/wagyu/slash_skills_detail.go",
+      "evidence": "internal/ui/views/skillsui/detail_table.go",
       "notes": "AGY 1.4.0: GFM pipe tables + `[N]: url` footnotes for /skills. Clone has mdRenderTable + mdTableFootnotes."
     },
     {
@@ -779,7 +779,7 @@
       "agy": true,
       "clone": true,
       "cycle": 217,
-      "evidence": "cmd/wagyu/slash_skills_detail.go",
+      "evidence": "internal/ui/views/skillsui/detail_view.go",
       "notes": "AGY 1.4.0: skills panel header pinned at row 10; tail at row 11. Clone matches."
     },
     {
@@ -788,7 +788,7 @@
       "agy": true,
       "clone": true,
       "cycle": 92,
-      "evidence": "cmd/wagyu/agentsdir_wire.go",
+      "evidence": "internal/printmode/agentsdir_wire.go",
       "notes": "AGY 1.2.16: walks parent directories for `agents.json`. Clone walks up to root."
     },
     {
@@ -797,7 +797,7 @@
       "agy": true,
       "clone": true,
       "cycle": 235,
-      "evidence": "internal/tuilib/commands_cjk_test.go",
+      "evidence": "internal/ui/slashcommands/commands_cjk_test.go",
       "notes": "AGY 1.4.0: case-folds runes for the picker search. Clone uses unicode.ToLower (cycle-235 fix)."
     },
     {
@@ -806,8 +806,8 @@
       "agy": true,
       "clone": true,
       "cycle": 218,
-      "evidence": "internal/vim/count.go",
-      "notes": "AGY 1.4.0: vim normal-mode 'd3w' / '5j'. Clone parses the leading digit run."
+      "evidence": "vim/vim.go",
+      "notes": "CONTESTED. AGY 1.2.9 changelog (changelog_reference.txt:670) announces count multipliers (`3dw`, `2d3w`, `3dd`, …), and the 1.5.18 binary still carries count-aware helpers (extendWordRangeForCount, extendAroundWordRangeForCount). But the shipped vim-editor-mode.md says 'Commands take no count prefix, so 3dd deletes one line'. The clone follows the documentation: digits ring the bell (vim/nocount_test.go). Docs and binary disagree; unresolved, and the row is left as clone=true only in the documentation's sense."
     },
     {
       "name": "Status-line script support",
@@ -815,7 +815,7 @@
       "agy": true,
       "clone": true,
       "cycle": 218,
-      "evidence": "cmd/wagyu/status_line.go",
+      "evidence": "internal/ui/views/statusline/config.go",
       "notes": "AGY 1.4.0: status line driven by user shell script. Clone exports statusLine context."
     },
     {
@@ -824,7 +824,7 @@
       "agy": true,
       "clone": true,
       "cycle": 230,
-      "evidence": "cmd/wagyu/subagent_question_picker.go",
+      "evidence": "internal/ui/views/subagentquestionpanel/panel.go",
       "notes": "AGY 1.3.6: 'a' is a parallel binding to Ctrl+K. Clone handles both."
     },
     {
@@ -833,7 +833,7 @@
       "agy": true,
       "clone": true,
       "cycle": 235,
-      "evidence": "cmd/wagyu/slash_actions.go",
+      "evidence": "internal/tui/panel_seams_slash.go",
       "notes": "AGY 1.3.3: 'No editor configured: set $EDITOR or $VISUAL'. Clone surfaces the same string."
     },
     {
@@ -842,7 +842,7 @@
       "agy": true,
       "clone": true,
       "cycle": 217,
-      "evidence": "cmd/wagyu/slash_remote_control.go",
+      "evidence": "internal/tui/slash_commands_handlers.go",
       "notes": "AGY 1.4.1: '/remote-control ON' / '/title ON' now accepted. Clone uses hasPrefixFold."
     },
     {
@@ -851,7 +851,7 @@
       "agy": true,
       "clone": true,
       "cycle": 92,
-      "evidence": "cmd/wagyu/alt_keytranslate.go",
+      "evidence": "internal/tui/tui_update_keys.go",
       "notes": "AGY 1.3.3: alt+s works in Terminal.app / VS Code-based terminals. Clone translates Option+letter."
     },
     {
@@ -878,7 +878,7 @@
       "agy": true,
       "clone": true,
       "cycle": 251,
-      "evidence": "internal/cli/marketplace_link.go",
+      "evidence": "internal/features/plugins/marketplace/marketplace.go",
       "notes": "AGY 1.4.x: when a skill folder exists locally but no plugin supplies it, the CLI emits a clickable hyperlink to the Antigravity plugin marketplace search page."
     },
     {
@@ -887,7 +887,7 @@
       "agy": true,
       "clone": true,
       "cycle": 250,
-      "evidence": "cmd/wagyu/slash_narration.go,internal/cli/narration_catalogue.go",
+      "evidence": "internal/tui/panel_seams_slash.go,internal/ui/views/narration/catalogue.go",
       "notes": "AGY 1.4.2: 'StartNarration' gRPC method. Clone ships /narration as a TUI-only cosmetic slash helper: catalogue paragraph or verbatim user line written to m.response but NOT m.session. Same inputs → same paragraph (no Math/random); /narration off writes nothing and mutes the rest of the session."
     },
     {
@@ -896,7 +896,7 @@
       "agy": true,
       "clone": true,
       "cycle": 213,
-      "evidence": "internal/pluginscan/skills.go",
+      "evidence": "internal/features/tools/skills/discovery.go",
       "notes": "AGY 1.4.2: walks both directories. Clone has the same walk."
     },
     {
@@ -905,7 +905,7 @@
       "agy": true,
       "clone": true,
       "cycle": 100,
-      "evidence": "internal/pluginscan/yaml.go",
+      "evidence": "internal/features/tools/skills/discovery.go",
       "notes": "AGY 1.3.3: 'description: foo: bar' is parsed. Clone strips the value's first colon."
     },
     {
@@ -914,7 +914,7 @@
       "agy": true,
       "clone": true,
       "cycle": 248,
-      "evidence": "internal/tools/truncate.go,internal/tools/output_budget.go,internal/tools/truncate_test.go,internal/tools/testdata/large_json_result.json",
+      "evidence": "internal/app/tools/truncate.go,internal/app/tools/output_budget.go,internal/app/tools/truncate_test.go,internal/app/tools/testdata/large_json_result.json",
       "notes": "AGY 1.4.1: structured tool outputs (JSON/YAML/XML) are now truncated to fit the per-step token budget before being passed to the model; previously the truncation metadata was set but the content was not actually reduced. JSON object → {\"_truncated\":true,\"_preview\":\"<partial obj>\"}; JSON array → {\"_truncated\":true,\"_preview\":[…first N…]}; YAML → _truncated:true / _preview:| literal block; XML → <truncated>…</truncated>; unknown / prose → cycle-198/235 \\n…[truncated] marker (unchanged). Format dispatch via DetectFormat heuristic (JSON/YAML/XML/prose). Defensive recover() guards the public entry. ApplyOutputBudget pipeline + BudgetResult wrap before/after token counts."
     },
     {
@@ -923,8 +923,8 @@
       "agy": true,
       "clone": true,
       "cycle": 257,
-      "evidence": "cmd/wagyu/slash_statusline_external.go,cmd/wagyu/status_line_test.go",
-      "notes": "AGY 1.1.27: payload passed to custom status-line script carries a conversation_title key whose value is m.conversationTitle(); renames via /rename propagate on the next 100 ms tick. Field is always present (never omitted) and falls back to first-user-message / program name when untitled. Print mode (-p) never spawns the script. Cycle 257 pins the wire form with cmd/wagyu/status_line_test.go (5 tests: includes, updates-on-rename, empty-when-untitled, backward-compatible, print-mode-unaffected); the field itself was introduced in the status-line-script cycle alongside cost."
+      "evidence": "internal/ui/views/statusline/config.go,internal/tui/tui_run_test.go",
+      "notes": "AGY 1.1.27: payload passed to custom status-line script carries a conversation_title key whose value is m.conversationTitle(); renames via /rename propagate on the next 100 ms tick. Field is always present (never omitted) and falls back to first-user-message / program name when untitled. Print mode (-p) never spawns the script. Cycle 257 pins the wire form with internal/tui/tui_run_test.go (5 tests: includes, updates-on-rename, empty-when-untitled, backward-compatible, print-mode-unaffected); the field itself was introduced in the status-line-script cycle alongside cost."
     },
     {
       "name": "Background command final output always recorded",
@@ -932,8 +932,8 @@
       "agy": true,
       "clone": true,
       "cycle": 258,
-      "evidence": "internal/tools/bg_output.go,internal/tools/bg_output_test.go,internal/tools/support.go",
-      "notes": "AGY 1.4.0 changelog line 24: 'Fixed a background command's final output sometimes missing from its task log; the output is now always recorded when the command finishes or is canceled.' Cycle 258 ships recordFinalOutput(buf, log, reason) as the single exit point every bg termination reason converges on (normal finish, non-zero exit, signal kill via kill(), user cancel). The function copies the tail of the live safeBuffer into a new bgTask.log safeBuffer and appends a one-line exit reason produced by bgExitReason (mapping: nil → 'exit code 0', *exec.ExitError → 'exit code N', context.Canceled → 'canceled', context.DeadlineExceeded → 'timed out'). Idempotency comes from a sync.Once on safeBuffer.appendOnce, so the cmd.Wait goroutine's defer and kill()'s call race-safely. The defer pattern in start() wraps the body in a recover() that synthesises a 'panic: <v>' reason so a panic during shutdown still records the log. Memory is bounded by bgLogTailBytes (4096) — commands that print megabytes get a '[truncated N bytes]' marker plus the last 4 KiB, mirroring the cycle-198 truncate policy used for tool outputs. bgTask.status() reads from t.log (the persistent log) when t.done is true, falling back to the live t.out buffer while the task is still running. 8 tests in internal/tools/bg_output_test.go cover NormalExit, ErrorExit, KilledBySignal, CanceledByUser, EmptyOutput, LargeOutput, Idempotent (race-with-once), and NilSafe (defer must not panic)."
+      "evidence": "internal/app/tools/shell/bg_output.go,internal/app/tools/shell/bg_output_test.go,internal/app/tools/shell/support.go",
+      "notes": "AGY 1.4.0 changelog line 24: 'Fixed a background command's final output sometimes missing from its task log; the output is now always recorded when the command finishes or is canceled.' Cycle 258 ships recordFinalOutput(buf, log, reason) as the single exit point every bg termination reason converges on (normal finish, non-zero exit, signal kill via kill(), user cancel). The function copies the tail of the live safeBuffer into a new bgTask.log safeBuffer and appends a one-line exit reason produced by bgExitReason (mapping: nil → 'exit code 0', *exec.ExitError → 'exit code N', context.Canceled → 'canceled', context.DeadlineExceeded → 'timed out'). Idempotency comes from a sync.Once on safeBuffer.appendOnce, so the cmd.Wait goroutine's defer and kill()'s call race-safely. The defer pattern in start() wraps the body in a recover() that synthesises a 'panic: <v>' reason so a panic during shutdown still records the log. Memory is bounded by bgLogTailBytes (4096) — commands that print megabytes get a '[truncated N bytes]' marker plus the last 4 KiB, mirroring the cycle-198 truncate policy used for tool outputs. bgTask.status() reads from t.log (the persistent log) when t.done is true, falling back to the live t.out buffer while the task is still running. 8 tests in internal/app/tools/shell/bg_output_test.go cover NormalExit, ErrorExit, KilledBySignal, CanceledByUser, EmptyOutput, LargeOutput, Idempotent (race-with-once), and NilSafe (defer must not panic)."
     },
     {
       "name": "`--remote-control` rejects ADC auth with clear error",
@@ -941,7 +941,7 @@
       "agy": true,
       "clone": true,
       "cycle": 264,
-      "evidence": "cmd/wagyu/remote_control_adc.go",
+      "evidence": "internal/rchost/remote_control_adc.go",
       "notes": "AGY 1.4.1: --remote-control + AGY_ADC_AUTH exits 3 (AGY_ERROR) naming AGY_ADC_AUTH and /logout; /remote-control slash command shows the same error and the slash menu hides the entry under ADC. Clone preserves the gate, the message, and the picker filter."
     }
   ]

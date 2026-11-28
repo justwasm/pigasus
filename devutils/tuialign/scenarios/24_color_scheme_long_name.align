@@ -1,0 +1,35 @@
+NAME "Color Scheme long name must not overflow (/config)"
+WINDOW 80 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 15s
+
+# Open /config
+TYPE "/config"
+ENTER
+SLEEP 800ms
+
+# Navigate to the "Color Scheme" row (it is the 4th row of the catalogue)
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "01_color_scheme_selected"
+
+# Step through the long-named options
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "02_scheme_next"
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "03_scheme_colorblind_light"
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "04_scheme_next2"
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "05_scheme_colorblind_dark"
+
+DIFF
+CLEANUP

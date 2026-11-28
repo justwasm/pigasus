@@ -2,7 +2,7 @@
 """Fetch and extract a specific version section from the official Antigravity CLI CHANGELOG.md.
 
 Usage:
-    python3 scripts/re/fetch_changelog.py [--version 1.5.16] [--out internal/cli/testdata/changelog_upstream_1.5.16.md]
+    python3 scripts/re/fetch_changelog.py [--version 1.5.18] [--out internal/cli/testdata/changelog_upstream_1.5.18.md]
 """
 
 import argparse
@@ -39,7 +39,7 @@ def extract_version_section(text: str, version: str | None = None) -> tuple[str,
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch upstream Antigravity CLI CHANGELOG section.")
-    parser.add_argument("--version", help="Target version (e.g. 1.5.16). Defaults to latest section.")
+    parser.add_argument("--version", help="Target version (e.g. 1.5.18). Defaults to latest section.")
     parser.add_argument("--out", help="Output markdown path (defaults to internal/cli/testdata/changelog_upstream_<version>.md)")
     parser.add_argument("--url", default=CHANGELOG_URL, help="Override CHANGELOG.md raw URL")
     args = parser.parse_args()

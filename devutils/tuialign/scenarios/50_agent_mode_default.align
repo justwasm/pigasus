@@ -1,0 +1,43 @@
+NAME "What the Agent Mode row says when no mode is stored"
+WINDOW 100 34
+TARGET both
+
+# The question: settings.json carries no `agentMode` key at all. AGY 1.5.7
+# changed the unset default from Default to Auto ("Changed the default Agent
+# Mode from Default to Auto: sessions with no saved mode, including headless
+# -p runs, now start in Auto wherever Auto mode is available..."). So a
+# session with nothing stored must start in auto, and `/config`'s row must
+# say so.
+#
+# pigasus resolves the session correctly (setup.DefaultMode() == "auto" when
+# the key is absent) but its /config catalogue lists "default" first, and
+# DisplayFor maps an absent key to the first value. So the row is expected to
+# read "default" while the session is in auto — the panel disagreeing with the
+# session it describes.
+#
+# No SETTINGS directive: the runner's overlay must not inject an `agentMode`,
+# or the "absent" case under test is not absent. The runner adds only
+# editorMode.
+#
+# The status row is photographed too, as the cross-check on what the session
+# actually resolved to. Note what a bare row means here: it does NOT prove
+# the session is in auto. On a host whose terminal sandbox is unavailable the
+# binary declines auto ("Auto mode is not available: it needs the OS terminal
+# sandbox...") and the same bare row is default's. The /config Agent Mode row
+# in the second snapshot is what distinguishes them, which is why this scene
+# photographs both.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+SNAPSHOT "01_boot_no_mode_stored"
+
+# The panel. `/config` opens on the catalogue; Agent Mode is the first row.
+TYPE "/config"
+ENTER
+WAIT_TEXT "Color Scheme" 20s
+SLEEP 600ms
+SNAPSHOT "02_config_agent_mode_row"
+
+DIFF
+CLEANUP

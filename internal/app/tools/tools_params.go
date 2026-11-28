@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/justwasm/pigasus/internal/core/fileuri"
 )
 
 var (
@@ -74,10 +76,17 @@ func allowedWriteRoot(root, canonFull string) bool {
 }
 
 // WorkspacePath resolves a model-supplied path for a WRITE-side tool.
+//
+// A `file://` URI is resolved to the path it names first, for the same
+// reason ReadPath does it: the permission engine judges the resolved path
+// (internal/core/fileuri), so the tool has to act on that same file. Filing
+// the URI under the workspace as a relative name — "ws/file:/tmp/x" — would
+// make the write land somewhere no rule mentioned.
 func WorkspacePath(ws, p string) (string, error) {
 	if p == "" {
 		return ws, nil
 	}
+	p = fileuri.Path(p)
 	root := CanonicalPath(ws)
 	if filepath.IsAbs(p) {
 		full := filepath.Clean(p)
@@ -94,10 +103,20 @@ func WorkspacePath(ws, p string) (string, error) {
 }
 
 // ReadPath resolves a model-supplied path for a READ-ONLY tool.
+//
+// A `file://` URI is resolved to the path it names before anything else
+// happens. 【一手】 agy 1.5.18 changelog: "Fixed file permission rules and
+// approval prompts not applying to files the agent reads or edits through
+// `file:///` URIs; those paths now resolve to the real file before
+// permissions are checked." The permission engine resolves the same URI
+// (internal/core/fileuri), so the file a call is judged against and the
+// file it opens are the same one — without this the engine would approve
+// `file:///tmp/x` while the tool opened "<workspace>/file:/tmp/x".
 func ReadPath(ws, p string) (string, error) {
 	if p == "" {
 		return ws, nil
 	}
+	p = fileuri.Path(p)
 	if filepath.IsAbs(p) {
 		return filepath.Clean(p), nil
 	}

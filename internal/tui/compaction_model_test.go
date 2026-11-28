@@ -9,7 +9,7 @@ import (
 
 // TestCompactionModel_LazilyOwnsRuntime pins the ownership move: a bare
 // RootModel literal still gets a runtime, and the model forwards the
-// app-tier compactor and done-channel seams.
+// app-tier done-channel seam.
 func TestCompactionModel_LazilyOwnsRuntime(t *testing.T) {
 	var c CompactionModel
 	if c.runtime != nil {
@@ -20,9 +20,6 @@ func TestCompactionModel_LazilyOwnsRuntime(t *testing.T) {
 	}
 	if c.Runtime() != c.Runtime() {
 		t.Fatal("Runtime replaced the runtime")
-	}
-	if c.Compactor() != nil || c.IsCompacting() {
-		t.Fatal("empty compaction model reports a compactor")
 	}
 	if c.Done() != nil {
 		t.Fatal("empty compaction model has a done channel")

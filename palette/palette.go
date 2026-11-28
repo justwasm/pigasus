@@ -25,6 +25,7 @@ var (
 	BlueOpen        = "\x1b[38;2;38;139;210m"
 	BlueBoldOpen    = "\x1b[38;2;38;139;210;1m"
 	DimGrayOpen     = "\x1b[38;2;101;123;131m"
+	DimGrayBoldOpen = "\x1b[38;2;101;123;131;1m"
 	WarningOpen     = "\x1b[38;2;203;75;22m"
 	WarningBlueOpen = "\x1b[38;2;38;139;210;1m"
 	WarningBodyOpen = "\x1b[38;2;88;110;117;22m"
@@ -152,6 +153,7 @@ func applyScheme(sc SchemeColors) {
 	BlueOpen = sc.Accent.Seq(false)
 	BlueBoldOpen = seqWith(sc.Accent, false, "1")
 	DimGrayOpen = sc.DimFg.Seq(false)
+	DimGrayBoldOpen = seqWith(sc.DimFg, false, "1")
 	WarningOpen = sc.WarningFg.Seq(false)
 	WarningBlueOpen = seqWith(sc.Accent, false, "1")
 	WarningBodyOpen = seqWith(sc.MutedFg, false, "22")

@@ -185,3 +185,46 @@ func countCheckpoints(steps []Step) int {
 	}
 	return n
 }
+
+// TurnSpan is the half-open range of steps [Start, End) that form one turn.
+type TurnSpan struct {
+	Index int // 1-based turn index
+	Start int // start index in steps
+	End   int // end index in steps (exclusive)
+}
+
+// GroupTurns partitions steps into turns: a turn starts at a StepUserInput
+// (or at index 0 if steps precede the first user input) and runs until the next
+// StepUserInput.
+func GroupTurns(steps []Step) []TurnSpan {
+	if len(steps) == 0 {
+		return nil
+	}
+	var spans []TurnSpan
+	start := 0
+	foundUser := false
+	for i, s := range steps {
+		if s.Type == StepUserInput {
+			if foundUser || i > 0 {
+				if i > start {
+					spans = append(spans, TurnSpan{
+						Index: len(spans) + 1,
+						Start: start,
+						End:   i,
+					})
+				}
+				start = i
+			}
+			foundUser = true
+		}
+	}
+	if start < len(steps) {
+		spans = append(spans, TurnSpan{
+			Index: len(spans) + 1,
+			Start: start,
+			End:   len(steps),
+		})
+	}
+	return spans
+}
+

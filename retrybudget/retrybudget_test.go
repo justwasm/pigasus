@@ -3,9 +3,11 @@
 // cycle: pinning its arithmetic in isolation means a regression lands as
 // one explicit failure mode, not as "the cap is wrong in production".
 //
-// The integration with PiG (Observer + Aborter chain in pigrt.Runtime) is
-// pinned in observer_test.go, which uses a stub Aborter to assert the
-// abort side-effect; this file pins the Budget's math.
+// The integration with a turn runtime's Observer + Aborter chain used to
+// live in pigrt.Runtime, which left the tree with `fa661735` (the Actor
+// engine migration). observer_test.go still pins the abort side-effect
+// against a stub Aborter; this file pins the Budget's math. Nothing in
+// the tree imports this package today.
 //
 // Test name prefixes are constrained to the cycle's regex
 // (TestRetry|TestBackoff|TestCap|Test30) so the targeted-run check the

@@ -13,7 +13,7 @@
 //	                      run-workflow,swarm_monitor,swarm_narrator,
 //	                      swarm_pane,ui-plugin-navigation}
 //
-// and unpacks all fifteen into <AppDataDir>/builtin/skills/ — the tree the
+// and unpacks all sixteen into <AppDataDir>/builtin/skills/ — the tree the
 // clone's skill discovery reads and the reference's <skills> section
 // advertises. The installed layout is flat: the external/shared split is an
 // asset-path detail and does not survive the unpacking.
@@ -21,7 +21,7 @@
 // The files under skills/ are the reference's, recovered verbatim from the
 // binary; see skills/PROVENANCE.md.
 //
-// Which of the fifteen appear in the prompt is a separate question. The
+// Which of the sixteen appear in the prompt is a separate question. The
 // reference advertises only agy-customizations and antigravity_guide in the
 // CLI's <skills> section — the shared skills sit behind server-side
 // feature flags — and agyprompt.BuiltinSkillDirs is that allowlist.

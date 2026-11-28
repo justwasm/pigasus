@@ -165,6 +165,42 @@ func main() {
 		}
 		fmt.Printf("\n[wirealign:SUCCESS] All %d scenario specifications verified against templates!\n", len(AllScenarios))
 
+		// The prompt-sending slash commands are a user turn, not part of the
+		// systemInstruction, so they are checked on their own axis.
+		fmt.Println("\n[wirealign] Slash-command prompt parity (the user turn each command sends):")
+		promptFailed := 0
+		for _, spec := range AllSlashPrompts() {
+			if errs := checkSlashPrompt(spec); len(errs) == 0 {
+				if spec.NotSent {
+					if spec.Want == "" {
+						// An empty Want means the pin asserts the ABSENCE of a
+						// body on this account, which is a different claim from
+						// "the reference has none". /boost is the case: the
+						// reference ships the body but a server-side control
+						// switches the command off.
+						fmt.Printf("  ✔ /%-18s — NOT SENT (no body on this account)\n", spec.Command)
+					} else {
+						fmt.Printf("  ✔ /%-18s (%d B) — RECOVERED, NOT SENT\n", spec.Command, len(spec.Want))
+					}
+				} else {
+					fmt.Printf("  ✔ /%-18s (%d B) — MATCH\n", spec.Command, len(spec.Want))
+				}
+				continue
+			} else {
+				fmt.Printf("  ✗ /%-18s — FAIL\n", spec.Command)
+				for _, e := range errs {
+					fmt.Printf("      %s\n", e)
+				}
+				fmt.Printf("      why this pin: %s\n", spec.Why)
+				promptFailed++
+			}
+		}
+		if promptFailed > 0 {
+			fmt.Printf("\n[wirealign:FAILED] %d slash-command prompt(s) drifted\n", promptFailed)
+			os.Exit(1)
+		}
+		fmt.Printf("[wirealign:SUCCESS] %d slash-command prompt(s) checked against the reference.\n", len(AllSlashPrompts()))
+
 	case "server":
 		fs := flag.NewFlagSet("server", flag.ExitOnError)
 		addr := fs.String("addr", "127.0.0.1:9099", "Address to listen on")

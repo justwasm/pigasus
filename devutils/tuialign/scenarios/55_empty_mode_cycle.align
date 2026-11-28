@@ -1,0 +1,39 @@
+NAME "Does an empty mode cycle like auto? (superseded by 49; records the guess)"
+WINDOW 100 34
+TARGET both
+SETTINGS '{"agentMode":"","showTips":false}'
+
+# This scene was written to answer "is `""` the same state as `auto`?" and it
+# guessed wrong, so it is kept only as a record of the guess and no longer
+# asserts anything. Two things it got wrong:
+#
+#   1. It read the two modes' screens as one state. On a host whose terminal
+#      sandbox is unavailable agy declines auto ("Auto mode is not available:
+#      it needs the OS terminal sandbox...") and shows default's screen for
+#      both, so `""` and `"auto"` photograph identically there while being
+#      two different states.
+#   2. It inferred the cycle's length from a photograph. Counting presses on
+#      a screen that cannot show the difference cannot settle the count.
+#
+# official-docs/cli/modes.md settles it: the lap is
+# default > accept-edits > auto > plan > default, four stops, with `""` and
+# `auto` as two of them. 49_mode_cycle_order is the scene that asserts that,
+# as a table.
+#
+# What is left here is the original question, photographed on both panes for
+# the record. It carries no assertion, so the live runner skips it.
+#
+# pigasus's CycleModes lists both `""` and `"auto"`; that duplicate was
+# suspected of being a bug and is not one.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+SNAPSHOT "01_boot_empty"
+
+KEYS "BTab"
+SLEEP 900ms
+SNAPSHOT "02_one_cycle_from_empty"
+
+DIFF
+CLEANUP

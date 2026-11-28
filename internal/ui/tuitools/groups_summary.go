@@ -21,10 +21,64 @@ type Step struct {
 	Summary string
 }
 
-// MixedGroupSummary returns the three pieces of a batch header for a
-// batch that mixes categories: the verb, the comma-joined counts, and
-// the (empty) detail.
-func MixedGroupSummary(steps []Step) (verb, count, detail string) {
+// BatchSummary is one batch header, split into the three pieces the
+// renderer styles differently: the verb is the bold-orange lead, the count
+// is body-coloured, and the parenthesised detail is dim gray.
+//
+// The three are one value rather than three returns because they are
+// produced together, consumed together, and mean nothing apart. As three
+// returns every caller had to re-assemble them, and every test had to
+// destructure all three even when it asserted one.
+//
+//	\x1b[38;2;181;137;0;1mRan\x1b[m \x1b[38;2;7;54;66m2 commands\x1b[m \x1b[38;2;88;110;117m(echo one · echo two)\x1b[m
+type BatchSummary struct {
+	// Verb is the lead word: "Ran", "Explored" or "Edited".
+	Verb string
+	// Count is the pluralised tally: "2 commands", "1 file".
+	Count string
+	// Detail is the parenthesised argument list, or "" when the batch
+	// has none.
+	Detail string
+}
+
+// String renders the header as one line, the way the reference's plain
+// form reads: "Ran 2 commands (echo one · echo two)".
+func (b BatchSummary) String() string {
+	out := b.Verb + " " + b.Count
+	if b.Detail != "" {
+		out += " " + b.Detail
+	}
+	return out
+}
+
+// categoryRule is how one tool category names itself in a batch header.
+//
+// The table below is the whole rule: a category's verb and the argument
+// picker its detail list uses. Categories that are absent from it fall
+// back to verb "Ran" and no detail, which is the reference's behaviour for
+// the categories it does not name.
+//
+// The count is not in the table because it is the same everywhere —
+// CountLabel with the category's own words — and a field that every entry
+// repeats identically is a field that can drift.
+type categoryRule struct {
+	verb string
+	// arg picks one display argument per step; nil means the detail is
+	// empty for this category.
+	arg func(string) string
+}
+
+// categoryRules is the per-category half of the header rules.
+var categoryRules = map[string]categoryRule{
+	"command": {verb: "Ran", arg: ParenArg},
+	"file":    {verb: "Explored", arg: FileNameArg},
+	"edit":    {verb: "Edited", arg: FileNameArg},
+	"search":  {verb: "Explored", arg: SearchArg},
+}
+
+// MixedGroupSummary returns the header for a batch that mixes categories:
+// the verb "Ran", the comma-joined counts in CategoryOrder, and no detail.
+func MixedGroupSummary(steps []Step) BatchSummary {
 	counts := map[string]int{}
 	for _, s := range steps {
 		counts[ToolCategory(s.Name)]++
@@ -35,40 +89,27 @@ func MixedGroupSummary(steps []Step) (verb, count, detail string) {
 			parts = append(parts, CountLabel(counts[c], CategoryWords[c]))
 		}
 	}
-	return "Ran", strings.Join(parts, ", "), ""
+	return BatchSummary{Verb: "Ran", Count: strings.Join(parts, ", ")}
 }
 
-// HomogeneousGroupSummary returns the summary for a batch whose steps
-// all share one category.
-func HomogeneousGroupSummary(cat string, steps []Step) (verb, count, detail string) {
-	switch cat {
-	case "command":
-		verb = "Ran"
-		count = CountLabel(len(steps), CategoryWords["command"])
-		detail = "(" + strings.Join(StepArgs(steps, ParenArg), " · ") + ")"
-	case "file":
-		verb = "Explored"
-		count = CountLabel(len(steps), CategoryWords["file"])
-		detail = "(" + strings.Join(StepArgs(steps, FileNameArg), " · ") + ")"
-	case "edit":
-		verb = "Edited"
-		count = CountLabel(len(steps), CategoryWords["edit"])
-		detail = "(" + strings.Join(StepArgs(steps, FileNameArg), " · ") + ")"
-	case "search":
-		verb = "Explored"
-		count = CountLabel(len(steps), CategoryWords["search"])
-		detail = "(" + strings.Join(StepArgs(steps, SearchArg), " · ") + ")"
-	default:
-		verb = "Ran"
-		count = CountLabel(len(steps), CategoryWords[cat])
+// HomogeneousGroupSummary returns the header for a batch whose steps all
+// share one category.
+func HomogeneousGroupSummary(cat string, steps []Step) BatchSummary {
+	rule, ok := categoryRules[cat]
+	if !ok {
+		return BatchSummary{Verb: "Ran", Count: CountLabel(len(steps), CategoryWords[cat])}
 	}
-	return verb, count, detail
+	sum := BatchSummary{Verb: rule.verb, Count: CountLabel(len(steps), CategoryWords[cat])}
+	if rule.arg != nil {
+		sum.Detail = "(" + strings.Join(StepArgs(steps, rule.arg), " · ") + ")"
+	}
+	return sum
 }
 
-// GroupSummary returns the summary for a batch of steps: the mixed
-// form when the batch spans more than one category, the homogeneous
-// form otherwise.
-func GroupSummary(steps []Step) (verb, count, detail string) {
+// GroupSummary returns the header for a batch of steps: the mixed form
+// when the batch spans more than one category, the homogeneous form
+// otherwise.
+func GroupSummary(steps []Step) BatchSummary {
 	cat := ToolCategory(steps[0].Name)
 	for _, s := range steps[1:] {
 		if ToolCategory(s.Name) != cat {

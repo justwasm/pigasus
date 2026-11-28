@@ -308,12 +308,18 @@ func TestGetTriggeredMemories(t *testing.T) {
 	}
 }
 
-// The live 1.5.9 <user_rules> block, captured from a real request body
-// (testdata/capture_1.5.9.txt). The rule's own path is machine-specific,
+// The live <user_rules> block, captured from a real request body
+// (testdata/capture_1.5.14.txt). The rule's own path is machine-specific,
 // so the test renders the captured rule at a sentinel path and compares the
 // two byte for byte.
+//
+// This used to read capture_1.5.9.txt. That fixture's <user_rules> block is
+// byte-identical to 1.5.14's — the section never changed between the two
+// captures — so the older file was a second copy of the same evidence,
+// distinguished only by a <conversation_transcript> the 1.5.14 capture has
+// since superseded. The 1.5.9 pair has been deleted; 1.5.14 is the live one.
 func TestRenderUserRules_MatchesLiveCapture(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "capture_1.5.9.txt"))
+	raw, err := os.ReadFile(filepath.Join("testdata", "capture_1.5.14.txt"))
 	if err != nil {
 		t.Fatalf("read capture: %v", err)
 	}
@@ -336,6 +342,6 @@ func TestRenderUserRules_MatchesLiveCapture(t *testing.T) {
 
 	got := "<user_rules>" + renderUserRules([]UserRule{{Path: sentinel, Content: content}}) + "</user_rules>"
 	if got != want {
-		t.Errorf("rendered block differs from the 1.5.9 capture:\n got %q\nwant %q", got, want)
+		t.Errorf("rendered block differs from the 1.5.14 capture:\n got %q\nwant %q", got, want)
 	}
 }

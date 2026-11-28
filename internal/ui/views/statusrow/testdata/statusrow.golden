@@ -15,11 +15,11 @@
 === exit-confirm ===
 [38;2;101;123;131mpress ctrl+c again to exit[39m                                                                                                                                                                                  [38;2;101;123;131mGemini 3.8 Flash[39m
 === mode-auto ===
-[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;249;171;0mauto[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;101;123;131;1mauto[22m[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
 === mode-plan ===
-[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;138;180;248mplan[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;38;139;210mplan[22m[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
 === mode-accept-edits ===
-[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                              [38;2;129;201;149maccept-edits[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                              [38;2;133;153;0maccept-edits[22m[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
 === mode-default ===
 [38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash[39m
 === agent ===

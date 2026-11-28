@@ -59,9 +59,14 @@ var silenceLogger = log.New(io.Discard, "", 0)
 // switch. The sandbox's *enabled* flag is read through the same helper
 // SandboxFrom uses, so the flag has one owner.
 func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
-	if strings.TrimSpace(mode) == "" {
+	// The flag and the settings file carry the mode as a string; the policy
+	// carries it as a typed value. The conversion happens here, once, at the
+	// boundary — an unrecognised string becomes the default mode, which is
+	// what an unset mode already means.
+	resolved := permissions.AgentMode(strings.TrimSpace(mode))
+	if resolved == permissions.ModeDefault {
 		if v := settings.String("agentMode"); isKnownMode(v) {
-			mode = v
+			resolved = permissions.AgentMode(v)
 		} else if !settings.Has("agentMode") {
 			// AGY 1.5.7: "Changed the default Agent Mode from Default to Auto:
 			// sessions with no saved mode, including headless -p runs, now start
@@ -69,7 +74,7 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 			// to keep the previous behavior, choose Default for Agent Mode in
 			// /config, which saves "agentMode": "" to settings.json."
 			if auth.AutoModeAvailable() {
-				mode = permissions.ModeAuto
+				resolved = permissions.ModeAuto
 			}
 		}
 	}
@@ -78,7 +83,7 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 		allowNonWS = v
 	}
 	p := permissions.Policy{
-		Mode:                    mode,
+		Mode:                    resolved,
 		SkipPermissions:         skipPermissions,
 		Strict:                  permissions.StrictFromEnv(os.Getenv("OPENAGY_PERMISSION_POLICY")),
 		ToolPermission:          settings.String("toolPermission"),
@@ -103,15 +108,16 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 // internal/ui/views/statusrow), so the answer has to be the same value the
 // session's policy resolved to — hence the delegation rather than a second
 // copy of the 1.5.7 rule.
-func DefaultMode() string { return PolicyFrom("", false).Mode }
+func DefaultMode() string { return string(PolicyFrom("", false).Mode) }
 
 // isKnownMode reports whether v is one of the policy's own modes.
+//
+// The stored-empty default is not "known" here: a saved agentMode of "" is
+// the user choosing the default explicitly, and that is a different case from
+// no setting at all — the caller distinguishes them with settings.Has.
 func isKnownMode(v string) bool {
-	switch v {
-	case permissions.ModeAuto, permissions.ModePlan, permissions.ModeAcceptEdits:
-		return true
-	}
-	return false
+	m := permissions.AgentMode(v)
+	return m.Valid() && m != permissions.ModeDefault
 }
 
 // SandboxFrom builds the terminal sandbox from explicit values.

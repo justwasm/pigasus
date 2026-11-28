@@ -1,0 +1,32 @@
+NAME "The status row's mode prefix, in all three modes"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"agentMode":"auto","showTips":false}'
+
+# The status row's right segment carries the mode as a prefix — "auto · ",
+# "plan · ", "accept-edits · " — or it carries no prefix at all. Which
+# modes have one, and what colour it is, is the question this scene
+# answers: shift+tab cycles the mode, so one boot reaches all three.
+#
+# Snapshot names carry the mode the row was captured in, so a reading is
+# never inferred from a key count.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+SNAPSHOT "01_mode_auto"
+
+KEYS "BTab"
+SLEEP 800ms
+SNAPSHOT "02_mode_after_one_cycle"
+
+KEYS "BTab"
+SLEEP 800ms
+SNAPSHOT "03_mode_after_two_cycles"
+
+KEYS "BTab"
+SLEEP 800ms
+SNAPSHOT "04_mode_after_three_cycles"
+
+DIFF
+CLEANUP

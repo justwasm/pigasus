@@ -38,6 +38,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
+	"github.com/justwasm/pigasus/internal/infra/backend/retrytest"
 )
 
 // TestConnectionDropRetried (AGY 1.3.1) — a connection that fails
@@ -499,6 +500,10 @@ func TestClassifyTransportErrorMapping(t *testing.T) {
 // (5 retries) is unchanged. The schedule is exponential 2x starting
 // at 1 s; attempts past the budget saturate at the cap.
 func TestNextConnectionRetryDelay(t *testing.T) {
+	// This test asserts the production schedule, so it restores it: the
+	// package's TestMain shortens the globals for every other test (a retry
+	// costs milliseconds there instead of 8m15s).
+	retrytest.Production(t)
 	wantSchedule := []time.Duration{
 		1 * time.Second,  // attempt 0
 		2 * time.Second,  // attempt 1

@@ -1,30 +1,8 @@
 package compaction
 
 import (
-	"context"
 	"time"
 )
-
-// CompactionStartEvent marks the beginning of context compaction.
-type CompactionStartEvent struct {
-	Reason string
-}
-
-// CompactionEndEvent marks the completion or abort of context compaction.
-type CompactionEndEvent struct {
-	TokensBefore         int
-	EstimatedTokensAfter int
-	Reason               string
-	Aborted              bool
-	ErrorMessage         string
-}
-
-// ManualCompactor is the seam for the /compact slash command.
-type ManualCompactor interface {
-	Compact(ctx context.Context, customInstructions string) error
-	IsCompacting() bool
-	SubscribeManual(listener func(any)) func()
-}
 
 // GenericDoneMsg reports the result of a generic compaction task.
 type GenericDoneMsg struct {
@@ -38,16 +16,6 @@ type GenericDoneMsg struct {
 	Err                error
 	CustomInstructions string
 	Took               time.Duration
-}
-
-// ManualDoneMsg reports the result of a manual compaction task.
-type ManualDoneMsg struct {
-	TokensBefore       int
-	TokensAfter        int
-	Reason             string
-	Aborted            bool
-	Err                error
-	CustomInstructions string
 }
 
 // ComputeCompactTokens calculates before, after, and summary token counts.
@@ -66,8 +34,15 @@ type ManualDoneMsg struct {
 // So the *after* figure counts the base context, the summary **and**
 // the carried content; the summary figure — the one the "(N summary)"
 // label shows — is the summary alone, unchanged.
-func ComputeCompactTokens(beforeTokens, inputTokens, afterTokens, outputTokens, overhead int, summary string, carriedTokens int) (before, after, sumTokens int) {
-	b := beforeTokens
+//
+// toolTokens is the size of the tool results the transcript count cannot
+// see. The model's request carries them — they travel as the trajectory's
+// tool messages, not as conversation text — so leaving them out made the
+// "before" figure disagree with what /context reports for the same
+// conversation. They count on the *before* side only: the summary replaces
+// them, so the after figure has none.
+func ComputeCompactTokens(beforeTokens, toolTokens, inputTokens, afterTokens, outputTokens, overhead int, summary string, carriedTokens int) (before, after, sumTokens int) {
+	b := beforeTokens + toolTokens
 	if overhead > 0 {
 		b = overhead + b
 	}

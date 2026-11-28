@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
@@ -59,6 +60,14 @@ func classifySSEErrorStatus(errType, errCode, errMsg string) int {
 	c := strings.ToLower(strings.TrimSpace(errCode))
 	m := strings.ToLower(strings.TrimSpace(errMsg))
 
+	// A billing cue beats the frame's own type: providers that stop a request
+	// on a spend cap or an empty prepaid wallet label it "invalid_request" or
+	// "rate_limit", and reading the type first would either retry a failure
+	// that cannot succeed or hide the wallet message behind a 400.
+	if strings.Contains(m, "spend cap") || strings.Contains(m, "prepaid balance") {
+		return http.StatusPaymentRequired
+	}
+
 	for _, token := range []string{t, c} {
 		switch token {
 		case "rate_limit_error", "rate_limit_exceeded", "too_many_requests",
@@ -80,6 +89,18 @@ func classifySSEErrorStatus(errType, errCode, errMsg string) int {
 			return http.StatusGatewayTimeout
 		case "server_error", "api_error", "internal_error", "upstream_error", "500":
 			return http.StatusInternalServerError
+		case "invalid_request_error", "invalid_request", "request_too_large",
+			"context_length_exceeded", "400":
+			return http.StatusBadRequest
+		case "not_found_error", "not_found", "404":
+			return http.StatusNotFound
+		}
+		// A provider that carries the status as a bare number ("code": 429,
+		// "code": "500") says exactly what it means; trust it rather than
+		// falling through to the 500 default, which would make every
+		// unrecognised client error look like a retryable server fault.
+		if n, err := strconv.Atoi(token); err == nil && n >= 400 && n <= 599 {
+			return n
 		}
 	}
 
@@ -95,8 +116,9 @@ func classifySSEErrorStatus(errType, errCode, errMsg string) int {
 		return http.StatusUnauthorized
 	case strings.Contains(m, "permission") || strings.Contains(m, "forbidden"):
 		return http.StatusForbidden
-	case strings.Contains(m, "spend cap") || strings.Contains(m, "prepaid balance"):
-		return http.StatusPaymentRequired
+	case strings.Contains(m, "invalid request") || strings.Contains(m, "bad request") ||
+		strings.Contains(m, "maximum context length") || strings.Contains(m, "context length exceeded"):
+		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

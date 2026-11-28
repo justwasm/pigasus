@@ -1,0 +1,60 @@
+NAME "Chrome that does not follow the colour scheme"
+WINDOW 100 40
+TARGET both
+SETTINGS '{"colorScheme":"light","showTips":false,"agentMode":"auto"}'
+
+# The question this scene answers, in one pair of snapshots:
+#
+#   Does the reference recolour the banner, the two rules around the
+#   prompt, the panel's "Keyboard:" footer and the status row while the
+#   cursor walks the Color Scheme submenu — or does only the preview card
+#   move, with the chrome repainted only when the choice is committed?
+#
+# Every snapshot carries the state it was taken in, so a reading never has
+# to be inferred from an arrow count: the boot scheme is pinned by
+# SETTINGS rather than walked to, and each snapshot is named for the
+# panel state and the committed value.
+
+BOOT_BOTH
+WAIT_READY 15s
+
+# The committed scheme is "light"; the panel is closed.
+SNAPSHOT "01_light_idle"
+
+TYPE "/config"
+ENTER
+SLEEP 900ms
+SNAPSHOT "02_light_config_open"
+
+# Agent Mode, Animation Speed, Artifact Review, then Color Scheme.
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "03_light_row_selected"
+
+# Open the submenu. The cursor seeds on the current value, "light" (index 1).
+ENTER
+SLEEP 600ms
+SNAPSHOT "04_light_submenu"
+
+# Walk to "dark" (index 4) — arrows only, nothing committed. This is the
+# state the user pressed the arrows in.
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 700ms
+SNAPSHOT "05_preview_dark"
+
+# Enter commits. The submenu closes; the panel is still open.
+ENTER
+SLEEP 900ms
+SNAPSHOT "06_dark_committed"
+
+# Esc leaves the panel, back to the prompt.
+KEYS "Escape"
+SLEEP 900ms
+SNAPSHOT "07_dark_idle"
+
+DIFF
+CLEANUP

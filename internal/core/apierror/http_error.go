@@ -834,11 +834,16 @@ func (e *HTTPError) IsScopeMismatch() bool {
 // *HTTPError, and reports whether it represents the OAuth scope
 // mismatch case. Returns false for nil errs, non-API failures, and any
 // HTTPError that does not trip IsScopeMismatch. The error chain may be
-// wrapped many times (agent.Loop wraps the provider error in
-// "agent: open stream: %w"; the print path may wrap it again); the As
-// walk handles every layer. Mirrors IsQuotaReachedErr verbatim so
-// callers in internal/agent, internal/pigrt, and cmd/wagyu can use
-// the same idiom.
+// wrapped many times (a turn loop wraps the provider error in
+// "open stream: %w"; the print path may wrap it again); the As walk
+// handles every layer. Mirrors IsQuotaReachedErr verbatim so callers
+// can use the same idiom.
+//
+// Note the production callers test the method form instead —
+// (*HTTPError).IsScopeMismatch at internal/core/apierror/api_error.go
+// (the hint appending) and internal/app/agentturn/local.go (the
+// turn-error text) — because they already hold the *HTTPError from
+// their own errors.As. This helper's only callers are its tests.
 func IsScopeMismatchErr(err error) bool {
 	if err == nil {
 		return false

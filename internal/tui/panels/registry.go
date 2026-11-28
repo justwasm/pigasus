@@ -25,8 +25,8 @@ type RegistryHost interface {
 	UsageViewerSpec() tuiviewer.Spec
 	PanelChangelogLines() []string
 	ChangelogViewerSpec() tuiviewer.Spec
-	PanelLogsLines() []string
-	LogsViewerSpec() tuiviewer.Spec
+	PanelDebugLines() []string
+	DebugViewerSpec() tuiviewer.Spec
 }
 
 // StandardPanel is the common interface implemented by interactive panels.
@@ -100,18 +100,21 @@ var PanelSpecs = []PanelSpec{
 	{
 		Kind: panelregistry.Artifact,
 		Handler: func(h RegistryHost) panelregistry.Handler {
-			// The panel lists the conversation's artifacts. Without the
-			// host's list this branch used to render the empty frame for
-			// every conversation, which is why a session full of
-			// artifacts still answered "No artifacts".
+			// The panel owns its own surface: the picker list with its
+			// cursor, the inline preview and the detail viewer. It used to
+			// be a pair of closures over a static row list, which made ↑/↓
+			// navigate a cursor nothing painted and Enter open nothing.
 			//
-			// The row count is the artifact count, so the legend's
-			// "↑/↓ Navigate" has a real cursor bound instead of clamping
-			// at zero.
-			return panelregistry.FuncHandler{
-				OnLines:    func() []string { return artifactpanel.LinesFor(h.Artifacts()) },
-				OnRowCount: func() int { return len(h.Artifacts()) },
+			// The panel reads the conversation's artifacts through its own
+			// seam (the same artifacts.List the checkpoint's resume block
+			// reads), so both its rows and its cursor bound come from one
+			// place. OnViewerSpec is absent on purpose: the panel renders
+			// its own viewer instead of borrowing the scrollable-document
+			// one.
+			if p, ok := h.Panel(panelregistry.Artifact).(*artifactpanel.Panel); ok && p != nil {
+				return panelregistry.FromPanel(p)
 			}
+			return panelregistry.FuncHandler{}
 		},
 	},
 	{
@@ -310,11 +313,28 @@ var PanelSpecs = []PanelSpec{
 		},
 	},
 	{
-		Kind: panelregistry.Logs,
+		Kind: panelregistry.Debug,
 		Handler: func(h RegistryHost) panelregistry.Handler {
+			// /logs is one surface with three views, so the panel owns
+			// its keys: the bar's ←/→ and tab, the fold keys and the log's
+			// follow toggle are all this panel's vocabulary. Routing it to
+			// the viewer rule would hand those keys to a scroll handler
+			// that has never heard of a fold.
 			return panelregistry.FuncHandler{
-				OnLines:      h.PanelLogsLines,
-				OnViewerSpec: func() (tuiviewer.Spec, bool) { return h.LogsViewerSpec(), true },
+				OnLines:      h.PanelDebugLines,
+				OnViewerSpec: func() (tuiviewer.Spec, bool) { return h.DebugViewerSpec(), true },
+				OnHandleKey: func(key tea.Key) (bool, tea.Cmd) {
+					if p, ok := h.Panel(panelregistry.Debug).(StandardPanel); ok && p != nil {
+						return p.HandleKey(key)
+					}
+					return false, nil
+				},
+				OnRowCount: func() int {
+					if rc, ok := h.Panel(panelregistry.Debug).(panelregistry.RowCounter); ok {
+						return rc.RowCount()
+					}
+					return 0
+				},
 			}
 		},
 	},

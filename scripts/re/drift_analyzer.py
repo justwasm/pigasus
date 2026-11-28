@@ -160,7 +160,7 @@ def find_candidate_binary(specified: Optional[str] = None) -> Optional[pathlib.P
     for standard_path in [
         pathlib.Path.home() / ".openagy" / "bin" / "agy",
         pathlib.Path.home() / ".local" / "bin" / "agy",
-        REPO / "out" / "extracted-1.5.17" / "reference-binaries" / "agy-darwin-arm64",
+        REPO / "out" / "extracted-1.5.18" / "reference-binaries" / "agy-darwin-arm64",
     ]:
         if standard_path.is_file() and os.access(standard_path, os.X_OK):
             return standard_path.resolve()
@@ -873,8 +873,8 @@ def format_terminal_box(title: str, lines: list[str], status: str = "CLEAN") -> 
 def run_drift_check(args: argparse.Namespace) -> int:
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    baseline_dir = pathlib.Path(args.baseline_dir).resolve() if args.baseline_dir else REPO / "out" / "extracted-1.5.17"
-    baseline_version = args.baseline_version or "1.5.17"
+    baseline_dir = pathlib.Path(args.baseline_dir).resolve() if args.baseline_dir else REPO / "out" / "extracted-1.5.18"
+    baseline_version = args.baseline_version or "1.5.18"
 
     # 1. Discover baseline data
     funcs_baseline = baseline_dir / "seeds" / "funcs.txt"
@@ -912,7 +912,7 @@ def run_drift_check(args: argparse.Namespace) -> int:
         canary_cmds = extract_candidate_slash_commands(raw_strings)
         canary_schemas = copy.deepcopy(base_schemas)
     elif args.simulate_canary:
-        canary_version = "1.5.16-canary"
+        canary_version = "1.5.18-canary"
         canary_symbols, canary_flags, canary_cmds, canary_schemas = simulate_canary_state(
             base_symbols, base_flags, base_cmds, base_schemas
         )
@@ -1014,9 +1014,9 @@ def main():
         description="Automated upstream reference drift inspector (Reverse-Engineering SOP)",
     )
     parser.add_argument("--binary", help="Path to upstream candidate agy binary")
-    parser.add_argument("--baseline-dir", help="Baseline extracted directory (default: out/extracted-1.5.17)")
-    parser.add_argument("--baseline-version", help="Baseline version (default: 1.5.16)")
-    parser.add_argument("--simulate-canary", action="store_true", help="Simulate 1.5.16+ upstream canary drift for verification")
+    parser.add_argument("--baseline-dir", help="Baseline extracted directory (default: out/extracted-1.5.18)")
+    parser.add_argument("--baseline-version", help="Baseline version (default: 1.5.18)")
+    parser.add_argument("--simulate-canary", action="store_true", help="Simulate 1.5.18+ upstream canary drift for verification")
     parser.add_argument("--update-docs", action="store_true", default=True, help="Update docs/guide/reference-drift.md")
     parser.add_argument("--no-update-docs", dest="update_docs", action="store_false", help="Do not update docs")
     parser.add_argument("--report-json", help="Path to write JSON report")

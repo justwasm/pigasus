@@ -39,7 +39,7 @@ const (
 	Help
 	History
 	Terminal
-	Logs
+	Debug
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
@@ -47,7 +47,7 @@ func (k Kind) ExitNotice() bool {
 	switch k {
 	case None, Help, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
-		Usage, AddDir, Rename, FeatDiff, Projects, History, Terminal, Logs:
+		Usage, AddDir, Rename, FeatDiff, Projects, History, Terminal, Debug:
 		return false
 	}
 	return true
@@ -60,13 +60,13 @@ func (k Kind) KeepStatusHint() bool {
 
 // IsViewer reports whether the panel is a scrollable document viewer.
 func (k Kind) IsViewer() bool {
-	return k == Usage || k == Changelog || k == FeatDiff || k == Logs
+	return k == Usage || k == Changelog || k == FeatDiff || k == Debug
 }
 
 // TrailingBlank reports whether the panel's legend row is followed by an
 // empty row before the status row.
 func (k Kind) TrailingBlank() bool {
-	return k != Help && k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff && k != Logs
+	return k != Help && k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff && k != Debug
 }
 
 // OwnsEarlyKeys reports whether the panel intercepts keyboard navigation
@@ -98,12 +98,26 @@ type RowCounter interface {
 	RowCount() int
 }
 
+// GutterReporter is implemented by panels whose rows begin with a
+// line-number gutter rather than the document.
+//
+// The host asks it when it copies a drag: the number is the viewer's
+// furniture, so a copy must not paste it. A panel without a gutter simply
+// does not implement this, and the host copies every cell the pointer
+// crossed.
+type GutterReporter interface {
+	// SelectionGutter is how many leading cells of each row are gutter,
+	// or 0 when the panel has none in its current state.
+	SelectionGutter() int
+}
+
 // FuncHandler adapts functions to the Handler interface.
 type FuncHandler struct {
 	OnLines      func() []string
 	OnHandleKey  func(key tea.Key) (bool, tea.Cmd)
 	OnViewerSpec func() (tuiviewer.Spec, bool)
 	OnRowCount   func() int
+	OnGutter     func() int
 }
 
 func (h FuncHandler) Lines() []string {
@@ -127,6 +141,13 @@ func (h FuncHandler) ViewerSpec() (tuiviewer.Spec, bool) {
 	return tuiviewer.Spec{}, false
 }
 
+func (h FuncHandler) SelectionGutter() int {
+	if h.OnGutter != nil {
+		return h.OnGutter()
+	}
+	return 0
+}
+
 func (h FuncHandler) RowCount() int {
 	if h.OnRowCount != nil {
 		return h.OnRowCount()
@@ -145,6 +166,9 @@ func FromPanel(p StandardPanel) Handler {
 	}
 	if rc, ok := p.(RowCounter); ok {
 		fh.OnRowCount = rc.RowCount
+	}
+	if gr, ok := p.(GutterReporter); ok {
+		fh.OnGutter = gr.SelectionGutter
 	}
 	return fh
 }

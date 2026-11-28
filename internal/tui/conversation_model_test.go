@@ -139,7 +139,7 @@ func TestConversationModel_ModelRetryStatus(t *testing.T) {
 	// With reason attached, reason and /logs hint are surfaced.
 	c.SetModelRetryWithReason(2, 10, time.Now().Add(8*time.Second), "HTTP 503: MODEL_CAPACITY_EXHAUSTED")
 	status, ok = c.ModelRetryStatus()
-	if !ok || !strings.Contains(status, "HTTP 503: MODEL_CAPACITY_EXHAUSTED") || !strings.Contains(status, "(/logs)") {
+	if !ok || !strings.Contains(status, "HTTP 503: MODEL_CAPACITY_EXHAUSTED") || !strings.Contains(status, "(/debug)") {
 		t.Errorf("expected retry reason and /logs hint, got %q (ok=%v)", status, ok)
 	}
 }

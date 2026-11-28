@@ -288,6 +288,115 @@ parity was performed for 1.5.17.** The `how` notes in `reference.lock.json` say
 so, and only the artifacts that were statically re-verified against the new
 extraction carry a 1.5.17 re-verification claim.
 
+## The 1.5.17 → 1.5.18 delta
+
+> Recorded 2026-11-26. The `out/extracted-1.5.17/` tree was retired in the
+> same change, so the differences are written down here rather than left
+> implicit in a directory that no longer exists.
+
+Extracted with `python3 scripts/re/extract_agy.py --bin ~/.local/bin/agy` into
+`out/extracted-1.5.18/` (67 MB, 1,002 files). The release notes came from
+`python3 scripts/re/fetch_changelog.py --version 1.5.18`, stored as
+`internal/cli/testdata/changelog_upstream_1.5.18.md`.
+
+Reference binary: 228,748,896 B, sha256 `89d0b97a9ebcefca…` — the installed
+`~/.local/bin/agy` prints `1.5.18`.
+
+### `agy changelog` is not an embedded feed
+
+Every earlier cycle described the fixture as an "embedded changelog feed". It is
+not. The reference **fetches** the vendor's public
+`https://raw.githubusercontent.com/google-antigravity/antigravity-cli/refs/heads/main/CHANGELOG.md`,
+caches it at `~/.gemini/antigravity-cli/cache/CHANGELOG.md`, drops the newest
+section (the binary always ships one release behind), and re-renders the rest:
+
+```
+## 1.5.18        →  1.5.18:
+- Fixed …        →  · Fixed …
+(blank line between sections)
+```
+
+Converting the 1.5.18 fetch that way reproduces the capture **byte for byte**
+(273,878 B). Two consequences the old wording hid:
+
+- the fixture is only as fresh as the machine's cache — the 1.5.17 fixture was
+  a 2026-11-22 cache, not a 1.5.17 fetch;
+- a new release *does* move the fixture, because a new section appears at the
+  top. 1.5.17 → 1.5.18 grew it 259,799 → **273,878 B**, 1,352 → **1,407
+  lines**, 98 → **101 sections**, 1,157 → **1,206 bullets**, sha256
+  `b777354c…` → `ef967da8…`, and the newest section is now `1.5.17:`.
+
+### Unchanged
+
+| Artifact | Evidence |
+|---|---|
+| Embedded chroma lexers | all **353** XML files, same file set, same bytes |
+| `cortex` proto | 516 messages / 90 enums, unchanged |
+| `trajectory`, `trajectory_steps` protos | unchanged |
+| `agy --help` (13 commands) | byte-identical to the 1.5.17 capture — re-captured verbatim as `internal/cli/testdata/help_reference_1.5.18.txt` |
+| 63 known tool names | every name still present in the binary |
+| Context-overflow message | unchanged |
+| Session-summary prompt (3,931 chars) | unchanged |
+
+### Changed
+
+`remote_agent_proxy` proto (`google.gca.aicode.v1main`): 391 → **406
+messages**, 26 → 26 enums. New: `ManageConversationSidecar`,
+`ListConversationSidecars`, `GetConversationSidecarLogs`, `LaunchMcpApp`,
+`CallMcpAppTool`, `GetMcpAppResource`, `ListMcpServerTools` (each with its
+`Request`/`Response` pair) and `McpServerToolInfo`.
+
+`remote_agent_proxy_pb` (`exa.remote_agent_proxy_pb`): 14 → **18 messages**
+(`ConversationSidecarIngress`, `PluginSidecarSummary`, `PluginVariable`,
+`PluginVariableSpec`), 7 → **9 enums** (`ConversationSidecarAction`,
+`ConversationSidecarCallbackMode`).
+
+The language server gained `ListAgentWorkspacePermissions` /
+`SetAgentWorkspacePermissions` and the `AgentWorkspacePermission` enum.
+
+The embedded `model_profiles.json` gained
+`base.remote-human-identity-survey-percent: 30` and one science-shelf plugin
+(`antigravity-plugins-official/plugin/mass-spectrometry`).
+
+New pclntab symbols include `media.decodeImageMedia` (and the removal of
+`media.ResolveMediaMetadata`), i.e. the reference now fully decodes an image
+before attaching it — the "half-written image" fix.
+
+### Implemented here (and where)
+
+| 1.5.18 bullet | Where | Evidence |
+|---|---|---|
+| Reject truncated or corrupt images when viewing files | already decoded by `imagery.Prepare`; now **pinned** | `internal/app/tools/filesystem/image_attach_test.go` — six broken-image shapes, plus the control case |
+| File permission rules apply to `file:///` URIs | `internal/core/fileuri` (new Tier-1 package) consumed by `permissions.normalisePath`, `tools.ReadPath` and `tools.WorkspacePath` | `internal/core/fileuri/fileuri_test.go`, `internal/core/policy/permissions/fileuri_test.go`, `internal/app/tools/filesystem/fileuri_test.go` |
+| Remote Control: copy keeps blank lines; LaTeX in subagent replies; `$var` not math; quota panel empty state | the whole 1.5.18 web bundle replaced verbatim | `internal/rcfrontend/bundle_1_5_18_test.go` — bundle digest + one assertion per bullet |
+| Windows plugin cross-drive load | **not applicable**: the clone resolves plugin roots with `filepath.Join` on a single config home and has no drive-letter relativisation to fix | — |
+
+The `file:///` fix is the one with a measured before/after. On the 1.5.17
+clone, `deny(read_file(/etc/passwd))` answered:
+
+```
+target="/etc/passwd"        verdict=deny
+target="file:///etc/passwd" verdict=allow     ← the bypass
+```
+
+and `read_file("file:///…/secret.txt")` failed with
+`open …/ws/file:/…/secret.txt: no such file or directory`, i.e. the tool and
+the permission engine disagreed about which file the call was about. Both
+halves now resolve the URI through the same package.
+
+### Deliberately not implemented
+
+The conversation-sidecar and MCP-app RPCs, `List/SetAgentWorkspacePermissions`,
+and the `PolicyGuardian` additions each need their own cycle with wire
+evidence. That evidence is unavailable: the reference account is suspended, so
+the binary can be extracted but not driven. **No live parity was performed for
+1.5.18.** The fifteen artifacts still stamped `captured_at` ≤ 1.5.16 need a
+live session to re-record (the tool-error and result-text captures need
+`CLOUD_CODE_URL` pointed at `devutils/refcapture`, the custom-agent
+declarations need `--agent`, the model declarations need a sandboxed
+`streamGenerateContent` body), and `reference.lock.json`'s `lag_note` says so
+rather than implying verification.
+
 <!-- BEGIN AUTOMATED DRIFT REPORT -->
 ## Automated Reference Drift Inspection & Parity Audit
 

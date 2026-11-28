@@ -43,10 +43,18 @@ func EffortTiersFor(name string) []string {
 		return nil
 	}
 	// The names the lookup tries: the name itself, the catalogue id it
-	// names, and that id without its tier suffix.
+	// names, that id without its tier suffix, and the slug the name
+	// spells ("Gemini 4 Hydrogen (XHigh)" -> "gemini-4-hydrogen-xhigh").
+	//
+	// The slug is what makes a display label resolvable when the row it
+	// names is gated off this account: the catalogue a gated model is
+	// missing from is still the table that says it has four levels.
 	names := []string{name}
 	if id, ok := CatalogueID(name); ok {
 		names = append(names, id, models.BaseModelID(id))
+	}
+	if slug := ModelSlug(name); slug != "" && slug != name {
+		names = append(names, slug, models.BaseModelID(slug))
 	}
 	// The reference's own catalogue: a model's id carries the tier
 	// ("gemini-3.8-flash-high"), so the table is keyed by the base id.

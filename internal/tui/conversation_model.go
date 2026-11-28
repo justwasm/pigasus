@@ -47,11 +47,32 @@ type ConversationModel struct {
 	streaming bool
 	// compactHappenedThisTurn records whether a compaction was performed during this turn.
 	compactHappenedThisTurn bool
-	// compactBlockIdx marks the index in blocks where the latest compaction occurred.
-	// Tool blocks before this index were compacted and are excluded from active context usage.
-	compactBlockIdx int
-	// compactStepIdx marks the index in liveSteps where compaction occurred in the active turn.
-	compactStepIdx int
+	// compactRowIdx is the transcript row the running compaction's spinner
+	// occupies. It is only meaningful while compactRowLive is set: row 0 is a
+	// legal row (the "> /compact" echo), so the index cannot say "none" by
+	// itself.
+	//
+	// The row is repainted in place on every tick: the reference shows one
+	// live line where "Generating…" and "Working…" appear, so a compaction
+	// that appended a row per frame would scroll the conversation.
+	compactRowIdx  int
+	compactRowLive bool
+
+	// compactedToolSteps is how many tool steps the latest compaction took
+	// out of the active context: the sum of every tool step the summary
+	// stands in for.
+	//
+	// It is a *step* count, not a block index, because a block does not
+	// carry a compaction boundary: the transcript finalises a whole turn's
+	// steps into blocks when the turn ends, so the compaction point can fall
+	// inside a block, and a compaction that lands mid-turn sits between two
+	// blocks that only exist after that turn is finalised. Counting steps
+	// survives both, and survives DeduplicateBlocks re-sorting the blocks.
+	//
+	// The panel counts the tool results of the steps *after* this prefix, so
+	// the tools that the summary replaced do not inflate the usage figure
+	// while the tools the turn ran after compacting still count.
+	compactedToolSteps int
 	// turnInterrupted is true when the user cancelled the latest turn with
 	// Esc; the composer hint and the absence of an error row follow it.
 	turnInterrupted bool
@@ -180,7 +201,7 @@ func (c *ConversationModel) ModelRetryStatus() (string, bool) {
 		base = fmt.Sprintf("Model unavailable, retrying%s", attemptStr)
 	}
 	if c.modelRetry.Reason != "" {
-		return base + " — " + c.modelRetry.Reason + " (/logs)", true
+		return base + " — " + c.modelRetry.Reason + " (/debug)", true
 	}
 	return base, true
 }

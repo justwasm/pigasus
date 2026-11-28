@@ -66,6 +66,7 @@ func (m *RootModel) hostActionSeams() hostactions.Seams {
 			m.conversation.blocks = nil
 			m.conversation.liveSteps = nil
 			m.conversation.liveStepRuns = nil
+			m.forgetConversationState()
 			m.conversation.activeTool = ""
 			m.session.store.ClearStreamQueue()
 			m.conversation.replyStart = -1
@@ -165,6 +166,7 @@ func (m *RootModel) slashContinue(args string) (bool, tea.Cmd) {
 	m.conversation.blocks = nil
 	m.conversation.liveSteps = nil
 	m.conversation.activeTool = ""
+	m.forgetConversationState()
 	m.seedConversation(sel.Store)
 	m.session.autoTitle = ""
 	m.conversation.response = append(m.conversation.response, "  ⎿  Resumed conversation "+sel.ID)
@@ -1275,7 +1277,13 @@ func (m *RootModel) slashSchedule(args string) (bool, tea.Cmd) {
 		m.slashRespond("/schedule", "Usage: /schedule <instruction>")
 		return true, nil
 	}
-	return true, m.sendAsPrompt("/schedule", instruction+"\n\n"+slashactions.SchedulePrompt())
+	// /schedule expands as a mention, like /learn and /goal: the turn keeps
+	// the command verbatim and the instruction rides in <ADDITIONAL_METADATA>.
+	// Captured from agy 1.5.18 — `/schedule run the tests every morning`
+	// produces a 437 B turn whose expansion body is the 74 B line
+	// "Please use the schedule tool to create a schedule as specified by the
+	// user", with no wrapper tag.
+	return true, m.sendAsMention("/schedule", "/schedule "+instruction, slashactions.SchedulePrompt())
 }
 
 func (m *RootModel) slashBranch(args string) (bool, tea.Cmd) {

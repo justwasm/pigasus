@@ -1,0 +1,36 @@
+NAME "The composer banner at boot, in a non-default mode"
+WINDOW 100 34
+TARGET both
+SETTINGS '{"agentMode":"plan","showTips":false}'
+
+# Why this scene exists.
+#
+# Scene 47 captures the composer placeholder "Plan mode: ..." and
+# "Accept-edits mode: ..." *after* a shift+tab, on both panes. Scene 50
+# captured a boot with no `agentMode` key, and there the two panes differed:
+#
+#     agy      "> "                                        (no banner)
+#     pigasus  "> Auto mode: edits & safe commands ..."    (banner)
+#
+# That pair is ambiguous. It is consistent with two different rules:
+#
+#   R1  auto is the default, and the default mode draws no banner, so auto
+#       is silent while plan and accept-edits are not — this fires at boot.
+#   R2  no banner is drawn at boot for *any* mode; the banner appears only
+#       once the user changes the mode mid-session.
+#
+# Both explain scene 50. They differ exactly here: boot straight into `plan`.
+# Under R1 agy draws "Plan mode: ..." at boot; under R2 it draws nothing and
+# only pigasus does.
+#
+# The status row is in the same snapshot because it discriminates the same
+# way: `plan` carries a prefix and `auto` does not, so the pair (prefix,
+# banner) has to agree on the side agy is on.
+
+BOOT_BOTH
+WAIT_READY 15s
+SLEEP 1500ms
+SNAPSHOT "01_boot_in_plan"
+
+DIFF
+CLEANUP

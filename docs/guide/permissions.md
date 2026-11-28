@@ -163,6 +163,49 @@ reference's order and `permissions.ModeList()` renders it.
 `permissions.CycleModes` and `permissions.NextMode` implement the
 shift+tab cycle, and `permissions.ModeBanner` the banner it prints.
 
+### The four modes and the cycle
+
+Four modes, and they are four, not three:
+
+| mode | stored as | what it approves |
+|---|---|---|
+| `default` | `""` (or the key omitted) | nothing automatically: pauses for an inline diff review on writes and asks before commands |
+| `accept-edits` | `"accept-edits"` | workspace file edits |
+| `auto` | `"auto"` | workspace edits, sandboxed commands, and commands an AST pass judges safe and reversible |
+| `plan` | `"plan"` | reads only; prepends the `/plan` prefix |
+
+The lap is the one `official-docs/cli/modes.md` states:
+
+```
+default → accept-edits → auto → plan → default
+```
+
+`permissions.CycleModes` is that sequence and `permissions.NextMode` its only
+reader. Every entry is its own stop, `""` included: `default` and `auto` store
+differently, approve differently, and both appear in `/config`'s Agent Mode
+list. A host whose terminal sandbox is unavailable declines `auto` and skips
+from `accept-edits` to `plan` — that is the three-stop lap the same document
+describes, not evidence that the two modes are one.
+
+Two things that look like they say otherwise and do not:
+
+- **AGY 1.5.7 / 1.5.18 changelog** — "Changed the default Agent Mode from
+  Default to Auto". That names the mode a *new session starts in*
+  (`setup.DefaultMode()`, which resolves to `auto` when the sandbox is
+  available and `""` when it is not). It does not remove `default` from the
+  cycle or from `/config`.
+- **`permissions.CycleHint`** — `Press shift+tab to cycle modes (default,
+  accept-edits, plan).` is verbatim in agy 1.5.18 and still omits `auto`,
+  which landed in 1.3.5. It is a stale recovered string, kept for the record;
+  nothing renders it, and it is not the cycle's definition.
+
+The pin is `devutils/tuialign/scenarios/49_mode_cycle_order.align`, which
+declares the lap as a `MODE_CYCLE_ROW` table — one row per stop, each carrying
+the status row's exact right segment and the composer's banner — and walks it
+with `MODE_CYCLE`. Each press is checked against its own row, so a wrong order
+fails on the stop it is wrong at instead of passing because some other mode
+word happened to be absent.
+
 ## The headless strings
 
 Print mode has its own verbatim texts, recovered from the binary's
@@ -203,6 +246,60 @@ When `enableTerminalSandbox` is set to `true` (controlled via `/config` or setti
 4. **Single-Shot Bypass Contract**:
    - Bypassing the sandbox is strictly a per-call user decision (`BypassSandbox: true`).
    - The engine never stores a sticky bypass flag; subsequent commands re-evaluate the sandbox independently.
+   - The one exception is the user's own session-level switch: `/yolo on` (below) turns the sandbox *off* for the session, which is a different thing from a call asking to bypass a sandbox that is still on. The engine still stores no per-call flag; the session's gate is simply off.
+
+## `/yolo`: the session's own `--dangerously-skip-permissions`
+
+`--dangerously-skip-permissions` is a startup flag, and the reference has no
+way to set it on a session that is already running. `/yolo` is the clone's
+superset command for exactly that case:
+
+```
+/yolo          same as /yolo on (the quick mode)
+/yolo on       skip every prompt and turn the terminal sandbox off
+/yolo off      ask again, and put the sandbox back as the session started
+```
+
+The bare form is the quick mode, not a toggle: `/yolo` means on, and a repeat
+stays on ("Already on."). Turning the gates back on is always the explicit
+`/yolo off`, because a user typing `/yolo` again means "keep going".
+
+It is the one command that writes a permission gate from inside a turn. It has
+to touch **both** gates, because they are independent — either one alone still
+blocks a command:
+
+| gate | what it says | owner |
+|---|---|---|
+| `Policy.SkipPermissions` | "do not ask" — `DecideCall` returns `Allow` outright | shared pointer (`m.session.policy`), so the parent runner, the subagent gate and `/config` all see it at once |
+| `Sandbox.Enabled` | "you may not leave the workspace at all" — `SandboxBoundaryMiddleware` checks it *before* the policy runs | a **value** copied into the runner, the subagent gate and the tool declarations |
+
+Because the sandbox is a copied value, `/yolo` writes `m.tools.sandbox` and
+then re-derives the declarations and the runner from it
+(`RootModel.rebuildToolSurface`). `AdvertisedToolDeclsWithSandbox` uses the
+same flag to decide whether `run_command` offers its bypass parameter, so
+rebuilding only the runner would leave the model looking at a surface that
+describes a sandbox it does not have.
+
+It does **not** call `reloadPluginsAndMCP`: re-reading the MCP configuration
+from the config home and replacing the process-global provider is a plugin
+reload's job, not a permission switch's.
+
+Two boundaries worth knowing:
+
+- **A turn in flight keeps the runner it captured when it started**
+  (`agentturn.Env.ToolRunner`), so a switch applies from the next turn on —
+  the same granularity as the flag, which is read when a run starts.
+- **The flag is a floor.** A session that started with
+  `--dangerously-skip-permissions` already has the gates off; `/yolo off`
+  says so rather than pretending to re-arm them.
+
+`/yolo off` does not re-implement `setup.SandboxFrom`'s rule (the settings
+switch combined with the flag). It asks the same owner again
+(`printmode.PrintModeSandbox`) and takes its answer, so the restored value is
+the one the session would have started with.
+
+Remote-agent sessions have no local gate; `/yolo` points them at
+`/permissions <preset>` instead.
 
 ## Where to look
 

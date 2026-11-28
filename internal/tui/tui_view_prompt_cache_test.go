@@ -43,7 +43,7 @@ func renderPromptColdView(m *RootModel) tea.View {
 	}
 	transcript = m.selectionPass(transcript)
 	body, cursorY := m.viewBody(transcript)
-	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog && m.overlays.panel.kind != panelregistry.Logs {
+	if m.viewport.width > 0 && m.overlays.panel.kind != panelregistry.Changelog && m.overlays.panel.kind != panelregistry.Debug {
 		body = tuilib.FitLines(body, m.viewport.width)
 	}
 	body, cursorY = m.clipViewBody(body, cursorY)

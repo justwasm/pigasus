@@ -155,6 +155,8 @@ Inside live mode:
 | `WAIT_TEXT <text> [timeout]` | Waits until text appears | `WAIT_TEXT "Hello" 15s` |
 | `EXPECT_TEXT <text> [timeout]` | Same wait, but reported as a pass/fail assertion — a missing string ends the scenario with exit 1 | `EXPECT_TEXT "int \`json:\"input_tokens\"\`" 5s` |
 | `ASSERT_NOT_TEXT <text>` | Fails when the string *is* on screen — the negative half of a gate | `ASSERT_NOT_TEXT "int json:"` |
+| `MODE_CYCLE_ROW <mode> <row tail> <banner\|->` | Declares one stop of a shift+tab lap: the exact tail of the status row's right segment, and the composer's banner (`-` for none). Rows accumulate in file order. | `MODE_CYCLE_ROW auto "auto · Gemini 3.8 Flash · high" "Auto mode: edits & safe commands auto-approved (shift+tab to cycle)"` |
+| `MODE_CYCLE` | Walks the declared lap: asserts row 0 in place, then presses shift+tab once per remaining row and checks each landing against that row. Fails naming the stop and the mode actually reached. | `MODE_CYCLE` |
 | `ASSERT_PARITY <pct>` | Fails when the last snapshot's parity is below `pct` | `ASSERT_PARITY 80` |
 | `TYPE <text>` | Types text into input buffer | `TYPE "hi"` |
 | `ENTER` | Presses Enter (`C-m`) | `ENTER` |

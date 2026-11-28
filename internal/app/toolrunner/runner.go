@@ -105,7 +105,7 @@ type PermissionRunner struct {
 // Run gates tool execution through policy and sandbox checks.
 func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
 	onDenial := func(name string) { r.Denials = append(r.Denials, name) }
-	mode := ""
+	mode := permissions.ModeDefault
 	if r.Policy != nil {
 		mode = r.Policy.Mode
 	}
@@ -128,7 +128,7 @@ func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 func (r *PermissionRunner) RunWithMedia(ctx context.Context, call backend.ToolCall) (backend.ToolOutput, error) {
 	var attached backend.ToolOutput
 	onDenial := func(name string) { r.Denials = append(r.Denials, name) }
-	mode := ""
+	mode := permissions.ModeDefault
 	if r.Policy != nil {
 		mode = r.Policy.Mode
 	}
@@ -181,10 +181,26 @@ type Gate struct {
 // uses.
 func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCall) Gate {
 	target := ToolTarget(call)
+	bypassed := false
 	if sb.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
 		// BypassSandbox is a per-call decision (【一手】 agy 1.4.6): the model
 		// may ask for one call to run outside the sandbox.
-		if res := sb.CheckCommandWithBypass(target, shell.BypassSandboxRequested(call.Arguments)); res.Outside {
+		bypassed = shell.BypassSandboxRequested(call.Arguments)
+		// The command is judged as if no bypass were asked for. That is the
+		// only way to know whether the bypass is *needed*: CheckCommandWithBypass
+		// answers "outside" for the bypassed call too only because it skips the
+		// check entirely, so asking it with the bypass on says nothing about the
+		// command and quietly let every bypassed call through unexamined.
+		sandboxed := sb.CheckCommand(target)
+		if sandboxed.Outside {
+			if bypassed {
+				// The model wants this one command outside the sandbox. The
+				// prompt tells it that a bypass "requires manual user approval",
+				// so the request has to reach the user: returning Allow here ran
+				// the command outside the sandbox with nobody asked, which is the
+				// opposite of what the prompt promised.
+				return Gate{Allow: false, Ask: true, Reason: BypassSandboxAskReason(call.Name, target)}
+			}
 			if policy != nil && policy.Mode == permissions.ModeAuto {
 				return Gate{Allow: false, Ask: true, Reason: permissions.DeniedToolResult(call.Name, target)}
 			}
@@ -203,6 +219,16 @@ func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCal
 		return Gate{Allow: false, Ask: true, Reason: permissions.DeniedToolResult(call.Name, target)}
 	}
 	return Gate{Allow: false, Reason: permissions.DeniedToolResult(call.Name, target)}
+}
+
+// BypassSandboxAskReason is the question the user is asked when the model
+// wants one command to run outside the terminal sandbox.
+//
+// It names the command and what the bypass would open, so the approval is
+// about a specific call rather than a mode the session then stays in.
+func BypassSandboxAskReason(tool, target string) string {
+	return "Run '" + tool + "' on '" + target + "' outside the terminal sandbox? " +
+		"The command would get network access and the rest of the filesystem for this call only."
 }
 
 // SandboxDeniedToolResult formats the rejection message when sandbox blocks a command.

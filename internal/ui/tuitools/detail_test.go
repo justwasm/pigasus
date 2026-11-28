@@ -258,30 +258,30 @@ func TestGroupSummary(t *testing.T) {
 		{Name: "run_command", Title: "Bash(echo one)", Summary: "Ran (echo one)"},
 		{Name: "run_command", Title: "Bash(echo two)", Summary: "Ran (echo two)"},
 	}
-	verb, count, detail := GroupSummary(homogeneous)
-	if verb != "Ran" {
-		t.Errorf("verb = %q, want %q", verb, "Ran")
+	sum := GroupSummary(homogeneous)
+	if sum.Verb != "Ran" {
+		t.Errorf("verb = %q, want %q", sum.Verb, "Ran")
 	}
-	if count != "2 commands" {
-		t.Errorf("count = %q, want %q", count, "2 commands")
+	if sum.Count != "2 commands" {
+		t.Errorf("count = %q, want %q", sum.Count, "2 commands")
 	}
-	if detail != "(echo one · echo two)" {
-		t.Errorf("detail = %q, want %q", detail, "(echo one · echo two)")
+	if sum.Detail != "(echo one · echo two)" {
+		t.Errorf("detail = %q, want %q", sum.Detail, "(echo one · echo two)")
 	}
 
 	mixed := []Step{
 		{Name: "run_command", Title: "Bash(echo one)"},
 		{Name: "view_file", Title: "Read(/tmp/x)"},
 	}
-	verb, count, detail = GroupSummary(mixed)
-	if verb != "Ran" {
-		t.Errorf("mixed verb = %q, want %q", verb, "Ran")
+	sum = GroupSummary(mixed)
+	if sum.Verb != "Ran" {
+		t.Errorf("mixed verb = %q, want %q", sum.Verb, "Ran")
 	}
-	if count != "1 file, 1 command" {
-		t.Errorf("mixed count = %q, want %q", count, "1 file, 1 command")
+	if sum.Count != "1 file, 1 command" {
+		t.Errorf("mixed count = %q, want %q", sum.Count, "1 file, 1 command")
 	}
-	if detail != "" {
-		t.Errorf("mixed detail = %q, want it empty", detail)
+	if sum.Detail != "" {
+		t.Errorf("mixed detail = %q, want it empty", sum.Detail)
 	}
 }
 

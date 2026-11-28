@@ -52,9 +52,22 @@ func (k Kind) Route() Route {
 		k == Diff || k == AddDir || k == Rename:
 		// The panel owns every key it receives.
 		return RoutePanel
+	case k == Artifact:
+		// The /artifact panel owns every key it receives: the picker's
+		// cursor, the inline preview, the editor chord and the detail
+		// viewer's scroll. It used to route to the list rule, which
+		// swallowed ↑/↓ without moving the cursor and swallowed `p` and
+		// `enter` without doing anything — a static list that looked
+		// navigable.
+		return RoutePanel
 	case k.OwnsEarlyKeys():
 		// The panel intercepts the keyboard navigation before the
 		// generic list handlers.
+		return RoutePanel
+	case k == Debug:
+		// The /debug surface owns its keys: the view bar, the fold list
+		// and the log's follow toggle are its own vocabulary, and a
+		// viewer route would swallow them.
 		return RoutePanel
 	case k.IsViewer():
 		// The scrollable document viewer.
@@ -66,16 +79,20 @@ func (k Kind) Route() Route {
 	return RouteNone
 }
 
-// IsList reports whether the kind is one of the four key-owning list
-// panels: /tasks, /artifact, /codesearch, /context.
+// IsList reports whether the kind is one of the list panels: /tasks,
+// /codesearch, /context.
 //
-// /tasks routes to its own panel first (the panel owns the cursor, the
-// detail view and the kill), but it stays on the list: the host's key
-// pipeline hands a list panel's keys to the panel *before* the global
+// /tasks and /artifact route to their own panel first (the panel owns the
+// cursor, the detail view and the kill), but they stay on the list: the host's
+// key pipeline hands a list panel's keys to the panel *before* the global
 // handlers see them.
+//
+// /artifact is deliberately NOT here: it owns the whole keyboard while it is
+// open, including the keys the list rule would otherwise swallow, so routing it
+// through the list path would hand its keys to two owners.
 func (k Kind) IsList() bool {
 	switch k {
-	case Tasks, Artifact, CodeSearch, Context:
+	case Tasks, CodeSearch, Context:
 		return true
 	}
 	return false

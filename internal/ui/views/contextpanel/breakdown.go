@@ -47,6 +47,16 @@ type Breakdown struct {
 	// conversation.
 	SystemMessages int
 
+	// The *Estimated flags say a count is a built-in figure rather than a
+	// measurement: the host had nothing to measure and filled the row from
+	// a constant. The row renders them with a leading "~".
+	SystemPromptEstimated   bool
+	SystemToolsEstimated    bool
+	RulesEstimated          bool
+	SkillsEstimated         bool
+	SubagentsEstimated      bool
+	SystemMessagesEstimated bool
+
 	// CheckpointBuffer is the token count the session's compaction
 	// checkpoint holds.
 	//

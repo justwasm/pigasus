@@ -7,7 +7,7 @@
 ## 1. System Identity & Mission
 
 `pigasus` (repo: `openagy`) is a dual-capability agent engine:
-1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.16** / `internal/cli.ReferenceVersion`).
+1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.18** / `internal/cli.ReferenceVersion`).
 2. **Modern Agent Runtime**: An extensible agent harness supporting multiple providers (CloudCode, OpenAI, Anthropic, ACP, Gateway), plugins, tools, sandboxed execution, and headless/server orchestration.
 
 > **Single Source of Truth Notice**: Always consult [`docs/guide/`](docs/guide/) for active subsystem facts. Historical reports under [`docs/cycles/`](docs/cycles/) represent exploratory or past iterations and are secondary to [`docs/guide/`](docs/guide/).
@@ -100,6 +100,69 @@ Use the project `Makefile` or `scripts/verify.sh` to avoid running into uncompil
 
 > **Formatting note**: Format only files you add or edit. Do not run repo-wide `gofmt -w .` passes.
 
+### Commit Hygiene in a Shared Worktree (共享工作树提交纪律)
+
+Several agents work in this tree concurrently, and **the index is shared state**.
+Two different failures come from that, and they need opposite habits:
+
+- a **bare `git commit`** takes the whole index, so anything another agent has
+  staged comes with it — unless you check `git diff --cached` first;
+- **`git commit --only <path>`** skips the index for those paths and takes the
+  working tree instead, so *their unstaged edits* come with it and your
+  carefully staged hunks are thrown away.
+
+The first is avoidable by checking the index; the second cannot be checked away,
+because it does not consult the index at all. Both have already reverted a panel
+refactor and shipped a non-compiling `HEAD` twice.
+
+Rules, no exceptions:
+
+1. **Stage with explicit paths, then commit the index.** `git add <path>...`,
+   then `git diff --cached --name-only` and confirm every entry is yours, then a
+   **plain `git commit`** (no `-a`, no `--only`).
+2. **Never `git add -A` / `git add .` / `git commit -a`.**
+3. **`--only` is not a safety net — it is the hazard.** `git commit --only <path>`
+   ignores the index for those paths and commits the **working-tree** content.
+   Anything another agent has half-written in that file goes in with your change,
+   and whatever you staged hunk-wise is discarded. Measured:
+
+   ```
+   index:    line2 -> MINE        (staged, mine)
+   worktree: line2 -> MINE, line4 -> THEIRS   (theirs unstaged)
+   git commit --only f.txt   ->  commits BOTH MINE and THEIRS
+   git commit                ->  commits MINE only; THEIRS stays in the worktree
+   ```
+
+   So the index is the only mechanism that can hold your change without someone
+   else's. Use it, and let the plain `git commit` read it.
+4. **Verify before and after.** Before: the staged list contains only your files.
+   After: `git show --stat HEAD` matches that list; `git show HEAD:<path>` still
+   contains your symbols and the other agents' symbols.
+5. **A file with both your change and someone else's in-progress change** (check
+   `git diff <path>` for hunks you did not write) must be committed hunk-wise.
+   When the two are in **separate hunks**, `git apply --cached` on a filtered
+   patch is enough. When they are **in the same hunk** — adjacent lines, the
+   common case — no patch tool can split them, and the recipe is:
+
+   ```
+   git show HEAD:<path> > /tmp/base        # the committed content
+   # build base + only YOUR change, write it to <path>, git add <path>
+   git commit                              # plain, not --only
+   # then restore the other agent's change to the worktree:
+   #   committed content + their hunk, written back to <path>
+   ```
+
+   Confirm both halves afterwards: `git show HEAD:<path>` has only your change,
+   and `git diff <path>` shows only theirs.
+6. **Verify in an isolated `git worktree`, never by reverting files in the
+   shared tree.** Reverting `HEAD` content in place destroys concurrent work.
+7. **If a commit already took someone else's change**, restore it from the
+   commit that last contained their real content — not from a neighbouring
+   commit — and confirm with `git diff <that-commit> --stat` being empty.
+
+A green build in your own worktree proves nothing about `HEAD`; `HEAD` is what
+other agents rebase onto.
+
 ---
 
 ## 5. Domain Guide & Reference Directory (领域导读)
@@ -121,7 +184,7 @@ When working on specific subsystems, refer to the focused manuals under `docs/gu
 | Plugins & Marketplace | [`docs/guide/plugins.md`](docs/guide/plugins.md) | `internal/features/plugins/*`, `internal/ui/views/pluginsui` |
 | Localharness SDK Wire | [`docs/guide/localharness.md`](docs/guide/localharness.md) | `localharness/`, `cmd/harness`, `budget/`, `lifecyclehooks/` |
 | Remote Control & Web UI Wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) | `internal/remotecontrol/*`, `remotetransport/`, `rcmesh/` |
-| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.16/` |
+| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.18/` |
 | pigasus-only surfaces (index) | [`docs/guide/pigasus-extensions.md`](docs/guide/pigasus-extensions.md) | `internal/tui/remote_*.go`, `internal/infra/remoteagentclient`, `internal/rchost/agentserver` |
 | Knowledge Work & Personas | [`docs/guide/knowledge-work.md`](docs/guide/knowledge-work.md) | `internal/features/personas`, `internal/app/prompt/agyprompt`, `internal/tui` |
 | Architecture Tier Ledger | [`docs/guide/architecture-tiers.md`](docs/guide/architecture-tiers.md) | `internal/core/architecture` |

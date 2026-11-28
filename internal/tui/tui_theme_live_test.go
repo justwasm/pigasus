@@ -130,6 +130,17 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	}
 }
 
+// Test_LiveThemeSwitch_ConfigSubmenuPreviewDoesNotRepaint pins the preview
+// the way the reference draws it: walking the Color Scheme submenu leaves
+// the transcript, the banner and every other row on the committed scheme,
+// and only the preview card beside the options follows the cursor.
+//
+// 【一手】 agy 1.5.18 (tuialign 46_scheme_chrome_fixed), arrows light →
+// dark with nothing committed: the card's border moves #DADCE0 →
+// #3C4043 while the banner body, the composer rules and the "Keyboard:"
+// footer all stay on #5F6368. The clone used to repaint the whole frame on
+// every arrow, which is what the user saw as the chrome following the
+// scheme.
 func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	origScheme, _ := palette.CurrentScheme()
 	defer func() {
@@ -138,8 +149,7 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	}()
 
 	// The settings file is isolated: the panel reads the Color Scheme
-	// row's current value from it, and the submenu's Esc puts that value
-	// back.
+	// row's current value from it.
 	cycle196TestHome(t, map[string]any{"colorScheme": "solarized light"})
 
 	m := newRootModel(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
@@ -177,29 +187,24 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 		m.handlePanelKey(tea.Key{Code: tea.KeyDown})
 	}
 
-	// Verify transcript was updated to "dark"
-	darkPromptFg := "\x1b[38;2;138;180;248;1m"
-	darkBodyFg := "\x1b[38;2;232;234;237m"
-	if !strings.Contains(m.conversation.response[0], darkPromptFg) {
-		t.Errorf("expected previewed dark prompt to wear %q, got: %q", darkPromptFg, m.conversation.response[0])
-	}
-	joined := strings.Join(m.conversation.response[start:], "\n")
-	if !strings.Contains(joined, darkBodyFg) {
-		t.Errorf("expected previewed dark body to wear %q, got: %q", darkBodyFg, joined)
-	}
-
-	// Now simulate Esc key -> should cancel and restore original value
-	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-
-	// Verify transcript restored to solarized light
+	// The transcript is untouched: a move in the submenu is not a commit.
 	solarizedPromptFg := "\x1b[38;2;38;139;210;1m"
 	solarizedBodyFg := "\x1b[38;2;7;54;66m"
 	if !strings.Contains(m.conversation.response[0], solarizedPromptFg) {
-		t.Errorf("expected restored prompt to wear %q, got: %q", solarizedPromptFg, m.conversation.response[0])
+		t.Errorf("a preview repainted the prompt row; got: %q", m.conversation.response[0])
 	}
-	joined = strings.Join(m.conversation.response[start:], "\n")
+	joined := strings.Join(m.conversation.response[start:], "\n")
 	if !strings.Contains(joined, solarizedBodyFg) {
-		t.Errorf("expected restored body to wear %q, got: %q", solarizedBodyFg, joined)
+		t.Errorf("a preview repainted the body; got: %q", joined)
+	}
+	if mdrender.CurrentColorScheme() != "solarized light" {
+		t.Errorf("a preview moved the live theme to %q", mdrender.CurrentColorScheme())
+	}
+
+	// Esc closes the submenu; nothing was applied, so nothing is undone.
+	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
+	if mdrender.CurrentColorScheme() != "solarized light" {
+		t.Errorf("Esc moved the live theme to %q", mdrender.CurrentColorScheme())
 	}
 }
 

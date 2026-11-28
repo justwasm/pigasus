@@ -35,22 +35,31 @@
 // string, the number 1, null, missing key, malformed `_meta`) defaults
 // to "not always-loaded".
 //
-// The decoder for that flag and the catalog it feeds live in
-// internal/pigrt/alwaysload.go — the runtime reads the hints there, and
-// this package used to carry a second, unreachable copy of the same
-// decoder. The static half of the feature (the per-server `alwaysLoad`
-// list in `mcp.json`) is agyconfig.go's, below.
+// The dynamic half of that feature — decoding the `_meta` flag off a
+// server's `tools/list` response and feeding the always-loaded catalog
+// — lived in internal/pigrt/alwaysload.go, next to the runtime that
+// consumed it. That package left the tree with `fa661735` (the Actor
+// engine migration) and was not re-homed.
+//
+// The static half survives as data but not as behaviour. `AlwaysLoad
+// []string` on ServerFile, below, is parsed from `mcp.json` and read by
+// nobody: nothing in the tree consults it, and it is absent from
+// DocumentedMembers, so the writers drop it too. The clone today neither
+// reads `antigravity/alwaysLoad` off `tools/list` nor acts on the
+// per-server list. The field stays so the read shape matches the
+// reference's file schema; it is not a working feature.
 //
 // What this package does NOT own
 // -------------------------------
 //
 //   - Dispatch. The reference's "always load" semantics in 1.3.3 is
 //     "advertise that tool to the model as its own entry". The actual
-//     dispatch path (mcp__<server>__<tool> → tools/call) is PiG's MCP
-//     extension's responsibility in the print path.
-//   - The PiG-shaped view of the configuration. internal/pigrt/mcpconfig.go
-//     translates the same file into PiG's own shape; its types are aliases
-//     of agyconfig.go's, so the two read the same bytes.
+//     dispatch path (mcp__<server>__<tool> → tools/call) belongs to the
+//     tool layer, not to the config reader.
+//   - A second view of the configuration. internal/pigrt/mcpconfig.go
+//     used to translate the same file into the runtime's own shape;
+//     that translation went with the package, and agyconfig.go's types
+//     are now the only reader.
 //
 // agyconfig.go — the MCP configuration files, in the shape the clone
 // reads them.
@@ -133,10 +142,9 @@
 // the global `~/.gemini/antigravity-cli/mcp.json`, which the reference's
 // `agy mcp add` still writes; the plugin path is not implemented yet.
 //
-// This file is the single parser for those files inside the clone: the
-// PiG-shaped translation in internal/pigrt/mcpconfig.go is built on these
-// types (they are aliases, so its API is unchanged) and the client in
-// client.go reads the same bytes.
+// This file is the single parser for those files inside the clone:
+// nothing else reads them, and the client in client.go consumes the
+// same types.
 package mcp
 
 import (

@@ -100,6 +100,36 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if m.prompt.picker.HandleClick(ev) {
 		return m, nil
 	}
+	// A full-viewport panel replaces the transcript, the live rows and the
+	// composer, so none of their screen geometry describes this frame. The
+	// composer in particular keeps the Y it had before the panel opened:
+	// a press at that row would place a cursor in a textarea the user
+	// cannot see, and the drag that follows would select its text.
+	// Everything in the rectangle belongs to the panel.
+	if m.isFullViewportPanel() {
+		if m.IsPanelY(ev.Y) {
+			press := m.panelClick(ev)
+			m.ResetSelection()
+			m.ResetInputSelection()
+			m.ResetBtwSelection()
+			m.ResetPanelSelection()
+			m.prompt.ResetClickTracker()
+			if press.claimed && !press.draggable {
+				return m, press.cmd
+			}
+			// The press is the anchor of a drag whether or not the panel
+			// moved its cursor to the row: a press that folded the row
+			// here would swallow the drag that is about to start.
+			panelRelY := ev.Y - m.overlays.panelScreenY
+			m.overlays.panelSelection.SelDragging = true
+			m.overlays.panelSelection.SelStartRow = panelRelY
+			m.overlays.panelSelection.SelStartCol = ev.X
+			m.overlays.panelSelection.SelEndRow = panelRelY
+			m.overlays.panelSelection.SelEndCol = ev.X
+			return m, press.cmd
+		}
+		return m, nil
+	}
 	if m.prompt.picker.Visible() && !m.prompt.IsInputY(ev.Y) {
 		m.prompt.picker.Reset()
 	}
@@ -155,6 +185,21 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.IsPanelY(ev.Y) {
+		// A panel that owns clickable rows answers the press before the
+		// drag selection claims it: a click on a view label or on a fold
+		// row is an action, not the start of a selection. The action wins
+		// outright — a press on a fold row folds it and starts no drag —
+		// and every other cell in the panel falls through to the ordinary
+		// selection below, which is what the rest of the body is for.
+		press := m.panelClick(ev)
+		if press.claimed && !press.draggable {
+			m.ResetSelection()
+			m.ResetInputSelection()
+			m.ResetBtwSelection()
+			m.ResetPanelSelection()
+			m.prompt.ResetClickTracker()
+			return m, press.cmd
+		}
 		m.ResetSelection()
 		m.ResetInputSelection()
 		m.ResetBtwSelection()
@@ -339,6 +384,7 @@ func (m *RootModel) updateMouseReleasePanelSel(ev tea.Mouse) (tea.Model, tea.Cmd
 	m.overlays.panelSelection.SelDragging = false
 	if ev.Button != tea.MouseLeft {
 		m.ResetPanelSelection()
+		m.overlays.panelPressArmed = false
 		return m, nil
 	}
 	panelRelY := ev.Y - m.overlays.panelScreenY
@@ -351,13 +397,23 @@ func (m *RootModel) updateMouseReleasePanelSel(ev tea.Mouse) (tea.Model, tea.Cmd
 	m.overlays.panelSelection.SelEndRow = panelRelY
 	m.overlays.panelSelection.SelEndCol = ev.X
 
+	// A press that never moved is a click on its row, and the action the
+	// press armed runs here. A press that dragged selected text instead,
+	// and the armed action is dropped: one gesture cannot both copy a
+	// line and fold the row it started on.
+	dragged := m.overlays.panelSelection.SelStartRow != m.overlays.panelSelection.SelEndRow ||
+		m.overlays.panelSelection.SelStartCol != m.overlays.panelSelection.SelEndCol
 	text := m.panelSelectionText()
 	m.ResetPanelSelection()
-	if text != "" {
-		_ = clipboard.Write(text)
-		return m, m.copySelectionCmd(text)
+	if dragged {
+		m.overlays.panelPressArmed = false
+		if text != "" {
+			_ = clipboard.Write(text)
+			return m, m.copySelectionCmd(text)
+		}
+		return m, nil
 	}
-	return m, nil
+	return m, m.panelRelease()
 }
 
 func (m *RootModel) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {

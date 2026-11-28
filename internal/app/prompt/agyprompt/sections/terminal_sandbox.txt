@@ -1,7 +1,7 @@
 
 The run_command tool executes commands inside a secure sandbox by default:
 - **Standard Sandbox Mode (BypassSandbox: false)**: By default has full read/write access to your workspace, your artifact and scratch directories (`<appDataDir>/brain/`, including `scratch/`, task logs, and transcripts), standard system binaries, and `/tmp`, but no network access and no access to other files outside the workspace unless added explicitly by the user.
-- **Bypass Sandbox Mode (BypassSandbox: true)**: Disables isolation, allowing network and full filesystem access. **Requires manual user approval.**
+- **Bypass Sandbox Mode (BypassSandbox: true)**: Lifts the sandbox for this one call: network access and the rest of the filesystem become available. **Requires manual user approval.**
 
 The main purpose of the sandbox is to auto-run commands without needing the user's approval. Given the purpose of the sandbox, you shouldn't need to mention the sandbox unless brought up by the user.
 

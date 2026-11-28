@@ -24,7 +24,7 @@
 //	user_rules, user_information — assembled from the host, not from a file.
 //
 // The ground truth is the captured request body:
-// testdata/capture_1.5.9.txt.
+// testdata/capture_1.5.14.txt.
 // Rendering the reference's own templates reproduces it byte for byte —
 // see TestBuildMatchesCapture.
 //
@@ -129,8 +129,18 @@ type Options struct {
 	// names; the reference's literal is
 	// "<appDataDir>/brain/<conversation-id>/.system_generated/logs".
 	TranscriptLogsPath string
-	// Sandboxed controls whether <terminal_sandbox> is rendered. In AGY 1.5.9+,
-	// terminal sandbox instructions are only included when running in sandboxed mode.
+	// Sandboxed controls whether <terminal_sandbox> is rendered. Since AGY
+	// 1.5.9, terminal sandbox instructions are only included when running in
+	// sandboxed mode.
+	//
+	// The section's text is NOT byte-identical to 1.5.18: that release deleted
+	// the "Bypass Sandbox Mode" bullet, because the reference ships no bypass —
+	// a command its sandbox blocks simply cannot be run, so the bullet described
+	// a capability the binary does not have. pigasus keeps the bypass (the
+	// reference's own 1.4.6-1.5.17 `BypassSandbox` parameter, honoured per call
+	// by sandbox.CheckCommandWithBypass), so the section must keep saying what
+	// it does: a model told only about the standard mode would report a block
+	// as final instead of asking for the one call that needs to leave.
 	Sandboxed bool
 	// WorkEfficiently controls whether <work_efficiently> is rendered (AGY 1.5.13+ / 1.5.14).
 	WorkEfficiently bool
@@ -168,6 +178,41 @@ var sectionOrder = []string{
 // the result has no trailing newline, matching the captured request byte for
 // byte (see TestBuildMatchesCapture).
 func Build(o Options) string {
+	sections := Sections(o)
+	var b strings.Builder
+	for i, s := range sections {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(s.Text)
+	}
+	return b.String()
+}
+
+// Section is one XML section of the rendered prompt, as Build emits it.
+//
+// Text is the complete section — the opening tag, the body, the closing
+// tag — so its length is exactly the bytes the request carries for this
+// section, and the sections' lengths sum to len(Build(o)).
+type Section struct {
+	// Name is the tag's name, without the angle brackets.
+	Name string
+	// Body is the section's content between the tags.
+	Body string
+	// Text is the whole section, tags included.
+	Text string
+}
+
+// Sections returns the sections Build emits, in the order it emits them.
+//
+// The inclusion rules live in Build alone: a section is here exactly when
+// Build would write it, which is what makes this safe to measure against
+// a real request. Callers that want a breakdown of the prompt's bytes —
+// /context's Wire view — read this rather than re-deriving which
+// sections are present, because a second copy of the rules silently
+// drifts ("sandboxed", "work_efficiently", "user_rules" each have a
+// condition of their own).
+func Sections(o Options) []Section {
 	bodies := sectionBodies(o)
 
 	order := sectionOrder
@@ -175,8 +220,7 @@ func Build(o Options) string {
 		order = o.SectionOrder
 	}
 
-	var b strings.Builder
-	first := true
+	out := make([]Section, 0, len(order))
 	for _, name := range order {
 		if name == "terminal_sandbox" && !o.Sandboxed {
 			continue
@@ -187,19 +231,10 @@ func Build(o Options) string {
 		if name == "user_rules" && len(o.UserRules) == 0 {
 			continue
 		}
-		if !first {
-			b.WriteString("\n")
-		}
-		first = false
-		b.WriteString("<")
-		b.WriteString(name)
-		b.WriteString(">")
-		b.WriteString(bodies[name])
-		b.WriteString("</")
-		b.WriteString(name)
-		b.WriteString(">")
+		text := "<" + name + ">" + bodies[name] + "</" + name + ">"
+		out = append(out, Section{Name: name, Body: bodies[name], Text: text})
 	}
-	return b.String()
+	return out
 }
 
 // KnowledgeWorkArtifactsText is the guidance appended to <artifacts> when Knowledge Work mode is active.

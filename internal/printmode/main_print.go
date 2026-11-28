@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/artifacts"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/app/artifacts"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/cli"
@@ -44,6 +44,10 @@ type printRunConfig struct {
 	started         time.Time
 	rcSess          *remotecontrol.SessionState
 	rcDaemon        *remotecontrol.Daemon
+	// mentions are the @-mention expansions for prompt. The reference sends a
+	// slash command's instruction inside <ADDITIONAL_METADATA> rather than as
+	// turn text; printComposedMentions fills this in.
+	mentions []backend.Mention
 }
 
 // runPrintMode streams a one-shot reply for prompt through the agent loop.
@@ -59,6 +63,14 @@ func Run(w io.Writer, prompt string, fs *flag.FlagSet) error {
 		return slashErr
 	}
 	cfg.prompt = newPrompt
+	// A prompt that names an expandable slash command rides the reference's
+	// mention envelope: the turn keeps the text, and each command's
+	// instruction becomes a [Slash Command] block. `agy -p '/goal /learn do
+	// the thing'` is captured doing exactly this (3,106 B, two blocks).
+	if wire, mentions, ok := printComposedMentions(newPrompt); ok {
+		cfg.prompt = wire
+		cfg.mentions = mentions
+	}
 
 	return executePrintModelTurn(w, fs, cfg)
 }
@@ -270,6 +282,7 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		Backend:        be,
 		Model:          cfg.modelName,
 		Prompt:         cfg.prompt,
+		Mentions:       cfg.mentions,
 		History:        printHistory(cfg.sel),
 		Catalog:        catalog,
 		Policy:         policy,

@@ -22,7 +22,39 @@ type Scenario struct {
 	Snapshots     map[string]DiffResult
 	SnapshotOrder []string
 	LastSnapshot  string
+	// ModeCycle is the Shift+Tab lap, declared as a table rather than as a
+	// script of presses. MODE_CYCLE_ROW appends one stop; MODE_CYCLE walks
+	// the table. See CycleStop.
+	ModeCycle []CycleStop
 }
+
+// CycleStop is one row of a scenario's MODE_CYCLE table: a stop in the
+// Shift+Tab lap, written as the two things the screen can be asked about it.
+//
+//	A stop is a state, so it is described by what it *shows*, not by what it
+//	does not. RowTail is the exact tail of the status row's right segment —
+//	the mode word plus the separator plus the model and effort — and the
+//	check is that some line carries it with nothing but padding before it.
+//	That one assertion says both "this is the mode" and "nothing precedes
+//	it": the default stop's tail starts with the model, so a row that had a
+//	mode word in front would fail rather than pass.
+//
+//	Banner is the composer's placeholder, or NoBanner ("-") for the default
+//	stop, whose composer is a bare ">".
+//
+// The previous form of this scene asserted the order by exclusion — "here,
+// `plan · ` must be absent" — which is satisfied by a cycle that skips the
+// stop, by one that visits it twice, and by a blank screen. A table names
+// the stop each press must reach, so a wrong order fails on the row it
+// lands on and says which mode it should have been.
+type CycleStop struct {
+	Mode    string
+	RowTail string
+	Banner  string
+}
+
+// NoBanner marks a stop whose composer carries no placeholder.
+const NoBanner = "-"
 
 // ScenarioCmd represents one step executed during the run.
 type ScenarioCmd struct {
@@ -106,6 +138,25 @@ func ParseScenario(path string) (*Scenario, error) {
 			val := strings.TrimSpace(raw[len("SETTINGS"):])
 			val = strings.Trim(val, "'\"")
 			sc.SettingsJSON = val
+
+		case "MODE_CYCLE_ROW":
+			// MODE_CYCLE_ROW <mode> <row tail> <banner|->
+			//
+			// One stop of the lap. The tail is quoted because it holds
+			// spaces; the banner may hold spaces too, so everything after
+			// the tail is the banner and "-" means "no banner".
+			if len(parts) < 3 {
+				return sc, fmt.Errorf("line %d: MODE_CYCLE_ROW needs <mode> <row tail> [banner]", lineNum)
+			}
+			banner := NoBanner
+			if len(parts) > 3 {
+				banner = strings.Join(parts[3:], " ")
+			}
+			sc.ModeCycle = append(sc.ModeCycle, CycleStop{
+				Mode:    parts[1],
+				RowTail: parts[2],
+				Banner:  banner,
+			})
 
 		case "MOCK_TURN":
 			commitTurn()
@@ -365,8 +416,20 @@ func (sc *Scenario) Run(srv *MockServer, driver *TmuxDriver) error {
 				if err != nil {
 					return err
 				}
-				if strings.Contains(left, forbidden) || strings.Contains(right, forbidden) {
-					return fmt.Errorf("ASSERT_NOT_TEXT failed: forbidden text %q found on screen", forbidden)
+				// Name the pane the text was found on. The two panes are
+				// the reference and the clone, so "found on screen" left
+				// the reader to work out which side was wrong — and in a
+				// parity harness that is the only question worth asking.
+				var where []string
+				if strings.Contains(left, forbidden) {
+					where = append(where, "agy (left, the reference)")
+				}
+				if strings.Contains(right, forbidden) {
+					where = append(where, "pigasus (right, the target)")
+				}
+				if len(where) > 0 {
+					return fmt.Errorf("ASSERT_NOT_TEXT failed: forbidden text %q found on %s",
+						forbidden, strings.Join(where, " and "))
 				}
 			} else {
 				out, err := driver.CapturePane("", false)
@@ -519,30 +582,13 @@ func (sc *Scenario) Run(srv *MockServer, driver *TmuxDriver) error {
 			if len(cmd.Args) > 0 {
 				label = cmd.Args[0]
 			}
-			sc.LastSnapshot = label
-			if sc.Target == TargetBoth {
-				left, right, err := driver.CaptureBoth(true)
-				if err != nil {
-					return err
-				}
-				res := CompareSnapshots(left, right, label)
-				if _, exists := sc.Snapshots[label]; !exists {
-					sc.SnapshotOrder = append(sc.SnapshotOrder, label)
-				}
-				sc.Snapshots[label] = res
-				fmt.Print(res.Report)
+			if err := sc.captureSnapshot(driver, label); err != nil {
+				return err
+			}
 
-				// Save standalone HTML & TXT visual diff reports
-				htmlPath := fmt.Sprintf("/tmp/tuialign_%s.html", label)
-				txtPath := fmt.Sprintf("/tmp/tuialign_%s.txt", label)
-				_ = os.WriteFile(htmlPath, []byte(res.HTMLReport), 0644)
-				_ = os.WriteFile(txtPath, []byte(res.Report), 0644)
-			} else {
-				out, err := driver.CapturePane("", true)
-				if err != nil {
-					return err
-				}
-				fmt.Printf("=== SNAPSHOT [%s] ===\n%s\n", label, out)
+		case "MODE_CYCLE":
+			if err := sc.walkModeCycle(driver); err != nil {
+				return err
 			}
 
 		case "ASSERT_PARITY":

@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/app/session/slashactions"
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
@@ -20,15 +21,18 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/browser"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
 	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"github.com/justwasm/pigasus/internal/ui/views/agentspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/artifactpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/codesearchpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/historypanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/narration"
 	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 	"github.com/justwasm/pigasus/vim"
@@ -313,8 +317,24 @@ func (m *RootModel) openSlashPanelArgs(cmd, args string) bool {
 	if cmd == "terminal" {
 		return false
 	}
+	// /debug is one surface with several views, so an argument names a view
+	// instead of opening a panel of its own: `/debug wire` lands on the
+	// request view, `/debug traj` on the trajectory. A word that names no
+	// view opens the log view rather than swallowing the command.
+	debugView, debugWantView := debugpanel.ViewLogs, false
+	if cmd == "debug" || cmd == "logs" || cmd == "log" {
+		if v, ok := debugpanel.ViewByName(args); ok {
+			debugView, debugWantView = v, true
+		}
+	}
 	if !m.openSlashPanel(cmd) {
 		return false
+	}
+	if m.overlays.panel.kind == panelregistry.Debug {
+		if debugWantView {
+			m.debugPanel().SetView(debugView)
+		}
+		return true
 	}
 	if m.overlays.panel.kind == panelregistry.CodeSearch {
 		m.codesearchPanel().Start(args)
@@ -388,7 +408,31 @@ func (m *RootModel) panelSelectionText() string {
 	if m.overlays.panel.kind == panelregistry.Terminal {
 		return terminalPanelSelectionText(lines, sr, sc, er, ec, len(m.remote.terminalOrder) > 1)
 	}
+	// A numbered viewer's leading cells are the line numbers, and they
+	// are the viewer's, not the document's. They are dropped from every
+	// row of the copy: a drag from the left edge otherwise pastes "   3
+	//      " in front of each line, and the copy stops being the
+	// document. The first and last rows keep the columns the pointer
+	// chose, shifted by the gutter they lost.
+	if g := m.panelSelectionGutter(); g > 0 {
+		return tuiviewport.SelectionTextWithoutGutter(lines, sr, sc, er, ec, g)
+	}
 	return tuiviewport.SelectionText(lines, sr, sc, er, ec)
+}
+
+// panelSelectionGutter is how many leading cells of the panel's rows are
+// a gutter rather than the document, or 0 when the panel has none.
+//
+// The answer comes from the panel through the registry, like every other
+// question the host asks a panel: a switch on the kind here would be a
+// second place that knows which panels exist.
+func (m *RootModel) panelSelectionGutter() int {
+	if h, ok := m.getPanelRegistry().Get(m.overlays.panel.kind); ok {
+		if gr, ok := h.(panelregistry.GutterReporter); ok {
+			return gr.SelectionGutter()
+		}
+	}
+	return 0
 }
 
 func terminalPanelSelectionText(lines []string, sr, sc, er, ec int, hasTabs bool) string {
@@ -423,9 +467,11 @@ func (m *RootModel) reloadConfigSettings() {
 	m.reloadVimSettings()
 	if cliflags.StringValue(m.session.flags, "mode") == "" {
 		if raw, err := settings.Field("agentMode"); err == nil {
-			mode := configpanel.RawString(raw)
-			if mode == "" && !settings.Has("agentMode") {
-				mode = setup.DefaultMode()
+			// The settings file stores the mode as a string; the session
+			// carries it typed. The conversion is the boundary.
+			mode := permissions.AgentMode(configpanel.RawString(raw))
+			if mode == permissions.ModeDefault && !settings.Has("agentMode") {
+				mode = permissions.AgentMode(setup.DefaultMode())
 			}
 			m.session.mode = mode
 			if m.session.policy != nil {
@@ -472,6 +518,17 @@ func (m *RootModel) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, boo
 func (m *RootModel) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
 	if m.overlays.panel.kind == panelregistry.None {
 		return false, nil
+	}
+	// /logs owns its own view, cursor and folds, so a key it answers
+	// changes what the next frame must draw. The view cache cannot see
+	// into the panel, so the panel's answer is what invalidates it —
+	// without this the frame stays at the view the user left.
+	if m.overlays.panel.kind == panelregistry.Debug {
+		handled, cmd := m.debugPanel().HandleKey(key)
+		if handled {
+			m.invalidateViewCache()
+		}
+		return handled, cmd
 	}
 	if m.overlays.panel.kind == panelregistry.Help {
 		_, cmd, handled := m.handleHelpModeNavigation(key)
@@ -560,29 +617,41 @@ type slashPanel struct {
 	cmd        string
 	cursor     int
 	window     int
-	logsFollow bool
-	ag         *agentspanel.Panel
-	fb         *feedbackpanel.Panel
-	cr         *creditspanel.Panel
-	plg        *pluginsui.Panel
-	rn         *renamepanel.Panel
-	ad         *adddirpanel.Panel
-	vw         *viewerpanel.Panel
-	csp        *codesearchpanel.Panel
-	quota      quotaState
-	prov       *providerpanel.Panel
-	acct       *accountspanel.Panel
-	cfg        *configpanel.Panel
-	mdl        *modelpicker.Panel
-	sk         *skillsui.Panel
-	perm       *permissionspanel.Panel
-	hk         *hookspanel.Panel
-	tp         *taskspanel.Panel
-	ef         *effortpanel.Panel
-	proj       *projectspanel.Panel
-	ctxp       *contextpanel.Panel
-	hist       *historypanel.Panel
-	term       *terminalpanel.Panel
+	debugFollow bool
+	// debugHeight is the /logs frame's usable height, memoised for the
+	// length of one repaint. Computing it renders the status row, which
+	// stats the endpoints config; the panel asks a dozen times per frame
+	// (see debugPanelHeight).
+	debugHeight      int
+	debugHeightValid bool
+	ag              *agentspanel.Panel
+	fb              *feedbackpanel.Panel
+	cr              *creditspanel.Panel
+	plg             *pluginsui.Panel
+	rn              *renamepanel.Panel
+	ad              *adddirpanel.Panel
+	vw              *viewerpanel.Panel
+	csp             *codesearchpanel.Panel
+	quota           quotaState
+	prov            *providerpanel.Panel
+	acct            *accountspanel.Panel
+	cfg             *configpanel.Panel
+	mdl             *modelpicker.Panel
+	sk              *skillsui.Panel
+	perm            *permissionspanel.Panel
+	hk              *hookspanel.Panel
+	tp              *taskspanel.Panel
+	ef              *effortpanel.Panel
+	proj            *projectspanel.Panel
+	ctxp            *contextpanel.Panel
+	debugp           *debugpanel.Panel
+	// ctxHydrated holds the cold steps the /context panel asked the store
+	// for. The panel does the asking; the host owns the map, because the
+	// store read is the host's and the panel is rebuilt on every open.
+	ctxHydrated map[int64]convstore.Step
+	art         *artifactpanel.Panel
+	hist        *historypanel.Panel
+	term        *terminalpanel.Panel
 }
 
 type quotaState struct {
@@ -653,6 +722,8 @@ func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 		m.overlays.panel.ad = m.newAddDirPanel()
 	case panelregistry.Context:
 		m.overlays.panel.ctxp = m.newContextPanel()
+	case panelregistry.Artifact:
+		m.overlays.panel.art = m.newArtifactPanel()
 	case panelregistry.Projects:
 		m.overlays.panel.proj = m.newProjectsPanel()
 	case panelregistry.Accounts:
@@ -667,9 +738,9 @@ func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 		m.overlays.panel.hist = m.newHistoryPanel()
 	case panelregistry.Terminal:
 		m.overlays.panel.term = m.terminalPanel()
-	case panelregistry.Logs:
-		m.overlays.panel.logsFollow = true
-		m.overlays.panel.window = tuiviewer.MaxOffset(m.logsViewerSpec())
+	case panelregistry.Debug:
+		m.overlays.panel.debugFollow = true
+		m.overlays.panel.window = tuiviewer.MaxOffset(m.debugViewerSpec())
 		if m.overlays.panel.vw != nil {
 			m.overlays.panel.vw.Sync(m.overlays.panel.window)
 		}
@@ -715,10 +786,29 @@ func (m *RootModel) panelCurrentModelLabel() string {
 	return lbl
 }
 
+// statusEffortSuffix is the " · <tier>" segment the status row appends
+// after the model's label.
+//
+// The label and the suffix are two halves of one answer — catalog's
+// StatusLabel answers both — so the row cannot show "Claude Sonnet 4.6"
+// with a stray " · high" beside it, nor strip a configured model's own
+// "(1017)" tag and replace it with a level it never had.
+//
+// The question is asked of the *session's* label rather than of
+// statusModel: the level that decides the answer lives in the very
+// bracket the status row drops ("GPT-OSS 120B (Medium)").
 func (m *RootModel) statusEffortSuffix() string {
-	if !modelpicker.HasEffortTiersSnapshot(m.session.statusModel) {
-		return ""
+	label := strings.TrimSpace(m.session.model)
+	if label == "" {
+		label = m.session.statusModel
 	}
+	if label != "" {
+		if _, tier := catalog.StatusLabel(label); tier == "" {
+			return ""
+		}
+	}
+	// A session that names no model runs the reference's own default,
+	// which publishes tiers.
 	return " \u00b7 " + m.currentEffortName()
 }
 
@@ -858,6 +948,10 @@ func (m *RootModel) Panel(k panelregistry.Kind) any {
 		return m.codesearchPanel()
 	case panelregistry.Context:
 		return m.contextPanel()
+	case panelregistry.Debug:
+		return m.debugPanel()
+	case panelregistry.Artifact:
+		return m.artifactPanel()
 	case panelregistry.History:
 		return m.historyPanel()
 	case panelregistry.Terminal:

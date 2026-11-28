@@ -156,13 +156,17 @@ func TestRenderModelWarning(t *testing.T) {
 	}
 }
 
-// TestStripTier pins the parenthesised-tier suffix removal.
+// TestStripTier pins the parenthesised-effort-tier suffix removal: only a
+// bracket that names an effort level is a tier. Any other parenthetical is
+// part of the model's name and stays on the status row.
 func TestStripTier(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"Gemini 3.8 Flash (High)", "Gemini 3.8 Flash"},
-		{"Claude Sonnet 4.6 (Thinking)", "Claude Sonnet 4.6"},
+		{"Gemini 4 Hydrogen (XHigh)", "Gemini 4 Hydrogen"},
+		{"Claude Sonnet 4.6 (Thinking)", "Claude Sonnet 4.6 (Thinking)"},
+		{"DeepSeek V4.1 Flash (1017)", "DeepSeek V4.1 Flash (1017)"},
+		{"DeepSeek V4.1 Flash (alias)", "DeepSeek V4.1 Flash (alias)"},
 		{"Gemini 3.8 Flash", "Gemini 3.8 Flash"},
-		{"Model (Tier)", "Model"},
 		{"Model (unclosed", "Model (unclosed"},
 	} {
 		if got := StripTier(tc.in); got != tc.want {

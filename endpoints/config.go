@@ -161,10 +161,43 @@ func CurrentGeminiAPIKey() string {
 	if v := strings.TrimSpace(os.Getenv("OPENAGY_API_KEY")); v != "" {
 		return v
 	}
-	if cfg, err := Load(Path()); err == nil && strings.TrimSpace(cfg.GeminiAPIKey) != "" {
-		return strings.TrimSpace(cfg.GeminiAPIKey)
+	if v := cachedGeminiAPIKey(); v != "" {
+		return v
 	}
 	return ""
+}
+
+// apiKeyCache holds the last key read from the config file, with the
+// stamp of the file it came from.
+//
+// This is the same shape as overridesCache, and for the same reason: the
+// status row asks for the key while rendering, and the status row is
+// rendered whenever the terminal's usable height is computed — which the
+// /logs panel does on every repaint. Without the cache, drawing a frame
+// read and parsed config.json; on a scrolling panel that was the single
+// largest cost in the frame, and it was invisible from the panel's own
+// code.
+var apiKeyCache atomic.Pointer[apiKeySnapshot]
+
+type apiKeySnapshot struct {
+	stamp string
+	key   string
+}
+
+// cachedGeminiAPIKey returns the config file's key, re-reading the file
+// only when it changed on disk.
+func cachedGeminiAPIKey() string {
+	path := Path()
+	stamp := fileStamp(path)
+	if cached := apiKeyCache.Load(); cached != nil && cached.stamp == stamp {
+		return cached.key
+	}
+	key := ""
+	if cfg, err := Load(path); err == nil {
+		key = strings.TrimSpace(cfg.GeminiAPIKey)
+	}
+	apiKeyCache.Store(&apiKeySnapshot{stamp: stamp, key: key})
+	return key
 }
 
 // CurrentGeminiLiveModel returns the live voice model override from GEMINI_LIVE_MODEL,

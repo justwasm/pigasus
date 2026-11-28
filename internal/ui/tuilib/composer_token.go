@@ -87,6 +87,23 @@ func ComposerArgumentHint(value string) (string, bool) {
 		}
 		return "", false
 	}
+	const yoloCmd = "/yolo"
+	if value == yoloCmd {
+		return " on", true
+	}
+	const yoloPrefix = "/yolo "
+	if strings.HasPrefix(value, yoloPrefix) {
+		rest := value[len(yoloPrefix):]
+		for _, opt := range []string{"on", "off"} {
+			if rest != "" && strings.HasPrefix(opt, rest) {
+				return opt[len(rest):], true
+			}
+		}
+		if strings.TrimSpace(rest) == "" {
+			return "[on|off]", true
+		}
+		return "", false
+	}
 	const modelPrefix = "/model "
 	if strings.HasPrefix(value, modelPrefix) {
 		if strings.TrimSpace(value[len(modelPrefix):]) == "" {

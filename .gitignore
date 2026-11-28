@@ -32,6 +32,13 @@ ghidra/
 *.tar.gz
 *.zip
 package.json
+# ...but a package.json inside the extracted evidence tree is evidence, not a
+# downloaded build artifact: it is one of the reference's own embedded files
+# (the swarm_board sidecar's `{"type":"module"}` declaration, new at 1.5.18),
+# and the extracted-vs-embedded parity gate counts it. Without this exception
+# it lands in out/ and never reaches git, so the tree on disk and the tree in
+# the commit silently disagree.
+!out/extracted-*/embed/**/package.json
 # Extracts
 go_extract/
 dl2/

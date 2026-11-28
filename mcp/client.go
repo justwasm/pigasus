@@ -200,10 +200,9 @@ type Pool struct {
 // TransportFactory builds the transport a server spec asks for.
 //
 // It exists so a test can drive the pool over an in-process transport
-// instead of spawning a child process — the same seam the PiG runtime has
-// (pigrt.Options.CreateTransport). Nil means the pool builds the transport
-// itself: a stdio transport for a stdio server, a streamable-HTTP one for
-// an http server.
+// instead of spawning a child process. Nil means the pool builds the
+// transport itself: a stdio transport for a stdio server, a
+// streamable-HTTP one for an http server.
 type TransportFactory func(spec ServerSpec) (sdk.Transport, error)
 
 // poolEntry is one server's slot in the pool. The mutex serialises the
@@ -291,6 +290,127 @@ func (p *Pool) Has(name string) bool {
 	defer p.mu.Unlock()
 	_, ok := p.specs[name]
 	return ok
+}
+
+// AlwaysLoadedTool is one tool a server marked as always-loaded.
+//
+// The tool layer has a mirror of this type (web.AlwaysLoadedTool) so
+// internal/app/tools does not import this package; the pool satisfies the
+// tool layer's AlwaysLoadedLister seam through the adapter in
+// mcp/alwaysload.go.
+type AlwaysLoadedTool struct {
+	// Server is the configured server name the tool lives on.
+	Server string
+	// Name is the tool's own name, as the server advertises it.
+	Name string
+	// Description is the server's description, if it sent one.
+	Description string
+	// InputSchema is the server's JSON Schema for the tool's arguments.
+	InputSchema json.RawMessage
+}
+
+// AlwaysLoadKey is the AGY-specific `_meta` key a server sets on a tool in
+// its `tools/list` response to opt that tool into the always-loaded set.
+//
+// AGY 1.3.3 changelog line 42: "Added support for MCP servers to mark a
+// tool as always loaded by setting `_meta: {"antigravity/alwaysLoad": true}`
+// on it in their `tools/list` response, so the agent gets that tool
+// directly instead of discovering it on demand."
+const AlwaysLoadKey = "antigravity/alwaysLoad"
+
+// AlwaysLoadedTools returns every tool the configured servers mark as
+// always-loaded, across all of them, sorted by server then tool name.
+//
+// It opens a connection to each server in turn — a server that cannot be
+// reached contributes no tools rather than failing the whole sweep, because
+// one broken server must not cost the model the tools of the healthy ones.
+//
+// The read is the *only* place the clone consults `tools/list`. The three
+// MCP tools (`call_mcp_tool`, `list_resources`, `read_resource`) address a
+// tool by name and never need the list; the always-load hint rides on the
+// list response, so this sweep exists for it.
+func (p *Pool) AlwaysLoadedTools(ctx context.Context) []AlwaysLoadedTool {
+	if p == nil {
+		return nil
+	}
+	var out []AlwaysLoadedTool
+	for _, server := range p.Servers() {
+		spec, ok := p.specFor(server)
+		if !ok {
+			continue
+		}
+		session, err := p.client(ctx, server)
+		if err != nil {
+			continue
+		}
+		res, err := session.ListTools(ctx, nil)
+		if err != nil {
+			continue
+		}
+		for _, tool := range res.Tools {
+			if tool == nil || !alwaysLoadFlagged(tool.Meta) {
+				continue
+			}
+			// The documented allow/deny lists gate the always-loaded set
+			// too: a tool the operator withheld must not reappear by
+			// being flagged.
+			if !spec.ToolAllowed(tool.Name) {
+				continue
+			}
+			out = append(out, AlwaysLoadedTool{
+				Server:      server,
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: schemaJSON(tool.InputSchema),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Server != out[j].Server {
+			return out[i].Server < out[j].Server
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// alwaysLoadFlagged reports whether a tool's `_meta` opts it into the
+// always-loaded set.
+//
+// Only a JSON `true` opts in. The changelog is explicit that anything else —
+// `false`, the string "true", the number 1, null, a missing key, or a
+// `_meta` that is not an object — means "not always-loaded", so this does a
+// type assertion to `bool` and reads the value, rather than truthiness.
+func alwaysLoadFlagged(meta sdk.Meta) bool {
+	if meta == nil {
+		return false
+	}
+	v, ok := meta[AlwaysLoadKey]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+// schemaJSON normalises a tool's input schema to JSON.
+//
+// The SDK hands a client the server's schema as the default JSON
+// unmarshalling of it (a map[string]any), but a test or a hand-built tool
+// may set json.RawMessage. Both marshal back to the same JSON.
+func schemaJSON(v any) json.RawMessage {
+	switch s := v.(type) {
+	case nil:
+		return nil
+	case json.RawMessage:
+		return s
+	default:
+		raw, err := json.Marshal(s)
+		if err != nil {
+			return nil
+		}
+		return raw
+	}
 }
 
 // Close closes every open connection. It is safe to call twice.

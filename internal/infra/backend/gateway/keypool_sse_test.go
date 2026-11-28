@@ -11,6 +11,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/retrytest"
 )
 
 func TestKeyPool_RotationCooldownAndRecovery(t *testing.T) {
@@ -129,6 +130,14 @@ func TestGatewayClient_RotatesAPIKeysOn401And429WithoutSleeping(t *testing.T) {
 }
 
 func TestGatewaySSE_TypedErrorClassification(t *testing.T) {
+	// These subtests are about *how a mid-stream frame is classified*, and
+	// every server below answers the same failing frame on every attempt. A
+	// mid-stream 429 / 5xx is retried now (see retry_midstream_test.go), so the
+	// budget is pinned to zero: one attempt, classified, reported. That is the
+	// stronger assertion — it fails if the transport starts retrying something
+	// this test says it should not. Retry behaviour has its own tests.
+	noRetry := func() context.Context { return retrytest.NoRetries(context.Background()) }
+
 	t.Run("OpenAI mid-stream error frame", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -138,7 +147,7 @@ func TestGatewaySSE_TypedErrorClassification(t *testing.T) {
 		defer srv.Close()
 
 		client := NewGatewayWithConfig(GatewayConfig{URL: srv.URL, APIKey: "sk-test", ExternalModel: "gpt-4o"})
-		ch, err := client.Stream(context.Background(), backend.StreamRequest{
+		ch, err := client.Stream(noRetry(), backend.StreamRequest{
 			Model:    "gpt-4o",
 			Messages: []backend.Message{{Role: "user", Content: "hi"}},
 		})
@@ -202,7 +211,10 @@ func TestGatewaySSE_TypedErrorClassification(t *testing.T) {
 					ExternalModel: "claude-sonnet-4-6",
 					Type:          GatewayProtocolAnthropic,
 				})
-				ch, err := client.Stream(context.Background(), backend.StreamRequest{
+				// A mid-stream 5xx / 429 is retried now (see
+				// retry_midstream_test.go), and this server answers the same
+				// failing frame on every attempt, so the budget is pinned to zero.
+				ch, err := client.Stream(noRetry(), backend.StreamRequest{
 					Model:    "claude-sonnet-4-6",
 					Messages: []backend.Message{{Role: "user", Content: "hi"}},
 				})
@@ -242,7 +254,7 @@ func TestGatewaySSE_TypedErrorClassification(t *testing.T) {
 			ExternalModel: "gpt-5",
 			Type:          GatewayProtocolResponses,
 		})
-		ch, err := client.Stream(context.Background(), backend.StreamRequest{
+		ch, err := client.Stream(noRetry(), backend.StreamRequest{
 			Model:    "gpt-5",
 			Messages: []backend.Message{{Role: "user", Content: "hi"}},
 		})

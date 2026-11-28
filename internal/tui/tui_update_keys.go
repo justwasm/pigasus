@@ -827,6 +827,14 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Priority 2a: a running compaction. The reference's live row says
+	// "esc to cancel", so Esc has to mean it; the summarizer's own cancel
+	// channel is what the row's hint promises.
+	if !m.session.store.CompactStart.IsZero() && m.session.store.CompactEnd.IsZero() {
+		compaction.TriggerCancel()
+		return m, nil
+	}
+
 	// Priority 2: Execution cancellation (in-flight bash command or streaming turn)
 	if m.session.store.BashRunning() {
 		m.cancelBashCommand()
@@ -972,7 +980,53 @@ func (m *RootModel) handleTabCompletion(key tea.Key) bool {
 			return true
 		}
 	}
+	// /yolo takes an on|off argument; Tab completes the word the user is
+	// typing ("/yolo " → nothing yet, "/yolo o" → "/yolo on").
+	if completed, ok := completeWordArg(val, "/yolo", []string{"on", "off"}); ok {
+		m.prompt.input.SetValue(completed)
+		m.prompt.SetInputCursorOffset(len(completed))
+		m.prompt.input.CursorEnd()
+		m.syncTabVimInput()
+		return true
+	}
 	return false
+}
+
+// completeWordArg completes the first word of a command's argument
+// against a closed set of choices.
+//
+// It serves the commands whose argument is one of a few words (/yolo
+// on|off, and the on|off style commands that follow). The open-ended
+// ones (/model's catalogue rows, /voice's modes) keep their own paths.
+//
+//	value "/yolo"    → ("/yolo ", true)         reveal the argument
+//	value "/yolo "   → ("", false)              nothing typed yet
+//	value "/yolo o"  → ("/yolo on", true)       unique prefix
+//	value "/yolo on" → ("", false)              already complete
+func completeWordArg(value, cmd string, choices []string) (string, bool) {
+	rest, ok := strings.CutPrefix(value, cmd)
+	if !ok {
+		return "", false
+	}
+	if rest == "" {
+		return cmd + " ", true
+	}
+	if !strings.HasPrefix(rest, " ") {
+		return "", false
+	}
+	typed := strings.TrimPrefix(rest, " ")
+	if typed == "" || strings.Contains(typed, " ") {
+		return "", false
+	}
+	for _, choice := range choices {
+		if choice == typed {
+			return "", false
+		}
+		if strings.HasPrefix(choice, typed) {
+			return cmd + " " + choice, true
+		}
+	}
+	return "", false
 }
 
 func (m *RootModel) syncTabVimInput() {

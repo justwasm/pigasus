@@ -40,11 +40,11 @@
 //     a hard kill without racing with the natural Wait of a process
 //     that does exit cleanly.
 //
-// Scope note: this package owns child-process cleanup only. PiG's
-// mcpext connection shutdowns live on their own lifecycle
-// (pigrt.Runtime.Close) and are out of scope here — the changelog
-// specifically references the daemon-process leak, not the MCP
-// connection lifecycle.
+// Scope note: this package owns child-process cleanup only. MCP
+// connection shutdowns live on their own lifecycle, owned by
+// (*mcp.Pool).Close (mcp/client.go), and are out of scope here — the
+// changelog specifically references the daemon-process leak, not the
+// MCP connection lifecycle.
 package daemon
 
 import (

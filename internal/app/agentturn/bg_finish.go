@@ -93,7 +93,8 @@ type BgFinishNotification struct {
 
 // BgFinishCoordinator pins the agent's focus state across the
 // lifecycle of one background command. One coordinator is owned by
-// the runMode (or pigrt.Runtime); SetPlan / RecordTranscriptChunk /
+// the turn engine that drives the run (today the Actor engine's turn,
+// actor/loop.go); SetPlan / RecordTranscriptChunk /
 // NotifyBgFinished are called in that order:
 //
 //  1. The user prompt arrives; SetPlan(task, steps, policy) records

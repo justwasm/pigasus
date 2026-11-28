@@ -75,7 +75,7 @@ func (s *sessionState) EnsureDomain() *session.Session {
 			ID:    s.conversationID,
 			Model: s.model,
 			CWD:   s.cwd,
-			Mode:  s.mode,
+			Mode:  string(s.mode),
 		})
 	}
 	return s.domain

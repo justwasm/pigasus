@@ -1,0 +1,60 @@
+NAME "The mode cycle is the sequence the reference documentation states"
+WINDOW 100 30
+TARGET pigasus
+SETTINGS '{"agentMode":"plan","showTips":false}'
+
+# The cycle, as a table.
+#
+# official-docs/cli/modes.md states it outright:
+#
+#     `default` > `accept-edits` > `auto` > `plan` > `default`
+#     Where `auto` mode isn't available, cycling skips directly from
+#     `accept-edits` to `plan`.
+#
+# Four stops, with default and auto as separate modes. Each stop is one row
+# below, written as the two things the screen can be asked about it: the exact
+# tail of the status row's right segment, and the composer's banner ("-" for
+# the default stop, which names nothing). MODE_CYCLE presses shift+tab once
+# per row and checks each landing against that row, so a wrong order fails on
+# the stop it is wrong at and names the mode that stop should have been.
+#
+# The table opens and closes on `plan`: the first row is asserted without a
+# press, which pins that a stored mode is honoured rather than replaced by the
+# default, and the last row is the lap closing rather than a list walking off
+# the end.
+#
+# WHY THIS IS TARGET pigasus AND NOT TARGET both
+#
+# agy cannot be the oracle for this on this host. Its `--mode auto` reports
+# "Auto mode is not available: it needs the OS terminal sandbox and may not
+# be rolled out to you yet" and falls back to default, so its cycle is the
+# three-stop one the documentation describes for that case. Comparing the two
+# panes would assert that a build with auto available must behave like one
+# without it, which is the opposite of what we want.
+#
+# The invariant this scene owns is the one the documentation states for a host
+# where auto IS available, which is the build we ship.
+#
+# WHY THE TABLE AND NOT ASSERT_NOT_TEXT
+#
+# A sequence is data. Writing it as "here, plan must be absent" encodes the
+# expected value only by exclusion, so a cycle that skips a stop entirely, or
+# visits it twice, can pass — nothing names the stop that was supposed to be
+# there.
+
+#        mode            status row's right segment           composer banner
+MODE_CYCLE_ROW plan      "plan · Gemini 3.8 Flash · high"     "Plan mode: research & plan only (shift+tab to cycle)"
+MODE_CYCLE_ROW default   "Gemini 3.8 Flash · high"            -
+MODE_CYCLE_ROW accept-edits "accept-edits · Gemini 3.8 Flash · high" "Accept-edits mode: file edits auto-approved (shift+tab to cycle)"
+MODE_CYCLE_ROW auto      "auto · Gemini 3.8 Flash · high"     "Auto mode: edits & safe commands auto-approved (shift+tab to cycle)"
+MODE_CYCLE_ROW plan      "plan · Gemini 3.8 Flash · high"     "Plan mode: research & plan only (shift+tab to cycle)"
+
+BOOT_BOTH
+WAIT_READY 15s
+
+MODE_CYCLE
+
+SNAPSHOT "01_lap_complete"
+
+DIFF
+CLEANUP

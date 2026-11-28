@@ -24,7 +24,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/transcript"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
-	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 )
@@ -37,7 +37,7 @@ var slashCommandRegex = regexp.MustCompile(`^/([a-zA-Z0-9_-]*)(?:\s|\n|$)`)
 // PrependSlashPlanIfNeeded mirrors agy's model.PrependSlashPlanIfNeeded (0x102be4660).
 // When the session is in plan mode, if the user prompt does not start with any slash command,
 // it prepends "/plan " to the input.
-func PrependSlashPlanIfNeeded(prompt string, mode string) string {
+func PrependSlashPlanIfNeeded(prompt string, mode permissions.AgentMode) string {
 	if mode != permissions.ModePlan {
 		return prompt
 	}
@@ -51,6 +51,15 @@ func PrependSlashPlanIfNeeded(prompt string, mode string) string {
 func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 	if !strings.HasPrefix(buf, "/") {
 		return false, nil
+	}
+	// A buffer that names an expandable command anywhere takes the composed
+	// path before any per-command handler sees it. The handlers below each
+	// answer ONE command's shape; the reference's answer depends on every
+	// command in the prompt, so the decision has to be made on the whole
+	// buffer. /goal a /learn is the case that proves it: the /goal handler
+	// alone would send /goal's body and drop /learn's.
+	if handled, cmd := m.composeSlashTurn(buf); handled {
+		return true, cmd
 	}
 	// Cycle multi-account-switch: the account may have been switched
 	// outside the TUI (the `agy accounts switch` command, a sign-in in
@@ -92,8 +101,8 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 			// Cycle 381: the panel owns the tick; the host only arms it.
 			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
 		}
-		if m.overlays.panel.kind == panelregistry.Logs {
-			return true, tea.Batch(syncCmd, logspanel.Tick())
+		if m.overlays.panel.kind == panelregistry.Debug {
+			return true, tea.Batch(syncCmd, debugpanel.Tick())
 		}
 		return true, syncCmd
 	}
@@ -706,6 +715,12 @@ func (m *RootModel) submitPrompt() tea.Cmd {
 	if m.isLiveVoiceActive() {
 		return m.startLiveVoiceTurn(prompt)
 	}
+	// The reference expands a slash command wherever it appears, so an
+	// ordinary prompt that mentions one takes the composed path. A prompt
+	// with no expandable command returns false and falls through unchanged.
+	if handled, cmd := m.composeOrdinaryPrompt(prompt); handled {
+		return cmd
+	}
 	return m.startModelTurn(prompt)
 }
 
@@ -733,10 +748,38 @@ func (m *RootModel) startLiveVoiceTurn(prompt string) tea.Cmd {
 }
 
 func (m *RootModel) appendUserTurn(text string) {
+	m.appendUserTurnWithMentions(text, nil)
+}
+
+// appendUserTurnWithMentions is appendUserTurn for a turn whose instruction
+// travels as an @-mention expansion rather than as the turn's own text.
+//
+// The transcript keeps text (the command the user typed, which is what the
+// reference shows on the user row); only the request carries the expansion.
+// This split is the whole point: the reference sends
+//
+//	<USER_REQUEST>
+//	/learn always run make arch
+//	</USER_REQUEST>
+//	<ADDITIONAL_METADATA>
+//	…time…
+//
+//	The user has mentioned some items …
+//
+//	/learn is a [Slash Command]:
+//	<LEARN>
+//	…
+//	</LEARN>
+//	</ADDITIONAL_METADATA>
+//
+// not the instruction in place of the user's words. Prepending the body to the
+// turn put the right text in the wrong place, which no substring assertion
+// could see.
+func (m *RootModel) appendUserTurnWithMentions(text string, mentions []backend.Mention) {
 	msg := backend.Message{
 		Role:        "user",
 		Content:     text,
-		WireContent: backend.WrapUserContent(text, modelcatalog.FormatModelLabel(m.session.model), m.session.wireSettingsPending, time.Now()),
+		WireContent: backend.WrapUserContentWithMentions(text, mentions, modelcatalog.FormatModelLabel(m.session.model), m.session.wireSettingsPending, time.Now()),
 	}
 	// The images the user attached ride along with the turn (agy 1.4.9's
 	// image pasting). The transports carry them as image parts, so the

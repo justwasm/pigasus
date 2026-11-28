@@ -138,9 +138,9 @@ func TestProtectedWriteTargets_AskInEveryMode(t *testing.T) {
 
 	modes := []struct {
 		name string
-		mode string
+		mode AgentMode
 	}{
-		{"default", ""},
+		{"default", ModeDefault},
 		{"accept-edits", ModeAcceptEdits},
 		{"auto", ModeAuto},
 		{"plan", ModePlan},
@@ -289,7 +289,7 @@ func TestProtectedWriteTargets_OrdinaryFileStillAutoApproved(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, m := range []string{ModeAcceptEdits, ModeAuto} {
+	for _, m := range []AgentMode{ModeAcceptEdits, ModeAuto} {
 		pol := Policy{Mode: m, WorkspaceRoots: []string{ws}}
 
 		// Inside the workspace, an ordinary edit is approved by the mode.

@@ -258,6 +258,54 @@ host installs — so a markdown or HTML file the model writes there is listed.
 Shell and script writes bypass the hook, which is the reference's own rule
 ("not shell or Python scripts, which skip `ArtifactMetadata`").
 
+## The `/artifact` surface
+
+The TUI's `/artifact` panel is the same list, shown as a two-layer surface —
+the shape official-docs/cli/artifacts.md documents:
+
+- the **picker**: one row per artifact, the filename **with its extension**
+  (`artifact-alignment-plan.md`), the cursor's row marked `›` and carrying an
+  inline `open` button; ↑/↓ move the cursor, `ctrl+g` opens the configured
+  editor and `enter` opens the viewer. `p` toggles an inline preview under the
+  selected row: twelve content rows behind a dim `    │ ` gutter, each cut at
+  the preview's width with `…`, then a gutter-less `      ... N more lines`
+  when the file has more;
+- the **detail viewer**: the selected file full-screen with a **line cursor**
+  (`>` in the gutter), a line-number gutter, a
+  `[<pct>%  L<cursor>  <start>-<end>/<total>]` counter and a two-row pager
+  footer. `j`/`k` (and ↑/↓) move the **cursor**, `g`/`G` go to the first/last
+  line, `ctrl+u`/`ctrl+d` move half a page; the window follows the cursor only
+  when the cursor would leave it. It takes the whole viewport, the way
+  /changelog does; `esc` returns to the picker and a second `esc` leaves the
+  panel.
+
+The viewer's shapes are not guessed: they come from a live capture of agy
+1.5.17 over a real conversation (`scratch/capture-artifact-viewer.sh`,
+`MODE=real`, which drives the binary through `tuialign`'s mock CloudCode
+server). The two frames that pin the cursor model are the top of a 102-line
+file (`>   1` with `[0%  L1  1-28/102]`) and the same file after `j j j`
+(`>   4` with `[0%  L4  1-28/102]` — cursor moved, window did not).
+
+Rows come from `artifacts.List` through `RootModel.ArtifactRefs`, so the panel
+shows the current conversation rather than the one it opened on. The empty
+frame ("No artifacts") stays byte-identical to the reference capture
+(`internal/ui/storybook/testdata/snapshots/panel-artifacts_empty-state.golden`).
+
+The reference's picker also carries a review workflow — `[ ]`/`[✓]`/`[✗]`
+markers, `y`/`n` approve/reject, bulk approve — and its viewer offers
+`c comment`, `t outline`, `l hide lines` and `/ search`. That state lives in
+the agent thread (or in a comment store, outline model and artifact search the
+clone does not have), so neither the markers nor those footer keys are painted:
+a UI that prints a key it cannot honour is the thing AGENTS.md §13 forbids.
+The clone shows, previews, opens and navigates artifacts; the footer names
+exactly those bindings.
+
+`h`/`l` are documented as moving between the row's inline buttons, but on
+1.5.17 they change nothing: three captures with `l`, `l`, `h` are byte-identical
+to the frame before them. The clone therefore does not bind them — the `open`
+button is the selected row's "Enter opens the viewer" affordance, and Enter is
+what opens it.
+
 A background task records its creating tool, `toolSummary`, `isDaemon` and
 global step when it is launched; `RunningTaskSnapshots` skips tasks that
 already completed or were killed. A subagent records its spawn step and log
@@ -434,7 +482,7 @@ That is a brief-design constraint, not something the engine can fix:
   its observable surface, confidence, cost and next action.
 - `docs/guide/agent-loop.md` — the subagent's parent context, and why the two
   halves stay apart.
-- `out/extracted-1.5.17/seeds/funcs.txt` — `utils.CaptureParentMessages`,
+- `out/extracted-1.5.18/seeds/funcs.txt` — `utils.CaptureParentMessages`,
   `utils.FormatCheckpointParentMessages`.
-- `out/extracted-1.5.17/protos/cortex_1.5.17.txt` — `CortexStepCheckpoint`,
+- `out/extracted-1.5.18/protos/cortex_1.5.18.txt` — `CortexStepCheckpoint`,
   fields 30/31 (`captured_user_requests`, `captured_parent_messages`).

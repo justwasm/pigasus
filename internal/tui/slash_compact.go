@@ -14,164 +14,47 @@ import (
 	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/infra/memtrim"
 	"github.com/justwasm/pigasus/internal/ui/rows"
+	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 )
 
 // ---- slash_compact.go ----
 
-// slash_compact.go — cycle 229 seam between the manual /compact
-// slash command and PiG's coding.Session.Compact(), extended by
-// cycle 237 with a generic summarizer path.
+// slash_compact.go — the /compact slash command.
 //
-// Cycle 229 closes the PiG loop: the manual /compact slash command
-// fires PiG's Compact(ctx, customInstructions), listens for the
-// matching CompactionEndEvent, and surfaces the upstream token counts
-// in the transcript. AGY 1.4.0 builds on the same API — strings like
-// `summaryCache` and `cascade_config.checkpoint_config.max_token_limit`
-// (recovered in docs/research/agy-auto-compact-vs-pig.md) are the
-// upstream knobs PiG already exposes through Session.Compact.
+// There is one path. `/compact` snapshots the session, runs the generic
+// summarizer over it (internal/compaction.RunGenericTaskWithTools), and
+// replaces the session with one user-role message carrying the resume
+// block: the reference's "the transcript becomes the summary" contract.
 //
-// Cycle 237 closes the AGY 1.4.2 gap: the reference binary shipped
-// `/compact <message>` (summarize, then answer the user's appended
-// question) and a "Compacting conversation..." progress label with
-// Esc-cancel. The cycle-229 PiG seam covers the production runtime;
-// cycle 237 adds a parallel path that does not require a pigrt
-// runtime, so offline tests / print mode / direct handleSlashCommand
-// callers see the cycle-237 "Compacted N messages (-Y%)" echo
-// instead of the cycle-167 half-trim stub.
+// Cycle 229 shipped a second path behind a `manualCompactor` seam, meant to
+// drive PiG's coding.Session.Compact(). It never had a production
+// implementation. Cycle 381 removed the unreachable `pigrtCompactor`
+// adapter and left the seam behind as an open question: either the TUI
+// grows a pigrt.Runtime and the seam is wired, or the seam goes too. The
+// pigrt package is gone from the tree and from go.mod, so the first option
+// has no carrier left. The seam is deleted here.
 //
-// The seam is `manualCompactor` — a three-method interface so the
-// production wiring and the test wiring (a fakeCompactor that
-// records calls and replays synthetic events) compose in the same
-// handleSlashCommand path. RootModel holds one compactor; cycle 227
-// populates it when the pigrt.Runtime TUI integration lands, and
-// cycle 229 leaves it nil for callers that have not wired PiG yet
-// (print mode, offline tests). Cycle 237 falls back to
-// internal/compaction.ComputeSummary when the compactor is nil — the
-// cycle-167 half-trim helper is retired.
+// What that removes, and why none of it was load-bearing:
 //
-// Cycle 381 (tranche 27) removed the *pigrt.Runtime adapter this
-// file used to carry. It had no caller and no test: the TUI's turn
-// engine is PiG's agent.Agent, not pigrt.Runtime, so the host had no
-// runtime for it to wrap, and the manual /compact path takes the
-// generic summarizer branch in production (m.compaction.Compactor() is nil; only
-// the tests set it). The interface and the branch stay — they are
-// the seam — but the unreachable implementation is gone.
+//   - The "Already compacting." short-circuit. It was gated on
+//     Compactor().IsCompacting(), which is always nil in production, so the
+//     branch could never fire.
+//   - The manual result path (compactDoneMsg -> updateCompactDoneMsg ->
+//     appendCompactResult). It drew a divider and a stats row, which the
+//     generic path draws too — with the summary size and the elapsed time
+//     the manual path passed as "absent", plus the cancelled branch it did
+//     not have, plus the session replacement it never did.
 //
-// Cycle 237 deliberately does NOT touch internal/pigrt/runtime.go,
-// internal/agent/pig.go, or cmd/wagyu/tui_run.go (cycle 232's
-// territory). The Esc-cancel hook uses a package-level channel
-// (compactCancel) so the TUI's existing Esc handler can fire it
-// from a future cycle without this file changing again — see the
-// 硬約束 section of the cycle-237 deliverable for the trade-off.
+// `/compact <message>` still summarizes and then answers the message: the
+// generic path appends it and streams it, as before.
 
-// manualCompactor is aliased to compaction.ManualCompactor.
-type manualCompactor = compaction.ManualCompactor
-
-// startManualCompact is the /compact slash-command body. It is on
-// RootModel (not a free function) because the transcript rows live on
-// m.conversation.response, and the cycle-229 spec calls for two consecutive rows
-// ("Compacting context…" + "Compacted: …") styled as a single
-// bracketed event.
+// startManualCompact is the /compact slash-command body.
 //
-// Cycle 237 split the old "Branch 1" (cycle-167 stub) into a real
-// summarizer that calls internal/compaction.ComputeSummary
-// directly. The cycle-167 half-trim of m.engine.session is gone; the new
-// path replaces m.engine.session with one user-role message carrying the
-// model's reply (matching AGY 1.4.2's "the transcript becomes the
-// summary" contract).
-//
-// The method has four branches:
-//
-//   - m.compaction.Compactor() == nil: cycle-237 generic summarizer. Fires
-//     compaction.ComputeSummary in a goroutine with a cancellable
-//     context (cycle-237's local channel). The transcript gets
-//     "Compacting conversation…" (matching the AGY 1.4.2 spec)
-//     and a follow-up "Compacted N messages (-Y%)" / "[compact
-//     cancelled]" row when the goroutine resolves. A trailing
-//     user-supplied customInstructions (the "/compact <message>"
-//     form) is dispatched as a fresh prompt after the summary
-//     lands.
-//
-//   - m.compaction.Compactor() != nil && m.compaction.IsCompacting() == true:
-//     short-circuit with "⎿  Already compacting." — the cycle-229
-//     spec calls out the race where a user types /compact while
-//     PiG is mid-summarisation (auto-compact from cycle 227 OR a
-//     second /compact press before the first finishes). PiG
-//     itself would abort the in-flight compact and start a new
-//     one; the gate keeps the transcript honest.
-//
-//   - happy path (cycle-229): emit "⎿  Compacting context…" +
-//     custom-instructions echo, subscribe a one-shot listener on
-//     the compactor, and fire Compact(ctx, customInstructions) in
-//     a goroutine. The goroutine posts a compactDoneMsg back to
-//     the bubbletea runtime so the transcript gets the success /
-//     failure row.
-//
-//   - happy path (cycle-237 fallback): emit "⎿  Compacting
-//     conversation…" + custom-instructions echo, run the generic
-//     summarizer with a 60 s timeout, replace m.engine.session with the
-//     summary, and echo the stats. The same cancel channel the
-//     Esc handler will reach from a future cycle (cycle 237 left
-//     it as a package-level singleton — see compactCancel below)
-//     aborts the summarization without touching m.session.
-//
-// The Compact() / ComputeSummary calls use a 60 s timeout — the
-// same window the TUI prompt stream uses (streamPrompt in
-// tui_run.go). Long compactions that exceed it are aborted at
-// the goroutine level; PiG's own compactCancel path
-// (coding/session.go:compactCancel) takes over from there.
-func (m *RootModel) startManualCompact(customInstructions string) {
-	// Branch 1 (cycle-237): no PiG compactor wired. Use the generic
-	// summarizer. The cycle-167 half-trim is retired — the new path
-	// replaces m.engine.session with one user-role message carrying the
-	// model's reply, matching AGY 1.4.2's "transcript becomes the
-	// summary" contract.
-	if m.compaction.Compactor() == nil {
-		m.startGenericCompact(customInstructions)
-		return
-	}
-
-	// Branch 2: an auto-compact (cycle 227) or a manual press from
-	// a moment ago is still running. PiG's coding.Session would
-	// queue / abort-and-restart, but the cycle-229 spec is explicit:
-	// echo "Already compacting." and skip the call so the user
-	// sees a clear "I heard you, but I am already busy" line.
-	if m.compaction.IsCompacting() {
-		m.conversation.response = append(m.conversation.response,
-			rows.NoticeCompact("Already compacting."),
-			"",
-		)
-		return
-	}
-
-	// Branch 3: cycle-229 happy path. Echo the running row first so
-	// the transcript shows the command was accepted, then arm the
-	// one-shot listener and kick off Compact() in the background.
-	//
-	// `m.turn.prog` is the running *tea.Program; nil in tests, in which
-	// case the result is delivered straight into m.conversation.response (the
-	// goroutine skips the prog.Send call). The split is the same
-	// shape cycle 227's compactStartMsg / compactEndMsg handlers
-	// use — cycle 229's manual path just collapses the start/end
-	// pair into a single two-row transcript block.
-	m.conversation.response = append(m.conversation.response,
-		rows.NoticeCompact("Compacting context\u2026"),
-		"",
-	)
-	compactor := m.compaction.Compactor()
-	prog := m.turn.prog
-	go runManualCompactionTask(compactor, customInstructions, prog)
-}
-
-func runManualCompactionTask(compactor manualCompactor, customInstructions string, prog *tea.Program) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	compaction.RunManualTask(ctx, compactor, customInstructions, func(msg compactDoneMsg) {
-		if prog != nil {
-			prog.Send(msg)
-		}
-	})
+// It is a delegate, and deliberately nothing more: there is one compaction
+// path, so a second function with branches would only be a place for the
+// two to drift apart. The comment above records what the other path was.
+func (m *RootModel) startManualCompact(customInstructions string) tea.Cmd {
+	return m.startGenericCompact(customInstructions)
 }
 
 // startGenericCompact is the cycle-237 path: no PiG compactor, so
@@ -190,13 +73,7 @@ func runManualCompactionTask(compactor manualCompactor, customInstructions strin
 // user's history (TestSlashCompact_CancelRestoresSession).
 type genericCompactDoneMsg = compaction.GenericDoneMsg
 
-func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt string, overhead int, sessSnap []backend.Message, tools []backend.ToolDecl, customInstructions string, started time.Time, prog *tea.Program, onDone func(genericCompactDoneMsg)) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cleanup := compaction.InstallCancel(cancel)
-	defer cleanup()
-
+func runGenericCompactionTask(ctx context.Context, backendClient backend.Client, model, systemPrompt string, overhead int, sessSnap []backend.Message, tools []backend.ToolDecl, customInstructions string, started time.Time, prog *tea.Program, onDone func(genericCompactDoneMsg)) {
 	compaction.RunGenericTaskWithTools(ctx, backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, func(msg genericCompactDoneMsg) {
 		if prog != nil {
 			prog.Send(msg)
@@ -206,20 +83,53 @@ func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt 
 	})
 }
 
-func (m *RootModel) startGenericCompact(customInstructions string) {
+// beginGenericCompaction creates the context the worker runs under and installs
+// its cancel func, returning the context and a cleanup that clears the slot.
+//
+// It runs on the *caller's* goroutine, before the worker is started, and that
+// ordering is the point. InstallCancel used to happen inside the worker, so a
+// cancel fired before the worker got scheduled landed on an empty slot and was
+// silently dropped: Esc right after "/compact" did nothing, and the test that
+// pinned that promise passed only when the scheduler happened to run the
+// worker first. Installing first makes "esc to cancel" true from the moment
+// the row is drawn.
+func beginGenericCompaction() (context.Context, func()) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	cleanup := compaction.InstallCancel(cancel)
+	return ctx, func() {
+		cleanup()
+		cancel()
+	}
+}
+
+// startGenericCompact is the production /compact path. It returns the
+// command that drives the live row's spinner: without it the row is a
+// still of frame 0 and the compaction reads as frozen.
+func (m *RootModel) startGenericCompact(customInstructions string) tea.Cmd {
 	sessSnap := m.SessionMessages()
 	if len(sessSnap) == 0 {
 		m.slashRespondPlain("Nothing to compact yet.")
-		return
+		return nil
 	}
 
+	started := time.Now()
 	echoCmd := "/compact"
 	if trimmed := strings.TrimSpace(customInstructions); trimmed != "" {
 		echoCmd = "/compact " + trimmed
 	}
+	m.conversation.response = append(m.conversation.response, "> "+echoCmd)
+	// The running compaction occupies one live row, where the reference puts
+	// "Generating…" and "Working…". It is armed here and repainted in place
+	// by updateCompactSpinnerTickMsg; nothing is added to the status row.
+	m.session.store.CompactStart = started
+	m.session.store.CompactEnd = time.Time{}
+	m.session.store.CompactSpinnerFrame = 0
+	// The live row is in the conversation, so the status row stays empty.
+	m.session.store.CompactLiveInTranscript = true
+	m.conversation.compactRowIdx = len(m.conversation.response)
+	m.conversation.compactRowLive = true
 	m.conversation.response = append(m.conversation.response,
-		"> "+echoCmd,
-		rows.NoticeCompact("Compacting conversation\u2026"),
+		m.compactingLine(),
 		"",
 	)
 
@@ -229,26 +139,40 @@ func (m *RootModel) startGenericCompact(customInstructions string) {
 		model = "claude-sonnet-4-6"
 	}
 	prog := m.turn.prog
-	started := time.Now()
 
 	systemPrompt := m.systemPrompt()
 	overhead := compaction.ContextOverheadTokens(systemPrompt, modelDeclarationsJSON())
 	tools := m.tools.decls
 
+	// The cancel func is installed here, before the worker starts, so the
+	// "esc to cancel" hint is true from the first frame — see
+	// beginGenericCompaction.
+	ctx, finish := beginGenericCompaction()
+
 	if prog != nil {
 		// Production: the result travels as a tea.Msg and is applied by
 		// the Update loop, on the UI goroutine.
-		go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, prog, nil)
-		return
+		go func() {
+			defer finish()
+			runGenericCompactionTask(ctx, backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, prog, nil)
+		}()
+		return compactSpinnerTick()
 	}
 	// No program to post to (the test path). Hand the result over a
 	// channel instead: the worker never touches m.conversation.response or m.engine.session,
 	// which belong to the goroutine that owns the RootModel.
 	ch := make(chan genericCompactDoneMsg, 1)
 	m.compaction.SetDone(ch)
-	go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
-		ch <- msg
-	})
+	go func() {
+		defer finish()
+		runGenericCompactionTask(ctx, backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
+			ch <- msg
+		})
+	}()
+	// The live row is armed on this path too, so it is ticked on this
+	// path too: which branch delivers the result is not the row's
+	// business.
+	return compactSpinnerTick()
 }
 
 func modelDeclarationsJSON() []byte {
@@ -293,6 +217,10 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 	// snapshots the reference's checkpoint carries. The clone's resume
 	// block carries the requests; it has no artifact, subagent or
 	// running-task snapshots.
+	// markCompacted hands back what it took out of the active context: the
+	// tool results the summary is replacing, which the banner's "before"
+	// figure adds.
+	toolTokens := m.markCompacted()
 	carriedTokens := 0
 	if msg.Summary != "" {
 		requests := m.manualCompactRequests()
@@ -331,7 +259,15 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 		m.session.store.CompactEnd = time.Now()
 		memtrim.Release()
 	}
-	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
+	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, toolTokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
+	compaction.RecordEvent(compaction.Event{
+		Timestamp:    time.Now(),
+		Reason:       "manual",
+		TokensBefore: beforeTokens,
+		TokensAfter:  afterTokens,
+		Duration:     msg.Took,
+		Summary:      msg.Summary,
+	})
 	m.conversation.response = append(m.conversation.response,
 		compaction.DividerRow(m.viewport.width),
 		compaction.StatsRow(m.viewport.width,
@@ -347,6 +283,58 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 		return tea.Batch(m.streamPrompt(customInstructions), compactExpireCmd())
 	}
 	return compactExpireCmd()
+}
+
+// compactingLine is the running compaction's live row.
+//
+// It is the one place a running compaction is drawn. The reference shows
+// this line where "Generating…" and "Working…" appear — inside the
+// conversation — and puts nothing in the status row, so the row is only
+// repainted in place and never duplicated.
+func (m *RootModel) compactingLine() string {
+	frame := usagepanel.SpinnerFrame(m.session.store.CompactSpinnerFrame)
+	elapsed := time.Since(m.session.store.CompactStart)
+	return rows.CompactingLine(frame, elapsed, true)
+}
+
+// repaintCompactingLine rewrites the live row in place, leaving every row
+// around it untouched.
+func (m *RootModel) repaintCompactingLine() bool {
+	if !m.conversation.compactRowLive {
+		return false
+	}
+	if m.session.store.CompactStart.IsZero() || !m.session.store.CompactEnd.IsZero() {
+		return false
+	}
+	i := m.conversation.compactRowIdx
+	if i < 0 || i >= len(m.conversation.response) {
+		return false
+	}
+	line := m.compactingLine()
+	if m.conversation.response[i] == line {
+		return false
+	}
+	m.conversation.response[i] = line
+	return true
+}
+
+// clearCompactingLine removes the live row once the compaction settles.
+//
+// The result row replaces it, so the conversation never shows both a
+// "compacting" line and its outcome.
+func (m *RootModel) clearCompactingLine() {
+	if !m.conversation.compactRowLive {
+		return
+	}
+	i := m.conversation.compactRowIdx
+	m.conversation.compactRowLive = false
+	if i < 0 || i >= len(m.conversation.response) {
+		return
+	}
+	if !strings.Contains(m.conversation.response[i], "Compacting conversation") {
+		return
+	}
+	m.conversation.response = append(m.conversation.response[:i], m.conversation.response[i+1:]...)
 }
 
 func (m *RootModel) cleanCompactingNotice() {
@@ -367,6 +355,10 @@ func (m *RootModel) cleanCompactingNotice() {
 }
 
 func (m *RootModel) applyGenericCompactResult(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
+	// The live row is replaced by the outcome: the conversation must never
+	// show a "compacting" line beside the row that says it finished.
+	m.session.store.CompactEnd = time.Now()
+	m.clearCompactingLine()
 	m.cleanCompactingNotice()
 	switch {
 	case msg.Cancelled:

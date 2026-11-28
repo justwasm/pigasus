@@ -807,79 +807,19 @@ func encodeToolCallPayload(s Step, rinfo ...[]byte) []byte {
 // step_payload.field_140.field_2.field_3.
 func encodeStepRenderInfo(s Step) []byte {
 	prefix := s.ToolPrefix
-	icon := "terminal"
-	aggKey := "terminal"
-	toolLower := strings.ToLower(s.ToolName)
-
-	switch {
-	case strings.Contains(toolLower, "command") || strings.Contains(toolLower, "bash") || toolLower == "sh":
-		if prefix == "" {
-			prefix = "Ran"
-		}
-		icon = "terminal"
-		aggKey = "terminal"
-	case strings.Contains(toolLower, "read") || (strings.Contains(toolLower, "file") && !strings.Contains(toolLower, "edit") && !strings.Contains(toolLower, "write")):
-		if prefix == "" {
-			prefix = "Analyzed"
-		}
-		icon = "description"
-		aggKey = "files"
-	case strings.Contains(toolLower, "write"):
-		if prefix == "" {
-			prefix = "Created"
-		}
-		icon = "edit"
-		aggKey = "edits"
-	case strings.Contains(toolLower, "edit"):
-		if prefix == "" {
-			prefix = "Edited"
-		}
-		icon = "edit"
-		aggKey = "edits"
-	case strings.Contains(toolLower, "task"):
-		if prefix == "" {
-			prefix = "Checked task"
-		}
-		icon = "task_alt"
-		aggKey = "tasks"
-	default:
-		if prefix == "" {
-			prefix = "Ran"
-		}
-		icon = "terminal"
-		aggKey = "terminal"
+	if prefix == "" {
+		prefix = RenderPrefix(s.ToolName)
 	}
+	icon, aggKey := renderIcon(s.ToolName)
 
-	title := s.ToolSummary
-	cmd := ""
-	cwd := ""
-	filePath := ""
-	if strings.HasPrefix(strings.TrimSpace(s.ToolArgs), "{") {
-		var m map[string]any
-		if err := json.Unmarshal([]byte(s.ToolArgs), &m); err == nil {
-			if c, ok := m["CommandLine"].(string); ok && c != "" {
-				cmd = c
-			}
-			if w, ok := m["Cwd"].(string); ok && w != "" {
-				cwd = w
-			}
-			if p, ok := m["Path"].(string); ok && p != "" {
-				filePath = p
-			}
-		}
-	}
+	args := ParseToolArgsFields(s.ToolArgs)
+	cmd, cwd, filePath := args.CommandLine, args.Cwd, args.Path
 
-	if title == "" {
-		if cmd != "" {
-			title = cmd
-		} else if filePath != "" {
-			title = filepath.Base(filePath)
-		} else if s.ToolArgs != "" {
-			title = s.ToolArgs
-		} else {
-			title = s.ToolName
-		}
-	}
+	// The title is the noun phrase only. A ToolSummary that already
+	// carries the verb ("Ran (go build ./...)") is unwrapped here rather
+	// than stored, because every reader re-attaches the prefix: storing
+	// the display line made them print "Ran Ran (go build ./...)".
+	title := TitleFromSummary(s.ToolSummary, s.ToolName, s.ToolArgs)
 
 	var rinfo []byte
 	rinfo = append(rinfo, encodeProtoField(5, 2, []byte(prefix))...)

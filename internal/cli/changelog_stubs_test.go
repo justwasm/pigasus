@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.5.14:\n\u00b7 Added `/thinking` (`/thinking [on|off]`, saved as `\"showThinking\"` in `settings.json` and off by default) to stream the model's full thinking live in the transcript while it thinks and keep finished thoughts expanded without pressing `Ctrl+O`."
+	const want = "1.5.17:\n\u00b7 Added mouse cursor placement and text selection inside the prompt box in the `full screen (altscreen)` rendering mode: click to move the cursor, or drag and double-click (and double-click-drag by word) to highlight text for typing or paste replacement, `Backspace`/`Delete`, `Ctrl+C` copy, and `Ctrl+X` cut without overwriting your clipboard on release. When Vim mode is on, mouse selections outside Insert mode enter characterwise Visual mode so Vim operators and motions act on the selection, and Normal-mode clicks past the end of a line land on the last character."
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

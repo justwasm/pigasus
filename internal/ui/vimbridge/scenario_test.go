@@ -548,8 +548,10 @@ func TestApplyModelArgumentResolves(t *testing.T) {
 	if h.session.model != "Claude Sonnet 4.6 (Thinking)" {
 		t.Fatalf("model = %q", h.session.model)
 	}
-	if h.session.status != "Claude Sonnet 4.6" {
-		t.Fatalf("status = %q, want the tier stripped", h.session.status)
+	// "(Thinking)" is part of the model's name, not an effort tier, so
+	// the status row keeps it — the reference does exactly this.
+	if h.session.status != "Claude Sonnet 4.6 (Thinking)" {
+		t.Fatalf("status = %q, want the label verbatim", h.session.status)
 	}
 	if len(h.host.persisted) != 1 || h.host.persisted[0] != "claude-sonnet-4-6" {
 		t.Fatalf("persisted = %v", h.host.persisted)

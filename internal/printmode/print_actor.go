@@ -46,9 +46,14 @@ type printHistoryTurn struct {
 
 // actorPrintConfig is everything the print-runtime turn needs from runPrintMode.
 type actorPrintConfig struct {
-	Backend        backend.Client
-	Model          string
-	Prompt         string
+	Backend backend.Client
+	Model   string
+	Prompt  string
+	// Mentions are the @-mention expansions for Prompt. The reference sends a
+	// slash command's instruction this way rather than as turn text, so the
+	// request carries Prompt verbatim plus these blocks in
+	// <ADDITIONAL_METADATA>. Empty for an ordinary prompt.
+	Mentions       []backend.Mention
 	History        []printHistoryTurn
 	Catalog        *tools.Registry
 	Policy         *permissions.Policy
@@ -320,7 +325,7 @@ func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintC
 	defer policy.Close()
 
 	modelLabel := modelcatalog.FormatModelLabel(cfg.Model)
-	prompt := backend.WrapUserContent(cfg.Prompt, modelLabel, true, time.Now())
+	prompt := backend.WrapUserContentWithMentions(cfg.Prompt, cfg.Mentions, modelLabel, true, time.Now())
 	if len(cfg.JSONSchema) > 0 {
 		prompt = fmt.Sprintf("%s\n\n[System constraint: You must output ONLY valid JSON matching this schema exactly, with no markdown code fences and no extra text:\n%s]", prompt, string(cfg.JSONSchema))
 	}

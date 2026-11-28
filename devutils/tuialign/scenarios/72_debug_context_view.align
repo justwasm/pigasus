@@ -1,0 +1,55 @@
+NAME "/debug Context view shows measured occupancy (not an estimate)"
+WINDOW 120 34
+TARGET pigasus
+
+# A turn whose usage metadata reports a real prompt size. It is the only
+# figure the view may print as occupancy: the mock's 100k against the
+# catalogue's 256k window is 39.1%, and nothing in the panel computes it
+# from the request body.
+MOCK_TURN
+  TEXT "The context view should now have a provider report." DELAY 100ms
+  USAGE PROMPT 100000 CANDIDATES 1200 THOUGHTS 0
+  FINISH STOP
+
+BOOT
+WAIT_READY 15s
+
+TYPE "hello"
+ENTER
+WAIT_TEXT "The context view should now have a provider report." 25s
+SLEEP 1500ms
+
+# The command is /debug now; /logs is the alias it kept.
+TYPE "/debug"
+ENTER
+SLEEP 800ms
+SNAPSHOT "01_debug_opens_on_logs"
+
+# Tab to the Context view: Logs -> Wire -> Trajectory -> Requests -> Context.
+KEYS "5"
+SLEEP 800ms
+SNAPSHOT "02_context_view"
+
+# The reader explains where the headline number came from.
+ENTER
+SLEEP 800ms
+SNAPSHOT "03_context_reader_provenance"
+
+KEYS "Escape"
+SLEEP 400ms
+KEYS "Escape"
+SLEEP 400ms
+
+# The composer keeps the command that opened the panel (AGY parity), so the
+# next command starts with the previous one still in the buffer unless it is
+# cleared first.
+KEYS "C-u"
+SLEEP 300ms
+
+# The old name still opens the same surface, on the same view.
+TYPE "/logs context"
+ENTER
+SLEEP 800ms
+SNAPSHOT "04_logs_alias_reaches_context"
+
+CLEANUP

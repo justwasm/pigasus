@@ -136,9 +136,70 @@ func applyLegacyTextStyles(cfg *ansi.StyleConfig) {
 		Color:     strPtr("39"),
 		Underline: boolPtr(false),
 	}
+	// The link text follows the scheme's own link slot. It used to be the
+	// ANSI-256 literal "135" (a magenta), which never moved when the scheme
+	// changed — the reference's link colour is the scheme's LinkFg (#8ab4f8
+	// under solarized dark, #7aa2f7 under tokyo night).
 	cfg.LinkText = ansi.StylePrimitive{
-		Color: strPtr("135"), // magenta-ish, distinguishes from URLs
+		Color: strPtr(linkTextColor()),
 	}
+}
+
+// bodyColor is the body text's colour from the active scheme.
+func bodyColor() string {
+	return schemeSlotColor("Fg")
+}
+
+// codeSpanText is the colour a code span's own text is drawn in.
+//
+// It is the scheme's Accent, not the body colour. The distinction is the whole
+// point of the element: a code span painted in the body colour is not a span
+// at all, it is the sentence it sits in.
+//
+// The pair is recovered from a PTY capture rather than guessed. Cycle 158
+// recorded agy 1.3.6 drawing a code span as \x1b[48;5;254m\x1b[38;5;69m —
+// background index 254 and foreground index 69. Quantise the `light` scheme's
+// slots against the xterm-256 cube and both land exactly:
+//
+//	Light.Accent #4285f4 -> rgb(66,133,244) -> index 69  rgb(95,135,255)
+//	Light.Border #dadce0 -> rgb(218,220,224) -> index 254 rgb(228,228,228)
+//
+// The clone's own pre-1.5.17 constant said the same thing in solarized-light
+// terms — palette.InlineCodeOpen was "38;5;32m48;5;254m", and
+// SolarizedLight.Accent #268bd2 quantises to 32 while SolarizedLight.Border
+// #eee8d5 quantises to 254. The recipe was always accent-on-border; what was
+// wrong was that it had been frozen at one scheme's indices instead of being
+// resolved from the live one.
+func codeSpanText() string {
+	return schemeSlotColor("Accent")
+}
+
+// codeSpanSurface is the tint a code span sits on — the scheme's Border, the
+// colour it already spends on the surfaces one step off the background.
+func codeSpanSurface() string {
+	return schemeSlotColor("Border")
+}
+
+// linkTextColor is the link text's colour from the active scheme.
+//
+// glamour accepts a hex string ("#8ab4f8") or a terminal index ("12"), which
+// is exactly what a palette slot's Value() carries — so the slot is passed
+// through rather than translated.
+func linkTextColor() string {
+	return schemeSlotColor("LinkFg")
+}
+
+// schemeSlotColor reads one slot of the scheme this renderer is drawing.
+//
+// The renderer's own CurrentColorScheme is the source, not the palette's
+// live scheme: the two are set by the same host call, but a render reached
+// from anywhere else must still describe the scheme it was asked for.
+func schemeSlotColor(slot string) string {
+	c, ok := palette.Schemes[CurrentColorScheme()].Slot(slot)
+	if !ok || !c.IsSet() {
+		return "39"
+	}
+	return c.Value()
 }
 
 func applyLegacyCodeStyles(cfg *ansi.StyleConfig) {
@@ -146,7 +207,12 @@ func applyLegacyCodeStyles(cfg *ansi.StyleConfig) {
 		StylePrimitive: ansi.StylePrimitive{
 			BlockPrefix: "`",
 			BlockSuffix: "`",
-			Color:       strPtr("220"), // gold on default bg
+			// Inline code is the scheme's Accent on its Border — see
+			// codeSpanText for the capture this pair comes from. Both slots
+			// move with the scheme, so the span follows /config; painting it
+			// in the body colour instead made it disappear into the prose.
+			Color:           strPtr(codeSpanText()),
+			BackgroundColor: strPtr(codeSpanSurface()),
 		},
 	}
 	cfg.CodeBlock = ansi.StyleCodeBlock{
@@ -236,7 +302,10 @@ func buildANSIConfig() ansi.StyleConfig {
 			LevelIndent: 4,
 		},
 		HorizontalRule: ansi.StylePrimitive{
-			Color:  strPtr("249"),
+			// The rule is the scheme's border colour. It used to be the
+			// ANSI-256 literal "249", the one primitive in this document
+			// that kept its colour across every scheme.
+			Color:  strPtr(schemeSlotColor("Border")),
 			Format: "──────",
 		},
 		Item: ansi.StylePrimitive{
@@ -292,24 +361,23 @@ func applyANSITextAndCodeStyles(cfg *ansi.StyleConfig, accentColor string, isDar
 		Color:     strPtr(linkColor),
 		Underline: boolPtr(true),
 	}
+	// The link text is the scheme's own link colour. It used to be the
+	// ANSI-256 literal "29", which never moved when the scheme changed: the
+	// reference draws link text in the scheme's LinkFg (#8ab4f8 under
+	// solarized dark, #7aa2f7 under tokyo night).
 	cfg.LinkText = ansi.StylePrimitive{
-		Color: strPtr("29"),
+		Color: strPtr(linkTextColor()),
 		Bold:  boolPtr(true),
 	}
-	if isDark {
-		cfg.Code = ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color:           strPtr("222"),
-				BackgroundColor: strPtr("237"),
-			},
-		}
-	} else {
-		cfg.Code = ansi.StyleBlock{
-			StylePrimitive: ansi.StylePrimitive{
-				Color:           strPtr("32"),
-				BackgroundColor: strPtr("254"),
-			},
-		}
+	// Inline code is the scheme's Accent on its Border, not the body colour.
+	// The body colour made the span byte-for-byte identical to the words
+	// around it, so `code` stopped being a span at all. codeSpanText records
+	// the capture the pair comes from.
+	cfg.Code = ansi.StyleBlock{
+		StylePrimitive: ansi.StylePrimitive{
+			Color:           strPtr(codeSpanText()),
+			BackgroundColor: strPtr(codeSpanSurface()),
+		},
 	}
 	cfg.CodeBlock = ansi.StyleCodeBlock{
 		StyleBlock: ansi.StyleBlock{

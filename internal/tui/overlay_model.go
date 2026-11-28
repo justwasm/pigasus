@@ -39,6 +39,11 @@ type OverlayModel struct {
 	panelScreenY   int
 	panelHeight    int
 
+	// panelPressArmed says a press on a panel row placed the cursor and
+	// left an action waiting for the release. It is cleared by the
+	// release whether it runs the action or the drag won.
+	panelPressArmed bool
+
 	// Wire Diagnostics HUD Overlay (--debug-wire / /wire)
 	wireHUD *wirehud.HUD
 

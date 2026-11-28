@@ -51,6 +51,11 @@ type Category struct {
 	// The reference's own capture puts the system prompt's cells first
 	// (cycle 224); the categories that follow keep their row order.
 	Lead bool
+
+	// Estimated marks a count the host could not measure and filled from a
+	// built-in figure. The row shows it with a leading "~" so a figure that
+	// never changes cannot be mistaken for a measurement.
+	Estimated bool
 }
 
 // Categories returns the breakdown's visible categories, in the
@@ -71,23 +76,89 @@ func (b Breakdown) Categories() []Category {
 	return out
 }
 
+// bucketDesc is one bucket's fixed facts — everything about a row that is not
+// a number.
+//
+// The count and the "is this an estimate" flag are not here: they are the
+// breakdown's own state, so the descriptor answers "what is this row" and the
+// Breakdown answers "how much". Splitting them that way is what lets the
+// descriptor be a static table instead of a method that rebuilds thirteen
+// literals on every call.
+type bucketDesc struct {
+	// label is the row's name, e.g. "User messages".
+	label string
+	// marker is the glyph the row carries.
+	marker string
+	// cell is the glyph the category paints in the usage grid.
+	cell string
+	// always keeps the row on screen even at zero tokens.
+	always bool
+	// lead puts the category's cells at the head of the grid's fill.
+	lead bool
+	// pick returns the breakdown's value for this bucket. Used instead of a
+	// field name so the table can stay a package-level value.
+	pick func(Breakdown) (tokens int, estimated bool)
+}
+
+// bucketDescs is every bucket, in the reference's row order.
+//
+// The order is the documentation's: the three conversation rows, then the
+// system prompt, the system tools and the system overhead, then the
+// customization rows (rules, skills, subagents, workflows and plugins), then
+// the MCP tools, then the system messages. This slice IS the order —
+// Categories() does not sort.
+//
+// Adding a bucket is one row here and one field on Breakdown. Before it was
+// one row here, one field on Breakdown, a line in panel.go's mirror of the
+// same fields, and a hand-written literal in aCategories() that repeated the
+// two glyph names for every system row.
+var bucketDescs = []bucketDesc{
+	{label: "User messages", marker: UserRowMarker, cell: UserGlyph, always: true,
+		pick: func(b Breakdown) (int, bool) { return b.User, false }},
+	{label: "Agent responses", marker: AgentGlyph, cell: AgentGlyph, always: true,
+		pick: func(b Breakdown) (int, bool) { return b.Agent, false }},
+	{label: "Tool calls", marker: ToolRowMarker, cell: ToolGlyph, always: true,
+		pick: func(b Breakdown) (int, bool) { return b.Tool, false }},
+
+	{label: "System prompt", marker: SystemGlyph, cell: SystemCellGlyph, lead: true,
+		pick: func(b Breakdown) (int, bool) { return b.SystemPrompt, b.SystemPromptEstimated }},
+	{label: "System tools", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.SystemTools, b.SystemToolsEstimated }},
+	{label: "System overhead", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.SystemOverhead, false }},
+
+	{label: "Rules", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.Rules, b.RulesEstimated }},
+	{label: "Skills", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.Skills, b.SkillsEstimated }},
+	{label: "Subagents", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.Subagents, b.SubagentsEstimated }},
+	{label: "Workflows", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.Workflows, false }},
+	{label: "Plugins", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.Plugins, false }},
+	{label: "MCP tools", marker: SystemGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.MCPTools, false }},
+	{label: "System messages", marker: SystemCellGlyph, cell: SystemCellGlyph,
+		pick: func(b Breakdown) (int, bool) { return b.SystemMessages, b.SystemMessagesEstimated }},
+}
+
 // allCategories returns every category the breakdown knows, in the
 // reference's row order — including the ones that consume no tokens and
 // are therefore not rows.
 func (b Breakdown) allCategories() []Category {
-	return []Category{
-		{Label: "User messages", Marker: UserRowMarker, Cell: UserGlyph, Tokens: b.User, Always: true},
-		{Label: "Agent responses", Marker: AgentGlyph, Cell: AgentGlyph, Tokens: b.Agent, Always: true},
-		{Label: "Tool calls", Marker: ToolRowMarker, Cell: ToolGlyph, Tokens: b.Tool, Always: true},
-		{Label: "System prompt", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.SystemPrompt, Lead: true},
-		{Label: "System tools", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.SystemTools},
-		{Label: "System overhead", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.SystemOverhead},
-		{Label: "Rules", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.Rules},
-		{Label: "Skills", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.Skills},
-		{Label: "Subagents", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.Subagents},
-		{Label: "Workflows", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.Workflows},
-		{Label: "Plugins", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.Plugins},
-		{Label: "MCP tools", Marker: SystemGlyph, Cell: SystemCellGlyph, Tokens: b.MCPTools},
-		{Label: "System messages", Marker: SystemCellGlyph, Cell: SystemCellGlyph, Tokens: b.SystemMessages},
+	out := make([]Category, len(bucketDescs))
+	for i, d := range bucketDescs {
+		tokens, estimated := d.pick(b)
+		out[i] = Category{
+			Label:     d.label,
+			Marker:    d.marker,
+			Cell:      d.cell,
+			Tokens:    tokens,
+			Always:    d.always,
+			Lead:      d.lead,
+			Estimated: estimated,
+		}
 	}
+	return out
 }

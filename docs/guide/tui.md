@@ -94,9 +94,11 @@ data the host still coordinates; the component models own their own state:
   Control server (stop function, dispatcher and turn lock), which had been
   loose transport-bucket fields.
 - **`CompactionModel`** (`compaction_model.go`) is the host handle on
-  `session.CompactionRuntime`: the optional manual compactor and the
-  no-program result channel now live in Tier 4, and the model lazily
-  creates the runtime so a bare RootModel literal still works.
+  `session.CompactionRuntime`: the no-program result channel lives in
+  Tier 4, and the model lazily creates the runtime so a bare RootModel
+  literal still works. There is one compaction path — the generic
+  summarizer; the PiG compactor seam was deleted with the runtime it was
+  meant to wrap.
 - **`TurnService`** (`turn_service.go`) owns the transport composition:
   the backend client, its model-change factory, the turn engine, the
   active `EngineBridge` and the running `*tea.Program`. `EngineBridge`
@@ -1367,6 +1369,738 @@ Five things that are easy to get wrong:
 
 Report: `docs/cycles/cycle-381-cliapp-split/`.
 
+## The `/debug` inspector — one surface, six views
+
+`/debug` is the tree's only **full-viewport diagnostics surface**: it takes
+the whole terminal, replaces the transcript and the composer, and answers
+"what is this session doing" six ways. The views are the panel's own
+vocabulary, so the tree keeps exactly one `/debug` — not five panel kinds,
+five route-table rows, five picker entries and five half-height layouts
+for one question.
+
+The command is `/debug` and **`/logs` is an alias**. It was called `/logs`
+while its only view was the log file; the surface then grew the views that
+answer the questions the log file provokes, and "logs" stopped describing
+it — the log file is one of six views. The alias is not politeness: `/logs`
+is in every document in the tree and in every user's fingers, and a rename
+that broke it would be a rename that took a working surface away.
+`internal/tui/debug_command_test.go` fails if either name stops opening it.
+
+`/debug` opens on **Summary**, and `/logs` opens there too: the two names are
+one command, so an alias that landed on a different view would be a rename
+that silently changed what is on screen. Summary is the index of the other
+five — model, endpoint, occupancy, exchange health, compactions, last error,
+one screen — which is the screen someone opening a diagnostic surface wants
+first, rather than paging through five views to find the one that broke.
+
+`/debug <word>` opens the surface on that view, and the words are disjoint:
+`summary`/`overview`/`dashboard` the index, `wire`/`payload` the next turn's
+payload, `requests`/`request`/`req` the recorded exchanges, `traj`/`steps` the
+conversation, `context`/`ctx` the measured occupancy, and anything else leaves
+the landing view up rather than swallowing the command.
+
+```
+Pigasus CLI   Summary    Logs    Wire    Trajectory    Requests    Context   (←/→ or tab to cycle)
+
+└ Wire request  ·  pigasus  ·  Gemini 3.8 Flash (High)  ·  3 msgs
+   total    17.2 KB   5.9 K tok
+   host-side sizes
+
+> ▾ systemInstruction        3     5 KB   1.7 K tok
+    <guidelines>                 2.9 KB     1 K tok
+    <skills>                     1.2 KB     400 tok
+    <identity>                    900 B     300 tok
+  ▾ tools                    3   3.8 KB   1.3 K tok
+    run_command                  2.1 KB     700 tok
+    grep_search                  1.2 KB     400 tok
+    read_file                     600 B     200 tok
+  ▾ contents                 3   8.4 KB   2.9 K tok
+  ▾ #3   tool   response         7.8 KB   2.7 K tok
+       line of output
+  ▾ #1   user   envelope          400 B     139 tok
+  (1–12 of 14 lines)   L1/12
+  enter open/read  ·  v read full  ·  esc close  ·  s size/order  ·  o expand  ·  p collapse  ·  tab next view
+```
+
+The members are ordered by size (the `s` key flips to request order), which
+is why `#3` sits above `#1` above the non-foldable `#2`.
+
+| view | answers | source of the numbers |
+|---|---|---|
+| **Summary** | is anything wrong, at a glance | every other view's facts, brought onto one screen; nothing of its own |
+| **Logs** | what the session's log file says | `clilog.ResolveReadablePath` + `clilog.Tail` (reference's own `/logs`) |
+| **Wire** | why this turn costs more than the last one | `agyprompt.SectionTokenCount`, `cloudcode.WireToolsJSON`, `backend.UserContentTokenCount` |
+| **Trajectory** | what the session actually did, folded by turn | `convstore.BuildSteps` |
+| **Requests** | what this session put on the wire, and what came back | `wirelog.Shared()` — the recorder installed into every backend client |
+| **Context** | how big the context really is, and how full the window really is | the provider's usage metadata + `wirelog.Shared()` + `modelctx` |
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/debugpanel/tabs.go` | the six views, their labels, `Next`/`Prev`, and the name→view resolution for `/debug wire` |
+| `internal/ui/views/debugpanel/summaryview.go` | the landing index: the six sections, and the jump rows that name another view |
+| `internal/core/compaction/history.go` | the compaction history: one event per compaction, recorded where the frame is consumed |
+| `internal/ui/views/debugpanel/inspect.go` | the frame: `layoutFor`, the one window arithmetic, the keys, the clicks, the wheel, and each view's per-frame seam read |
+| `internal/ui/views/debugpanel/foldlist.go` | the fold tree the Wire and Trajectory views share: fold state, cursor, window, copy |
+| `internal/ui/views/debugpanel/wireview.go` | the Wire view's rows: three groups, a shared name column, the caveat |
+| `internal/ui/views/debugpanel/trajectoryview.go` | the Trajectory view's rows: turns, steps, the cold-body note |
+| `internal/ui/views/debugpanel/panel.go` | the Logs view itself: `LoadState`, `Document`, `HeaderLines` (shared with the inline frame) |
+| `internal/ui/views/debugpanel/requestsview.go` | the Requests view: the table, the session summary, and the reader's body |
+| `internal/ui/views/debugpanel/contextview.go` | the Context view: the measures, the provenance of each, the bar, and the compaction history |
+| `internal/core/wirelog/streambody.go` | the response-body tee: records a stream while the caller reads it, and stamps the duration at its end |
+| `internal/ui/views/debugpanel/reader.go` | the second level: a row's full body, its format, and the scroll that stays in the frame |
+| `internal/ui/views/debugpanel/pretty.go` | the two structured renderings (indented JSON, YAML) and their order-preserving walk |
+| `internal/tui/panel_seams_context_views.go` | the host's facts for Wire and Trajectory: the sizes and the steps |
+| `internal/tui/panel_seams_reader.go` | the host's half of the reader: row ID → `Body`, and the group table |
+| `internal/tui/panel_seams_context.go` | `debugPanel()` — the seams, `debugPanelHeight()`, and `debugContextState()` |
+
+### The Requests view — what replaced the capture habit
+
+The tree already had one way to read a request body: run the reference binary
+behind `internal/infra/agyproxy` and read the JSON it captures. That answers
+"what does the *reference* send", and it is the wrong tool for "what did
+*this* session send" — it needs a second process, it only sees traffic routed
+through the proxy, and its records are files on disk (14 GiB of them on one
+machine, each carrying a live OAuth token).
+
+`internal/core/wirelog` records the exchanges the CLI itself performs. The
+seam is the transport, not the clients: every backend this tree builds ends up
+with an `*http.Client` whose `Transport` is unset, so one `http.RoundTripper`
+covers the official backend, the configured gateway and every failover target
+between them — and a backend added later is recorded without knowing the
+package exists. `backendselect.EnableRecording()` installs it, and the
+interactive TUI calls it at startup.
+
+```
+└ Requests  ·  3 exchange(s)  ·  1 failed  ·  1 slow  ·  avg 1.32 s
+   cloudcode-pa.googleapis.com ×2  ·  gateway.example ×1
+
+>   #12 POST  200  /v1internal:streamGenerateContent     850 ms   14.1 KB
+    #11 POST  503  /v1internal:streamGenerateContent     3.00 s   14.1 KB
+    #10 POST  ERR  gateway.example/v1/chat/completions    120 ms    900 B
+```
+
+The endpoint column drops the host when the session talked to exactly one: a
+single-host session would otherwise repeat the same name on every row and
+lose the path it is there to show. On a failover session the host comes back,
+because it is then the column that explains the difference.
+
+| property | decision | why |
+|---|---|---|
+| storage | in memory, ring of 500 | evidence is only useful while the session is live; no directory to prune, no token on disk, and the store cannot grow past its ceiling |
+| body cap | 128 KiB per side, with a note | a request is tens of KiB, a streamed response can be megabytes; the note stops a half-JSON looking like the model's fault |
+| credentials | redacted before the record is built | a diagnostics surface with a copy button must not hold a bearer; `authorization`/`cookie`/`x-api-key` are replaced whole, and the body goes through `clilog.Sanitize` |
+| failure | never fails a request | the recorder recovers from its own panic and drops a record rather than the turn |
+| analysis | host, method, path, status, duration, size, time-to-first-byte | the columns are what a failing turn raises; the body is the reader's (Enter) |
+
+Two of those decisions cost more than the table says, and both were caught by
+running the binary rather than by the unit tests:
+
+- **The response body is teed, not buffered.** The first implementation read
+  `resp.Body` to EOF inside `RoundTrip` and handed the caller a fresh reader
+  over the bytes. Every unit test passed — the caller got its whole body, the
+  record held it, the sizes matched — and streaming was gone: the answer
+  appeared all at once, four and a half seconds after the request, because the
+  renderer cannot draw a frame the recorder has not finished buffering.
+  `wirelog/streambody.go` records through the caller's own `Read` instead, and
+  `streambody_test.go` pins it from the caller's side: a gated body whose first
+  chunk must reach the caller while the last has not been written yet.
+- **`TTFB` is separate from `Duration`.** `RoundTrip` returns when the headers
+  do, so the elapsed time there is the time to first byte, and the stream's end
+  is stamped by the recording body. The header's `slow` count uses `TTFB`, not
+  `Duration`: a nine-second answer that started in 200 ms is a long answer, not
+  a hung endpoint, and only the second is worth flagging.
+
+### The cap never touches the wire
+
+The body cap is a **record's** limit, not a request's. That distinction was
+learned the hard way: the first implementation read the request body through
+the cap and put the capped bytes back on the request, which left the request
+carrying its original `Content-Length` with a shorter body. net/http refuses
+to send that at all —
+
+```
+http: ContentLength=204838 with Body length 131073
+```
+
+— so every turn whose prompt exceeded 128 KiB failed outright, and the
+recorder had broken the thing it was only supposed to observe. A long
+conversation crosses 128 KiB routinely (100 K tokens is roughly 300 KB), so
+this was not an edge case.
+
+Two things keep it from coming back:
+
+- **The replay reader is preferred.** Every backend in this tree builds its
+  request from a `bytes.Reader`, so `req.GetBody` is set; the recorder reads
+  *that* copy and never touches the body the transport will send. The
+  common path cannot corrupt a request even in principle, and
+  `TestTheRecorderDoesNotTouchABodyItCanReplay` asserts `req.Body` is the
+  same object after the round trip.
+- **The fallback reads whole.** A request built some other way is read in
+  full and restored in full — never through the cap. `ReadAllCapped` was
+  deleted rather than fixed: its only caller was the bug, and a helper whose
+  purpose is to produce a short body from a long one will eventually be used
+  to produce a short *request*.
+
+The same defect had a quieter twin in the truncation note. `capBody` printed
+`len(buffered)`, and a capped read is always `MaxBodyBytes+1` bytes — so the
+note said "the exchange carried 131073 bytes" for a request of any size
+above the cap, and a two-megabyte prompt was reported as a 128 KiB one. The
+note is the one number in the record a reader trusts most, so it now prints
+`Captured.Total` (the bytes the exchange really carried), and
+`TestTheTruncationNoteNamesTheRealSize` fails if it goes back to the kept
+length.
+
+A Requests row is a **leaf**, unlike a Wire or Trajectory row: it carries no
+inline detail, so Enter opens the reader on the first press. The other two
+views need two keys (`enter` folds, `v` reads past the fold) because their
+folded body is already on screen; here it is not, and a second key between the
+user and the exchange the legend promises would be a lie.
+
+The reader's body is built from the record itself, not fetched through a seam:
+the store already holds the text, and a second read would be the same bytes
+with a round trip between them. Headers and bodies are separate reader parts
+rather than one block with a blank line between them — the reader offers `t`
+for a part that parses as JSON, and a block that opens with `POST /v1internal…`
+parses as nothing, so a combined block silently costs the format key the one
+body in this panel big enough to need it.
+
+### An oversized body keeps both ends, because the ends are what you read
+
+A streamed response routinely exceeds the 128 KiB cap, and the first
+implementation kept only the first 128 KiB. That is the wrong end of a stream:
+`finish_reason`, `usageMetadata` and a trailing error frame are all in the
+last few hundred bytes, which meant the one thing a reader opens the record
+for — how did the turn end — was the thing the cap cut off.
+
+The record now keeps **96 KiB of head and 32 KiB of tail**, joined by a note
+that names the omitted count, the retained split and the real total:
+
+```
+… [203726 bytes truncated by wirelog: retained 98304 head + 32768 tail out
+of 334798 total (the exchange carried 334798)] …
+```
+
+The same two ends are what the usage scan reads: `wirelog.ExtractUsage` looks
+in the trailing 64 KiB, so a capped stream still yields its token counts and
+`TestCaptureLiftsUsageFromAFramedResponse` fails if the tail is lost.
+
+### Token usage rides on the exchange it belongs to
+
+A usage count is the only number in the record the *provider* stated rather
+than this process measured, and it is only useful next to the bytes that
+produced it. So `Record` carries `PromptTokens` / `CompletionTokens` /
+`TotalTokens`, lifted from the response body at capture time, and the reader
+prints them with the ratio that makes them diagnostic:
+
+```
+   7      tokens      26000 prompt · 31 completion · 26031 total
+   8      ratio       1.28 B/prompt token (byte-lean: a JSON wrapper's overhead)
+```
+
+The ratio is bytes sent over prompt tokens. Its purpose is the outlier — a
+gateway that rewrote the prompt, or an endpoint charging for tokens it was not
+sent — so the label says which side of the band the value fell on. It must
+never name a band the value is outside of: the first version printed
+`1.3 B/prompt token (normal ~3.0-4.0)`, a contradiction on one line, and
+`TestTheRatioNeverContradictsItsOwnLabel` pins every edge.
+
+The band is wide (2–6 B/token) because the ratio moves with the dialect:
+CloudCode's JSON wrapper spends bytes on a project id, a request id and
+escaped braces, so a real CloudCode exchange reads around 1.3, while a bare
+Gemini REST call is near the ~3.5 a tokeniser averages. A "normal" band
+narrower than the dialects would flag every healthy request.
+
+### Two copy keys, and the redaction is the feature
+
+| key | what lands on the clipboard |
+|---|---|
+| `c` | a reproducible `curl` command for the exchange |
+| `C` | a markdown report with both bodies in `<details>` blocks |
+| `y` | the selected row, as text |
+
+`C` is billed as *issue-ready*, which is what makes the redaction load-bearing
+rather than defensive: the snippet exists to be pasted into a public tracker.
+Both exporters redact for themselves instead of trusting that the record was
+sanitised upstream — a copy helper cannot check its caller, and "the caller
+was supposed to have sanitised this" is not a property a clipboard write can
+assert.
+
+That rule found a real leak. `Redact` is `clilog.Sanitize`, a set of patterns
+over a *log line*, and it redacts a query parameter only when the value looks
+like a key it knows (`AIza…`, `sk-…`, a long bearer). A URL is a structure,
+not a line, and it says which parameter is a credential in the parameter's
+name:
+
+```
+?key=<redacted>            the CloudCode endpoint's API key
+?access_token=<redacted>   an OAuth grant
+```
+
+The pattern path missed `?access_token=xyz` outright — nothing that short
+matches — and would have kept it in the record and in a `c`-copied curl
+command. `wirelog.RedactURL` parses the query and replaces a parameter whose
+*name* is on the credential list, whatever its value looks like; every other
+parameter keeps its value, sanitised. The transport uses it too, so the record
+is clean at the source and the exporters are a second line rather than the
+only one.
+
+### Compaction is recorded once, where every backend passes
+
+The history answers "why did my context shrink, and when" — the action that
+most changes how a long session feels, and the one the transcript's stats rows
+cannot date. `internal/core/compaction/history.go` holds one `Event` per
+compaction: reason, tokens before and after, steps summarised, duration, the
+summary text.
+
+The record point is the `KindCompact` frame's consumer (`turnCollector`), not
+the engine's checkpoint policy. Both run in a local turn, and recording at
+both put one compaction in the history twice — a history that says "2 runs"
+for one is worse than no history, because the reader cannot tell which number
+lies. A remote backend has no local policy to fire, so the engine was also the
+*incomplete* choice: the frame is the one place every backend passes.
+
+`TestOneCompactionIsOneHistoryEntry` records a frame, then renders the same
+compaction through the handler, and fails if the count reaches two.
+
+### The Context view — measured occupancy, and where each number came from
+
+`/context` and this view answer different questions, and the difference is
+the reason both exist. `/context` answers "what is in the prompt" — a
+breakdown by category, built from the host's own accounting, with a built-in
+figure standing in wherever the host cannot measure. It is a *model* of the
+context.
+
+This view answers "how big is it, measured":
+
+```
+└ Context  ·  Gemini 3.8 Flash (High)  ·  100 K / 256 K tokens  ·  39.1%
+   █████████████░░░░░░░░░░░░░░░░░░░
+
+> ▸ context       100 K / 256 K  ·  39.1%    reported
+  ▸ last turn     100 K in ·   1.2 K out    reported
+  ▸ wire          32.1 KB sent ·   332 B received    measured
+  ▸ estimate      32.1 KB ÷ 3 = 11 K ·   11 K vs 100 K reported  (+811.6%)    derived
+  ▸ window        256 K  ·  auto-compact at the server's default    configured
+  ▸ session       100 K in ·   1.2 K out ·   billed across every turn    reported
+  ▸ conversation  2 message(s)    measured
+  ▸ compactions   none recorded in this session    measured
+```
+
+The right-hand column is the design, not decoration. Four kinds of number
+meet in this table and they are not interchangeable:
+
+| source | what it means | where it comes from |
+|---|---|---|
+| `reported` | the provider said so | the response's usage metadata, already mapped onto one `backend.ChunkMeta` by the transports |
+| `measured` | this process counted it | `wirelog` (bytes on the socket), `sessionState.messageCount()` |
+| `derived` | arithmetic on the two above | the percentage, the estimator's drift |
+| `configured` | the catalogue or the environment said so | `modelctx.ContextWindowFor`, `modelctx.AutoCompactWindow` |
+
+A table that printed them in one column would invite reading a derived
+percentage as a measurement and an estimate as a fact. So each row ends with
+the word that says which kind it is, and Enter opens a paragraph on the
+mechanism rather than a restatement of the number.
+
+Four decisions carry the view:
+
+- **The occupancy is the last turn's *reported* prompt tokens.** Not the
+  session total, which is billing and grows without bound — after twenty
+  turns of a 12k conversation it reads 240k while the window still holds
+  12k — and not the estimator. The `session` row exists beside it precisely
+  so the two cannot be confused.
+- **No report means no number.** A session that has not completed a turn
+  prints a dash, not a zero and not a percentage. An estimate in the
+  headline cell would make the least trustworthy figure in the table the
+  most prominent one, and `TestNoReportMeansNoNumber` fails on it.
+- **The estimator appears once, to measure its own error.** The tree's
+  three-bytes-per-token divisor is cheap and approximate; its only honest
+  use is the `estimate` row, which prints its result beside the provider's
+  count and the drift between them. Printed alone it would read as a
+  measurement of the prompt. `TestTheEstimateRowMeasuresItsOwnError` pins
+  that it is never printed without the comparison.
+- **The bar is painted from the percentage the row prints**, so a bar that
+  disagreed with its own number is impossible. An unknown window draws no
+  bar at all rather than a wrong one.
+
+Two implementation notes that cost a debug cycle each:
+
+- **The seam is read every frame, not memoised by generation.** Two of the
+  numbers come from the recorder (written on a transport goroutine) and one
+  from the token store (written from the stream loop), and neither goes
+  through the host's update loop that bumps the panel's generation. A
+  generation-keyed memo froze the occupancy at whatever it was when
+  something else last moved — the exact number the user opened the view to
+  watch. `TestTheViewIsLive` moves the store between two draws with no key
+  and no `Invalidate`, and fails if the row does not follow.
+- **The rows are leaves.** A `Detail` makes a row foldable, and a foldable
+  row eats the first Enter. The Requests view shipped that bug once — its
+  legend said "enter read" while Enter unfolded a summary repeating the
+  columns beside it — so Context rows carry no `Detail` and
+  `TestEnterReadsOnTheFirstPress` asserts it for both.
+
+### The interaction model
+
+The keys are one set per view, plus the chrome keys that mean the same
+thing everywhere. A hint that names a key the panel ignores is worse than
+no hint, so the legend and the handler are written together.
+
+| key | Logs | Wire / Trajectory | Requests |
+|---|---|---|---|
+| `tab` / `shift+tab` / `←` / `→` | next / previous view | same | same |
+| `1` `2` `3` `4` `5` | jump to Logs / Wire / Trajectory / Requests / Context | same | same |
+| `↑`/`↓` (`k`/`j`) | scroll one row | move the cursor one row | move the cursor one row |
+| `pgup`/`pgdn` | page, one row short so the fold stays visible | page the *cursor*, not the window | same as Wire |
+| `ctrl+u`/`ctrl+d` (`u`/`d`) | half-page | — (the list classifier has no half-page) | — |
+| `g` / `G` | top / end (end re-arms the tail) | first / last row | first / last row |
+| `enter` | — | fold the row; read it when it has nothing to fold; load a cold body (Trajectory) | read the exchange (rows are leaves); in Context, read the row's provenance |
+| `enter` (Context) | — | — | read the row's provenance (rows are leaves) |
+| `v` | — | read the cursor's row in full, whatever its fold state | same as `enter` |
+| `o` / `p` | — | expand all / collapse all | — (nothing folds) |
+| `s` | — | size order ↔ request order (Wire only) | — |
+| `y` | — | copy the row, escapes stripped | same |
+| `f` | toggle auto-tail | — | — |
+| `esc` / `q` | close the panel | same (backs out of the reader first) | same |
+
+The Logs view navigates differently on purpose. It moves a **window** over a
+document whose cursor has no meaning; the other three move a **cursor** and
+let `windowLines` follow it, because a user who steps onto a row expects to
+see it. That is also why the footer's second cell says `L1/12` there and
+nothing here.
+
+The legend's entries are ordered most- to least-important, because a
+narrow terminal drops them from the tail: `esc close` sits third and
+`tab next view` last, since leaving the surface has to survive a split
+pane and cycling to the next view does not.
+
+Mouse: a click on the bar switches view, a click on a row puts the cursor
+there and folds it, the wheel scrolls the visible view. Every other cell
+belongs to the host's drag-selection.
+
+Five things that are easy to get wrong:
+
+- **The frame is exactly `height` rows, always.** The host clips the frame
+  to the terminal from the top, so a frame one row too tall loses its own
+  first row — the view bar. `layoutFor` therefore subtracts
+  `frameChrome` (bar, its blank, the blank under the heading, the counter
+  and the legend) *and* the heading's own rows, which vary per view and
+  are recorded per draw.
+- **The window is computed once.** `layoutFor` is the only arithmetic; the
+  render clips with it, the keys clamp against it, and a click is mapped
+  through the same indices. The `/context` scroll bug — a render that
+  reserved one budget and a key handler that clamped against another — is
+  the failure this shape exists to prevent.
+- **A click is three coordinate systems, not one.** Frame row → window
+  offset → display line → selectable row. The body does not start at frame
+  row 0 and it shows the list from its window, so `idx := l.window + row -
+  start`; subtracting only `start` indexes the unscrolled list, and a click
+  after a scroll folds the wrong branch *silently*, because it folds
+  something.
+- **The heading's height is recorded, not recomputed.** It comes from the
+  host's facts, and asking again during a click could describe a frame that
+  is not on screen.
+- **Every row is clipped to the width, once, in `Lines()`.** The host does
+  not clip horizontally, so a row one column too wide wraps and pushes the
+  frame down by one. `ansi.Truncate` cuts at a cell boundary and closes the
+  escapes; a rune count would cut a styled row mid-sequence and leave the
+  colour on for everything below.
+
+### Degrading on a narrow terminal
+
+A 40-column pane is a legitimate terminal, and the surface has three things
+that can be too wide: the bar's labels, the bar's cycle hint, and the
+legend. Each degrades in a different way, in order of what the user needs.
+
+| thing | rule | why not truncation |
+|---|---|---|
+| the bar's labels | never cut | `TabBarWidth` → `tuilib.RenderTabBarTabsSpansWidth` drops the hint *before* anything is written, so the spans it reports are the spans of the line it returns |
+| a half-visible label | not reported as clickable | `TabBarWidth` drops a span whose `End` is past the width: a click on half a word should not switch to a view whose name cannot be read |
+| the legend | drop whole entries from the end | `legendRow` splits on `"  ·  "` and stops at the first entry that does not fit — `esc c…` names no key, and a hint that names no key is worse than a shorter hint that names four real ones |
+
+The tab bar itself is `tuilib`'s, the same one `/help` draws: bold,
+underlined and accented for the active label, separator grey for the
+others. The surface's earlier bar was hand-rolled here and closed the
+active label with a foreground-only reset, which let the bold and the
+underline bleed into the rest of the row.
+
+### The Wire view's one table
+
+The three groups — the system instruction's sections, the tool
+declarations, the conversation's messages — are **one table of
+measurements**, so all three share one name column:
+
+- `wireNameWidth` measures over the whole view, group names included, so
+  a heading's own numbers sit in the same columns as its members'. A group
+  computing its own width is what put `tools  3  3.8 KB` three columns left
+  of `run_command  2.1 KB`.
+- Both numeric columns are **right-aligned**, so it is the *end* of each
+  figure that has to agree: `900 B` and `2.9 KB` start at different columns
+  and end at the same one, by design.
+- `FoldRow.Flat` renders a member at the list's left edge even though it is
+  a child. Indenting the members under their group moves their numbers two
+  columns right, and a numeric column with a step in it reads as two
+  unrelated lists. The tree's indentation is the right vocabulary for the
+  Trajectory's hierarchy and the wrong one for a table.
+- A group with no members says `(empty)`, not the shape of a measurement:
+  `0 B  - tok` is what an unmeasured value looks like, and there is nothing
+  there to have measured.
+
+The sizes are **host-side** and the heading's `Note` says so: the backend
+adds its own request envelope (`thinkingConfig`, `executionModel`, the
+labels) that this view cannot see. Claiming byte-exactness here would be
+the same class of dishonesty as naming a model the endpoint is not serving.
+
+### The Trajectory view's folding and hydration
+
+- **Turns open by default; steps stay folded.** The first frame is the
+  outline. A flat step list (no `TurnsList`) stays wholly folded.
+- **A folded step says so once.** `(summarized)` marks a step a checkpoint
+  already replaced: it is no longer in the context window, and saying so is
+  the point of the view.
+- **A cold step is a load, not a fold.** Its `Detail` is the note that
+  stands in for a body the host has not read — `cold · 2.8 KB on disk ·
+  enter to load` — and that note is on screen from the first frame, so a
+  fold could hide it and make a cold row indistinguishable from an empty
+  one. `enter` calls the host's `Hydrate(index)`; `hydrated` remembers the
+  request, so a second `enter` does not queue a second read. The answer
+  arrives as `contextHydrateMsg`, and **it must have a handler**: before
+  `updateContextHydrateMsg` existed the read ran, the answer was dropped
+  on the floor, and the row kept saying `body not in memory` forever — the
+  key was claimed and nothing visible happened, which is the worst of the
+  three possible outcomes. `TestHydrateAnswerFoldsIntoTheRow` fails on
+  that older shape.
+- **Every count is pluralised by `countLabel`.** The heading never prints
+  `1 checkpoint(s)` — the parenthesised hedge is what makes a reader
+  distrust the numbers next to it.
+
+### The reader — the second level
+
+The lists carry **excerpts**: a message's first line (160 cells), a step's
+first twelve lines, a section's byte count. Those clips are right for an
+outline — a 40 KB tool result must not make the list unreadable — and
+wrong for "show me what this actually says". So the reader is a second
+level, not a taller first one: `v` (or `enter` on a row with nothing to
+fold) pulls the body on demand from the host.
+
+```
+Pigasus CLI   Logs    Wire    Trajectory    Requests    Context   (←/→ or tab to cycle)
+
+└ traj/3 · tool  ·  raw
+   tool run_command · tool call
+
+         args
+>   1      {
+    2        "CommandLine": "go build ./...",
+    3        "Cwd": "/tmp/x"
+    4      }
+
+         result
+    5      ok
+    6      second line
+
+  [0%  L1  1-9/9]
+  ↑/↓ line  ·  esc close  ·  g/G top/end  ·  t format  ·  y copy
+```
+
+**The body is a numbered document, in `/artifact`'s shape.** The reader is
+a *line-cursor* viewer, not a scrolling one: the number in the gutter is
+the line's position in the body it came from, `>` marks the line the keys
+act on, and the counter under the window reports that line as `L<n>` rather
+than an offset. The shape is deliberately the same one `/artifact` draws
+(`internal/ui/foundations/viewer`), because two viewers of a line-numbered
+body drifting apart is how the two surfaces stop agreeing about which line
+the user is on.
+
+Which rows are numbered is a rule, not a detail: **only the body's own text
+lines.** A part's label (`args`, `result`) and the blank between parts are
+the reader's furniture — numbering them would make every number below them
+off by the count of labels above it, which is the one thing a line number
+must never be. The cursor is clamped to the numbered lines for the same
+reason, so it cannot rest on a label and print `L0`.
+
+A label sits **one level out from the text it names** — two cells left of
+the body's margin, not right. It sat right of it for a round because the
+furniture branch trimmed the *body's* indent from a row indented by the
+*label's*: the trim found nothing to remove, so the label kept its own two
+spaces on top of the gutter and landed two cells past its own body. Page
+102's frame is what made it visible; `TestReaderLabelSitsLeftOfItsBody`
+is what keeps it fixed.
+
+**Keys move the cursor; the wheel moves the window.** They are two
+gestures and the reader keeps them apart, the way `/artifact` does. A
+mouse wheel is a viewport gesture — it drags the cursor into view rather
+than leaving it behind off-screen — while `j`/`k`/`↑`/`↓` move one line
+and leave the window alone until the cursor reaches its edge. That split
+is also what makes the wheel feel like the transcript's: the transcript
+scrolls its viewport, and a panel that scrolled its *cursor* on the wheel
+was the reason the two surfaces felt different.
+
+**The body comes from the host, not from the row.** `Seams.Read(id)` is a
+command, so a cold step's database read happens off the update loop; the
+answer is a `ReaderMsg` the host routes back. `ApplyReader` accepts it
+only when `msg.ID == readPending` — an answer for a row the user has
+already left would otherwise replace what they are reading. A host seam
+that answers `nil` clears the pending ID rather than wedging the row.
+
+**`esc` and `q` back out one level.** The reader was opened from the
+list, so closing it must land on the list with its folds and cursor
+intact; a key that closed the whole surface from here would lose the
+position the user had been reading through. The bar stays painted above
+the reader, so a click on a label leaves the body *and* switches view.
+
+**`t` reformats; the content never changes.** A part is reformatted only
+if it parses as a top-level JSON object or array — a bare scalar like
+`1480000` is valid JSON and offering to "pretty" it would put a format key
+on the reader that changes nothing. A part the format cannot take is shown
+unchanged, and its label omits the format name, which is how a reader
+tells a converted block from one the format could not touch.
+
+Both renderings **preserve the document's key order**, because a tool's
+arguments are evidence in the order the model wrote them:
+
+| format | how order survives |
+|---|---|
+| `json` | `encoding/json`'s `Indent`, which only inserts whitespace into the source bytes |
+| `yaml` | a token walk into a `yaml.Node`, whose `Content` is document order |
+
+`yaml.v3`'s `Marshal` of a `map[string]any` sorts keys, so the walk exists
+to avoid ever building that map. JSON scalars carry an explicit `!!str` /
+`!!int` / `!!float` / `!!bool` / `!!null` tag, without which the string
+`"true"` would print as the boolean `true`.
+
+**Copy takes the document, not the wrap.** `y` hands over the body in the
+format on screen, unwrapped: a paste of the reader's line breaks would
+corrupt any document pasted back into a file.
+
+**Wrapping, not clipping.** The reader exists to show text the list could
+not, so `wrapBody` wraps long lines and expands tabs to the next stop
+(the terminal's own tab stops are not this package's to know). Each line's
+right edge is trimmed, because a wrap usually breaks after a space and a
+trailing blank is invisible to a reader and becomes part of whatever a
+selection copies.
+
+`readerMaxLines` (4000) bounds the layout, and past it the reader says how
+much it left out and that `y` still copies the whole body — a bound is
+honest only when it is announced.
+
+The host resolves the panel's own row IDs
+(`wire/system/<tag>`, `wire/tools/<name>`, `wire/msg/<n>`, the three group
+IDs, `traj/turn/<n>`, `traj/<idx>`). Reading the IDs rather than keeping a
+second index is what keeps the body and the row from disagreeing. A group
+heading is readable too, and its body is its members written out as a
+table.
+
+### Why `/context` has no tabs
+
+`/context` is the reference's own **single view**: a usage breakdown with
+an inline percentage, drawn inline (see `internal/ui/views/contextpanel`).
+Giving it tabs made it the only panel in the tree whose bar was not
+`tuilib`'s, and it put two views there that answer a different question
+than the one `/context` asks. The reference's `/context` is byte-exact
+again and this surface owns the two extra views.
+
+### The pins
+
+The surface's geometry is pinned by behaviour rather than by a golden
+frame, because the frame carries the host's facts and a golden would pin
+them too:
+
+| test | pins |
+|---|---|
+| `TestFrameNeverExceedsTheWidth` | every row of every view fits at 40/60/80/100/120 columns |
+| `TestTabBarDropsTheHintBeforeALabel` | the hint goes before a label, and every painted label is clickable |
+| `TestLegendDropsWholeEntries` | the legend loses whole entries, never a fragment |
+| `TestWireColumnsAlignAcrossGroups` | the two numeric columns end at one cell down the whole view |
+| `TestClickAfterScrollHitsTheDrawnRow` | a click after a scroll selects the row drawn there |
+| `TestTrajectoryHeadingPluralises` | no `(s)` hedge, and `1 turn` not `1 turns` |
+| `TestQClosesLikeEsc` | `q` closes in all three views, not just `esc` |
+| `TestEmptyGroupsSayEmpty` | an empty group says `(empty)`, not `- tok` |
+| `TestSurfaceFrameFitsTheHeight` | the frame is exactly as tall as the terminal gives it |
+| `TestReaderOpensTheCursorRow` | `v` asks for the row the cursor is on, by that row's ID |
+| `TestReaderEnterReadsAnUnfoldableRow` | `enter` reads a row with nothing to fold instead of doing nothing |
+| `TestReaderEscBacksOutOneLevel` | `esc`/`q` close the reader, not the panel, keeping view and cursor |
+| `TestReaderStaleAnswerIsDropped` | an answer for a row nobody asked about cannot replace the open body |
+| `TestReaderFormatsChangeTheTextNotTheContent` | `t` reformats; raw ↔ json ↔ yaml round-trips |
+| `TestReaderKeepsTheDocumentOrder` | neither rendering reorders keys |
+| `TestReaderOffersNoFormatForPlainText` | no format key for a body that would not change |
+| `TestReaderUnparseablePartPassesThrough` | a part the format cannot take is shown, and its label says so |
+| `TestReaderWrapsInsteadOfClipping` | long lines wrap, fit the width, and lose no words |
+| `TestReaderLabelSitsLeftOfItsBody` | a part label sits one level out from the text it names |
+| `TestReaderLegendKeepsTheWayOut` | the hint never drops `esc close`, down to 32 columns |
+| `TestReaderLegendDropsWholeEntries` | the hint loses whole entries, never a fragment |
+| `TestReaderTextColumnIsFixed` | the text starts at one column on every row, cursor or not |
+| `TestReaderNumbersOnlyTheBody` | a part label and a blank separator carry no number |
+| `TestReaderCursorSkipsFurnitureRows` | the cursor never rests on a label, so the counter never reads `L0` |
+| `TestReaderCursorMarkMatchesTheFooter` | the `>` and the counter's `L<n>` name the same line |
+| `TestReaderKeysMoveTheCursorNotTheWindow` | `j` inside the window does not scroll |
+| `TestReaderWheelScrollsTheWindow` | the wheel moves the window and drags the cursor into view |
+| `TestReaderCopiesTheDocumentNotTheWrap` | `y` hands over the document, not the reader's line breaks |
+| `TestReaderFrameFitsTheHeight` | the reader is the same frame and owes the same height/width guarantee |
+| `TestReaderResolvesEveryWireRow` / `…TrajectoryRow` | **every** row the views draw has a body the host can answer for |
+| `TestReaderShowsTheWholeMessageNotThePreview` | the body is longer than the row's preview — the reader reads the conversation, not the row |
+| `TestHydrateAnswerFoldsIntoTheRow` | a cold step's answer actually replaces `body not in memory` |
+
+`TestWireColumnsAlignAcrossGroups` measures **display cells**, not byte
+offsets: `▾` is one cell and three bytes, so a byte index reports every
+foldable row two columns right of its neighbour and calls a correctly
+aligned table misaligned. This test failed on its first run for exactly
+that reason, against a renderer that was already correct.
+
+### Why a tool row never says "Ran Ran"
+
+`toolsteps.Step.Summary` is the **display** line — "Ran (go build ./...)" —
+verb already included. `render_info` stores a call in two fields instead:
+
+| field | holds | example |
+|---|---|---|
+| 5 `ToolPrefix` | the verb, by the tool's category | `Ran` |
+| 9 `ToolSummary` | the noun phrase the verb applies to | `go build ./...` |
+
+A reader joins them, so field 9 must not already carry the verb. Writing
+the display line into field 9 made every reader that re-attached the
+prefix print **"Ran Ran (go build ./...)"** — and the write path did
+exactly that, because `Step.Summary` was the only string it had.
+
+Two independent fixes, because the bug has two halves:
+
+- **the write** (`convstore.TitleFromSummary`) unwraps the display line
+  before storing it, so new sessions hold the noun phrase;
+- **the read** (`toolStepSummary`) recognises a session written before
+  that — its field 9 *is* the display line — and hands it back whole
+  rather than stacking a second verb on it.
+
+Unwrapping is by **shape**, not by a verb list: `tuitools` renders a read
+as `Explored 1 file (x)` while field 5 records `Analyzed`, so a list of
+store verbs would miss the second spelling. "The text in the trailing
+parentheses is the noun phrase" catches both. `convstore.RenderPrefix` and
+`convstore.TitleFromSummary` are the two derivations the writer and the
+encoder share, in one file, for the same reason the geometry is shared:
+a second copy is a second answer.
+
+The trajectory *view* also takes its verb from `tuitools.ToolStepSummary`
+rather than from field 5, because the two vocabularies differ on purpose —
+the store says `Analyzed`, the transcript says `Explored 1 file`. A step
+whose arguments can no longer describe the call falls back to rebuilding
+the line around the stored noun phrase in that category's shape, not to
+field 5's storage verb: "Analyzed deliverable.md" is a line the reference
+never draws.
+
+### Provenance
+
+This surface is an openagy addition, so it has no reference report to
+cite: the reference's `/logs` is the Logs view and nothing else.
+
+- `dcb8d766` — the move out of `/context`, the full-viewport frame, and
+  the `/context` revert.
+- `1f3e3d83` — the geometry work this section describes: the width clip,
+  the shared name column, the click's window offset, `q`, the
+  narrow-terminal degradations, the pluralised heading, and
+  `render_test.go`'s nine pins.
+- the reader — the second level (`v`, `t`, `esc` one level up), the
+  host's row-ID resolution, and the cold-step handler that was missing.
+- the reader's gutter, the `Ran Ran` write-side fix, and the scroll split
+  — this section's `L<n>` counter, the shared `foundations/viewer`
+  geometry, `convstore/rendertitle.go`, and the wheel/cursor division.
+
 ## The auto-compaction spinner (cycle 381)
 
 While a turn compacts its context on its own, the status row shows a
@@ -1401,10 +2135,27 @@ identity and the hint the user needs right now:
 
 ```
 ? for shortcuts                    Gemini 3.8 Flash · high · 2 tasks
-esc to cancel                      auto · MiniMax M3
+esc to cancel                      plan · MiniMax M3
 press ctrl+c again to exit         MiniMax M3
 ⠿  Compacting context… (12s)        MiniMax M3
 ```
+
+The mode prefix is drawn for every mode that has a word. `plan`,
+`accept-edits` and `auto` add `<mode> · `; only the **default** mode — the
+stored-empty `""` — adds nothing, so its row is just the model. The three
+real modes are separate Shift+Tab stops and each names itself, so no stop
+renders identically to another.
+
+The cycle is the one `official-docs/cli/modes.md` states:
+
+```
+default → accept-edits → auto → plan → default
+```
+
+(`auto` is skipped on a host where the terminal sandbox is unavailable.)
+`permissions.CycleModes` is that sequence and `permissions.NextMode` is its
+only reader; `49_mode_cycle_order` walks it a press at a time and checks each
+landing against the mode and banner it expects.
 
 | file | what it is |
 |---|---|
@@ -1418,16 +2169,15 @@ Six things that are easy to get wrong:
   own — the host asks it for a line — so it takes a `State` of values
   rather than a `Seams` of callbacks. The host's facts reach it through
   `statusRowState()`.
-- **The mode is named only when it is not the default one.** `auto ·` is
-  1.4.7's row, where Auto was a mode the user had cycled *to*; 1.5.7 made
-  Auto the default, and 1.5.8's row reads `Gemini 3.8 Flash · high` at
-  startup. The host therefore hands the row `modeLabelFor(mode)` — the
-  mode's own word, or `""` when it equals `setup.DefaultMode()` — and the
-  prompt placeholder follows the same rule (`modePlaceholder`), which is
-  why an idle 1.5.8 prompt is a bare `>` rather than the
-  `Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`
-  banner the 1.4.7 capture shows. The status-line payload's `cycle_mode`
-  is documented the same way ("omitted in the default mode").
+- **Only the default is anonymous.** Every mode with a word names itself,
+  `auto` included, so a Shift+Tab stop can never render identically to the
+  one before it. The host hands the row the mode word through
+  `modeLabelFor(mode)`, which returns `""` only for the stored-empty
+  default, and the prompt placeholder follows the same rule
+  (`modePlaceholder`), so an idle prompt in default mode is a bare `>` while
+  auto shows the `Auto mode: edits & safe commands auto-approved (shift+tab
+  to cycle)` banner. The status-line payload's `cycle_mode` is documented the
+  same way ("omitted in the default mode").
 - **The left half is five rules and four overrides.** The rules decide the
   hint: the slash popup says "esc to cancel" (except in the `/model
   <query>` mode, which leaves the segment empty), a streaming turn says

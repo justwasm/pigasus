@@ -558,21 +558,21 @@ func renderStepTitle(s Step, expanded bool) []string {
 //
 //	\x1b[38;2;181;137;0;1mRan\x1b[m \x1b[38;2;7;54;66m2 commands\x1b[m \x1b[38;2;88;110;117m(echo one · echo two)\x1b[m
 func styledGroupSummary(steps []Step) string {
-	verb, count, detail := tuitools.GroupSummary(stepsFor(steps))
+	sum := tuitools.GroupSummary(stepsFor(steps))
 	var b strings.Builder
 	b.WriteString(palette.ToolVerbOpen)
-	b.WriteString(verb)
+	b.WriteString(sum.Verb)
 	b.WriteString(palette.ToolVerbClose)
-	if count != "" {
+	if sum.Count != "" {
 		b.WriteString(" ")
 		b.WriteString(palette.BodyOpen)
-		b.WriteString(count)
+		b.WriteString(sum.Count)
 		b.WriteString(palette.BodyClose)
 	}
-	if detail != "" {
+	if sum.Detail != "" {
 		b.WriteString(" ")
 		b.WriteString(palette.ToolArgsOpen)
-		b.WriteString(detail)
+		b.WriteString(sum.Detail)
 		b.WriteString(palette.ToolArgsClose)
 	}
 	return b.String()

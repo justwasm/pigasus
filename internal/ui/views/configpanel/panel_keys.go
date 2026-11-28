@@ -117,16 +117,18 @@ func (p *Panel) handleSubmenuKey(key tea.Key) (bool, tea.Cmd) {
 		} else {
 			p.submenuCursor = valCount - 1
 		}
-		cmd = p.previewTheme(row, valCount)
-		return true, cmd
+		// A move inside the submenu redraws the panel and nothing else.
+		// The Color Scheme preview is the card beside the option rows,
+		// which BuildPreviewLines draws from the hovered scheme on its
+		// own; the frame around it is not a preview.
+		return true, nil
 	case tea.KeyDown:
 		if p.submenuCursor < valCount-1 {
 			p.submenuCursor++
 		} else {
 			p.submenuCursor = 0
 		}
-		cmd = p.previewTheme(row, valCount)
-		return true, cmd
+		return true, nil
 	case tea.KeyEnter:
 		if p.submenuCursor >= 0 && p.submenuCursor < valCount {
 			p.applyValue(row, row.Values[p.submenuCursor])
@@ -137,11 +139,8 @@ func (p *Panel) handleSubmenuKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, cmd
 	case tea.KeyEsc:
-		if row.Name == "Color Scheme" && p.submenuOrigVal != "" {
-			cmd = p.applyTheme(p.submenuOrigVal)
-		}
 		p.submenu = false
-		return true, cmd
+		return true, nil
 	}
 	return true, nil
 }
@@ -155,7 +154,6 @@ func (p *Panel) openSubmenu(rows []Row) {
 	row := rows[p.cursor]
 	p.submenu = true
 	currentVal := p.rawDisplayValue(row)
-	p.submenuOrigVal = currentVal
 	p.submenuCursor = 0
 	for i, v := range row.Values {
 		if v.Display == currentVal {
@@ -163,18 +161,6 @@ func (p *Panel) openSubmenu(rows []Row) {
 			break
 		}
 	}
-}
-
-// previewThemeForRow applies the live theme preview when the highlighted
-// row is the Color Scheme setting; otherwise it returns a nil command.
-func (p *Panel) previewTheme(row Row, valCount int) tea.Cmd {
-	if row.Name != "Color Scheme" {
-		return nil
-	}
-	if p.submenuCursor < 0 || p.submenuCursor >= valCount {
-		return nil
-	}
-	return p.applyTheme(row.Values[p.submenuCursor].Display)
 }
 
 // ---- the search box ----------------------------------------------------

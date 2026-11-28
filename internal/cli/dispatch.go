@@ -859,7 +859,7 @@ func ModeWarning(mode string) string {
 // the default mode.`; with no entitlement source configured the reference
 // always reports `auto` this way over a fresh HOME, and so does this
 // clone.
-func AutoUnavailableWarning(mode string) string {
+func AutoUnavailableWarning(mode permissions.AgentMode) string {
 	return fmt.Sprintf("warning: --mode %s is not available for this account; continuing in the default mode.", mode)
 }
 

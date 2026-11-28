@@ -173,6 +173,31 @@ The two exported `var`s used to *be* the Google URLs; they are now empty and
 the resolver answers. A test that points one at an `httptest.Server` keeps
 working unchanged.
 
+### The environment seam is also a test hazard
+
+`CLOUD_CODE_URL` (and the voice / origin variables) win over *everything*,
+including the configuration file — which is the documented precedence and the
+right answer for one invocation. The consequence for a test binary is that
+`go test` inherits whatever a developer's shell carries, and the launcher
+exports `CLOUD_CODE_URL=http://127.0.0.1:<port>` for the reference binary. A
+test that resolves an endpoint therefore measures the developer's machine:
+
+- `endpoints.Current().CloudCode` stops being Google and becomes the local
+  proxy;
+- anything that *compares* against it — `isSandboxFailoverEligible` accepts a
+  custom endpoint only when it equals the resolved primary — takes the other
+  branch. `TestCloudCodeImageSandboxFailover` reported `calls primary/mirror =
+  0/1` for exactly this reason, on a machine that had the proxy running.
+
+Two defences, both in place:
+
+- `internal/testguard` un-sets every endpoint variable the resolver reads
+  (`endpointEnvNames`) from a package's `TestMain`, so a test resolves the
+  compiled-in table. A test that needs an endpoint variable still sets it with
+  `t.Setenv` afterwards.
+- A test that must be independent of the resolver names the constant it means
+  (`endpoints.DefaultCloudCode`) rather than asking `Current()` what it is.
+
 ## What is **not** covered
 
 The scope is the **live paths** — the URLs the clone itself dials, loads or

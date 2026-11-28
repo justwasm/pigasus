@@ -572,22 +572,46 @@ func stripAnsiConv(s string) string {
 func TestRenderMarkdown_InlineBackticks(t *testing.T) {
 	pinSolarizedLightMarkdown(t)
 	got := mdrender.RenderMarkdown("use `go test ./...` to verify", 0)
-	// Either the cycle-158 chip colour OR glamour's gold code
-	// colour around the same content must be present.
-	want := []string{
-		cInlineCodeOpen + "go test ./..." + cInlineCodeClose, // cycle-158 chip (fallback path)
-		"\x1b[38;5;32;48;5;254mgo test ./...",                // cycle-271 glamour chip
+	// The span has to be *distinguishable*, and the test must not care which
+	// ANSI indices the renderer picks — those come from the live colour
+	// scheme and changed when inline code moved onto the scheme's
+	// Accent-on-Border slots. Pin the property instead:
+	//
+	//   - the content is wrapped in a style that carries a background, i.e.
+	//     it sits on a tint rather than in the flow of the sentence;
+	//   - the same sentence without backticks renders without that tint.
+	//
+	// A code span painted in the body colour passes neither check, which is
+	// exactly the regression this guards.
+	span := inlineCodeSpan(t, got, "go test ./...")
+	if !strings.Contains(span, "48;") {
+		t.Errorf("inline code span has no background tint, so it does not stand out from the prose: %q", span)
 	}
-	found := false
-	for _, w := range want {
-		if strings.Contains(got, w) {
-			found = true
-			break
-		}
+	plain := mdrender.RenderMarkdown("use go test ./... to verify", 0)
+	if plain == got {
+		t.Errorf("a line with an inline code span renders identically to the same line without one:\n%s", got)
 	}
-	if !found {
-		t.Errorf("inline code chip missing (neither cycle-158 nor glamour colour):\n%s", got)
+}
+
+// inlineCodeSpan returns the escape-wrapped run of `content` in a rendered
+// line, or fails when the content is not wrapped at all.
+func inlineCodeSpan(t *testing.T, rendered, content string) string {
+	t.Helper()
+	i := strings.Index(rendered, content)
+	if i < 0 {
+		t.Fatalf("rendered line lost %q entirely: %q", content, rendered)
 	}
+	// Walk back to the escape that opened the run and forward to the reset.
+	start := strings.LastIndex(rendered[:i], "\x1b[")
+	if start < 0 {
+		t.Fatalf("%q is not preceded by any escape, so it is unstyled: %q", content, rendered)
+	}
+	rest := rendered[i+len(content):]
+	end := strings.Index(rest, "\x1b[m")
+	if end < 0 {
+		end = len(rest)
+	}
+	return rendered[start : i+len(content)+end]
 }
 
 // Cycle 175: blank-line collapse matches cycle-160 reference
@@ -641,21 +665,12 @@ func TestRenderMarkdown_RealisticReply(t *testing.T) {
 	if !strings.Contains(got, "\x1b[38;2;7;54;66;3mparser") {
 		t.Errorf("realistic reply lost italic opening: %q", got)
 	}
-	// Inline code: cycle-158 chip colour OR glamour gold
-	// colour around the same content.
-	wantCode := []string{
-		cInlineCodeOpen + "fenced" + cInlineCodeClose,
-		"\x1b[38;5;32;48;5;254mfenced",
-	}
-	found := false
-	for _, w := range wantCode {
-		if strings.Contains(got, w) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("realistic reply lost inline chip (neither cycle-158 nor glamour colour): %q", got)
+	// Inline code: the span has to be a span — styled, on a tint of its own.
+	// The indices are the live scheme's Accent-on-Border slots, so the test
+	// pins the property rather than a frozen pair.
+	codeSpan := inlineCodeSpan(t, got, "fenced")
+	if !strings.Contains(codeSpan, "48;") {
+		t.Errorf("realistic reply lost the inline code tint, so `fenced` sits in the prose: %q", codeSpan)
 	}
 	// Fenced block is indented.
 	if !strings.Contains(stripAnsiConv(got), "    $ go test ./...") {
@@ -1485,8 +1500,10 @@ func TestSeedConversation_PreservesFullHistoryWithCheckpoint(t *testing.T) {
 	if !foundMarker {
 		t.Errorf("expected Conversation compacted marker in m.conversation.response")
 	}
-	if m.conversation.compactBlockIdx != 1 {
-		t.Errorf("compactBlockIdx = %d, want 1", m.conversation.compactBlockIdx)
+	// The checkpoint stands in for the one tool step above it: the panel
+	// counts from that boundary, so exactly one tool step is compacted.
+	if m.conversation.compactedToolSteps != 1 {
+		t.Errorf("compactedToolSteps = %d, want 1", m.conversation.compactedToolSteps)
 	}
 
 	// Backend messages should still start at the compaction resume block for LLM context.

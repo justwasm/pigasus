@@ -23,15 +23,16 @@ const subagentWorktreeDirName = "worktrees"
 //
 //   - the directory exists (os.MkdirAll with 0o755, parents
 //     included);
-//   - the path is a clean absolute path — Invoke passes it straight
-//     to PiG's CWDOverride, which does not tolerate ".." segments.
+//   - the path is a clean absolute path — the caller passes it
+//     straight to the subagent's CWD override, which does not
+//     tolerate ".." segments.
 //
 // The directory is created with mode 0o755 so the subagent's session
-// can write inside; the parent `<AgentDir>` is left alone (it is
-// owned by pigrt.NewRuntime / the auth store and we have no business
-// changing it). Cycle 229 will upgrade the body to a `git worktree
-// add` invocation in the user's repository; the path layout does
-// not change.
+// can write inside; the parent `<AgentDir>` is left alone (it is the
+// auth store's home — internal/features/auth.AntigravityHome — and we
+// have no business changing it). Cycle 229 will upgrade the body to a
+// `git worktree add` invocation in the user's repository; the path
+// layout does not change.
 //
 // An empty AgentDir is an error: subagents have no business running
 // without a place to keep their files, and silently falling back to

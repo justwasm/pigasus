@@ -461,14 +461,18 @@ func Test_CursorTracksTypedText(t *testing.T) {
 //
 // Cycle 361 adds /pool: the /accounts panel's Pool tab on its own — the
 // account-routing policy that decides which account serves a turn.
+//
+// /yolo is the clone's fifth superset command: the reference reaches
+// --dangerously-skip-permissions only at startup, and a running session
+// has no way to drop its gates. See docs/guide/permissions.md.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
 	got := len(slashcommands.Default)
-	if got != 117 {
-		t.Fatalf("expected 117 slash commands in catalog (106 ref incl. /projects + superset commands), got %d", got)
+	if got != 118 {
+		t.Fatalf("expected 118 slash commands in catalog (106 ref incl. /projects + superset commands), got %d", got)
 	}
 	filtered := len(slashcommands.Filter("/"))
-	if filtered != 117 {
-		t.Fatalf("expected 117 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
+	if filtered != 118 {
+		t.Fatalf("expected 118 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
 	}
 }
 
@@ -1406,8 +1410,12 @@ func TestShiftTabCyclesDefaultToBuild(t *testing.T) {
 	}
 }
 
-// TestShiftTabCyclesBuildToAuto: starting at "build" (accept-edits), Shift+Tab
-// → "auto".
+// TestShiftTabCyclesBuildToAuto: starting at "build" (accept-edits),
+// Shift+Tab → "auto".
+//
+// The order is the one official-docs/cli/modes.md states:
+// default > accept-edits > auto > plan > default. Four stops, with default
+// and auto as separate modes.
 func TestShiftTabCyclesBuildToAuto(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
@@ -1451,7 +1459,13 @@ func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 	}
 }
 
-// TestShiftTabCyclesPlanToDefault: starting at "plan", Shift+Tab → "default" ("").
+// TestShiftTabCyclesPlanToDefault: starting at "plan", Shift+Tab wraps to
+// the stored-empty default.
+//
+// default is its own stop, not a synonym for auto: /config offers it, it
+// stores as "", and it pauses for diff review where auto approves. The
+// changelog entries that read like a merge say which mode a new session
+// starts in, not that default left the cycle.
 func TestShiftTabCyclesPlanToDefault(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModePlan}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
@@ -1460,13 +1474,14 @@ func TestShiftTabCyclesPlanToDefault(t *testing.T) {
 
 	m.Update(shiftTabKey())
 	if m.session.mode != "" {
-		t.Errorf("Shift+Tab from Plan (wrap): m.session.mode = %q, want %q (default)", m.session.mode, "")
+		t.Errorf("Shift+Tab from Plan (wrap): m.session.mode = %q, want the stored-empty default", m.session.mode)
 	}
 	if policy.Mode != "" {
-		t.Errorf("Shift+Tab from Plan (wrap): policy.Mode = %q, want %q (default)", policy.Mode, "")
+		t.Errorf("Shift+Tab from Plan (wrap): policy.Mode = %q, want the stored-empty default", policy.Mode)
 	}
+	// The default mode names nothing in the composer.
 	if got := m.prompt.input.Placeholder; got != "" {
-		t.Errorf("Plan→Default placeholder = %q, want empty", got)
+		t.Errorf("Plan→Default placeholder = %q, want none", got)
 	}
 	if len(m.conversation.response) != 0 {
 		t.Errorf("Plan→Default wrote %d transcript lines, want 0", len(m.conversation.response))
@@ -1508,9 +1523,14 @@ func TestShiftTab_NotInConfigMenu(t *testing.T) {
 
 // TestShiftTab_StatusLineReflects pins the reference's actual mode cue,
 // verified against agy 1.4.3 at 200x40: the *input placeholder* carries
-// the banner and the *status row* prefixes the model with the mode
-// ("auto · MiniMax M3"). Shift+Tab never writes a transcript line — the
-// pre-283 clone did, which stacked stale banners in the conversation.
+// the banner and the *status row* prefixes the model with the mode.
+// Shift+Tab never writes a transcript line — the pre-283 clone did, which
+// stacked stale banners in the conversation.
+//
+// The cycle is the one official-docs/cli/modes.md states:
+// default > accept-edits > auto > plan > default. Every stop is distinct:
+// auto names itself in both the row and the composer, the stored default
+// names itself in neither.
 func TestShiftTab_StatusLineReflects(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
@@ -1539,12 +1559,12 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 		t.Errorf("Auto→Plan status row = %q, want it to contain %q", row, "plan · MiniMax M3")
 	}
 
-	m.Update(shiftTabKey()) // Plan → Default
+	m.Update(shiftTabKey()) // Plan → Default (the lap closes)
 	if got := m.prompt.input.Placeholder; got != "" {
-		t.Errorf("Plan→Default placeholder = %q, want empty", got)
+		t.Errorf("Plan→Default placeholder = %q, want none", got)
 	}
-	if row := plainRow(m.statusRow()); strings.Contains(row, "plan · ") {
-		t.Errorf("Plan→Default status row still carries a mode prefix: %q", row)
+	if row := plainRow(m.statusRow()); strings.Contains(row, " · MiniMax M3") {
+		t.Errorf("Plan→Default status row = %q, want no mode prefix", row)
 	}
 
 	if len(m.conversation.response) != 0 {
@@ -1553,8 +1573,9 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 }
 
 // TestAutoMode_StartupStatusRowAndPlaceholder pins the reference's startup
-// behavior in default auto mode (AGY 1.5.12): the status row displays "auto · <model>"
-// and the composer displays AutoBanner even when startMode == mode == "auto".
+// behavior in default auto mode: the status row displays just the model
+// and the composer shows a bare prompt — `auto` draws neither a prefix nor
+// a banner, which is the whole point of it being the default mode.
 func TestAutoMode_StartupStatusRowAndPlaceholder(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
@@ -1570,8 +1591,10 @@ func TestAutoMode_StartupStatusRowAndPlaceholder(t *testing.T) {
 	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
 		t.Errorf("composer placeholder = %q, want AutoBanner", got)
 	}
-	if row := plainRow(m.statusRow()); !strings.Contains(row, "auto · Gemini 3.8 Flash") {
-		t.Errorf("status row = %q, want it to contain %q", row, "auto · Gemini 3.8 Flash")
+	// auto names itself in both the row and the composer, so every stop in
+	// the shift+tab cycle is visibly distinct.
+	if row := plainRow(m.statusRow()); !strings.Contains(row, "Gemini 3.8 Flash") || !strings.Contains(row, "auto · ") {
+		t.Errorf("status row = %q, want the auto prefix in front of the model", row)
 	}
 }
 
@@ -1593,6 +1616,8 @@ func TestModeHintHidesAfterEdit(t *testing.T) {
 	}
 
 	// Shift+Tab re-arms it (and the new mode's banner takes its place).
+	// From auto the next mode is plan (default > accept-edits > auto > plan,
+	// per official-docs/cli/modes.md).
 	m.Update(shiftTabKey())
 	if m.prompt.modeHintDismissed {
 		t.Fatal("Shift+Tab did not re-arm the mode hint")
@@ -1608,11 +1633,16 @@ func TestShiftTabCyclesMode(t *testing.T) {
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
-	for _, want := range []struct{ mode, placeholder string }{
+	// default > accept-edits > auto > plan > default, per
+	// official-docs/cli/modes.md. Every entry is its own stop.
+	for _, want := range []struct {
+		mode        permissions.AgentMode
+		placeholder string
+	}{
 		{permissions.ModeAcceptEdits, permissions.AcceptEditsBanner},
 		{permissions.ModeAuto, permissions.AutoBanner},
 		{permissions.ModePlan, permissions.PlanBanner},
-		{"", ""},
+		{permissions.ModeDefault, ""},
 	} {
 		m.Update(shiftTabKey())
 		if m.session.mode != want.mode {

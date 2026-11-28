@@ -313,6 +313,28 @@ func (c *turnCollector) compact(cm *agentlink.Compact) {
 		if !c.compactStart.IsZero() && cm.ElapsedMS > 0 {
 			ended = c.compactStart.Add(time.Duration(cm.ElapsedMS) * time.Millisecond)
 		}
+		// The compaction history is recorded here, once, because this is
+		// the one place every compaction passes: a local turn reports it
+		// through the checkpoint policy's frame, a remote backend reports
+		// the same frame from the far side, and the manual /compact path
+		// records its own in applyGenericCompactSuccess instead of sending
+		// a frame at all.
+		//
+		// It is recorded before the Aborted check for the same reason the
+		// history exists: "the compaction was cancelled, 40 s in, having
+		// summarised nothing" is exactly what a reader opens this view to
+		// find out, and a history that only keeps successes cannot say it.
+		if !cm.Aborted {
+			compaction.RecordEvent(compaction.Event{
+				Timestamp:       ended,
+				Reason:          cm.Reason,
+				TokensBefore:    cm.TokensBefore,
+				TokensAfter:     cm.TokensAfter,
+				StepsSummarized: cm.StepsSummarized,
+				Duration:        time.Duration(cm.ElapsedMS) * time.Millisecond,
+				Summary:         cm.Summary,
+			})
+		}
 		if c.prog != nil {
 			c.prog.Send(compactEndMsg{
 				Reason:               cm.Reason,
@@ -620,8 +642,6 @@ type autoContBannerMsg struct {
 	maxDepth int
 }
 
-type compactDoneMsg = compaction.ManualDoneMsg
-
 type compactStartMsg struct {
 	Reason    string
 	StartedAt time.Time
@@ -864,11 +884,14 @@ func (m *RootModel) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 			m.session.appendMessage(backend.Message{Role: "assistant", Content: msg.Reply})
 		}
 	}
+	// The compaction boundary was recorded when the compaction happened
+	// (markCompacted), not here: this is the turn's end, and a boundary
+	// taken from the block count at this point would swallow every tool the
+	// turn ran *after* compacting — the block is finalised just above, so
+	// it covers the whole turn.
 	if m.conversation.compactHappenedThisTurn {
 		m.session.store.CompactJustHappened = true
 		m.conversation.compactHappenedThisTurn = false
-		m.conversation.compactBlockIdx = len(m.conversation.blocks)
-		m.conversation.compactStepIdx = 0
 	} else {
 		m.session.store.CompactJustHappened = false
 	}

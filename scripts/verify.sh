@@ -78,16 +78,26 @@ case "$MODE" in
     echo "==> Running wirealign wire parity scenario tests..."
     go test ./devutils/wirealign/...
 
-    # The live half needs the reference binary and tmux; it is skipped
-    # rather than failed on a machine that has neither, because the
-    # scenario's textual gates (EXPECT_TEXT / ASSERT_NOT_TEXT) are the
-    # point and they run against pigasus.
-    agy_bin="${AGY_REAL_BIN:-$HOME/.local/bin/agy}"
-    if [ "${RUN_LIVE_ALIGN:-1}" = "1" ] && command -v tmux >/dev/null 2>&1 && [ -x "$agy_bin" ]; then
-      echo "==> Running the live alignment scenario against $agy_bin..."
-      ./scripts/tui-align.sh run devutils/tuialign/scenarios/26_tool_output_preformatted.align
+    # The live half needs the reference binary and tmux. TestScenariosPass
+    # skips itself when either is absent, so a machine that cannot run the
+    # reference still gets a green `make align` — but it runs *every*
+    # asserting scenario rather than one hard-coded name, which is what
+    # makes the `【一手】` notes in the source expire visibly instead of by
+    # nobody noticing. See devutils/tuialign/scenario_live_test.go.
+    if [ "${RUN_LIVE_ALIGN:-1}" = "1" ] && command -v tmux >/dev/null 2>&1; then
+      # The runner skips itself when PIGASUS_BIN is missing, which would
+      # turn a missing build into a silent pass. Build it first so a
+      # broken binary fails the suite rather than skipping it.
+      if [ -z "${PIGASUS_BIN:-}" ]; then
+        PIGASUS_BIN="$ROOT_DIR/bin/pigasus"
+        echo "==> Building $PIGASUS_BIN for the live scenarios..."
+        mkdir -p "$(dirname "$PIGASUS_BIN")"
+        go build -o "$PIGASUS_BIN" ./cmd/pigasus
+      fi
+      echo "==> Running the live alignment scenarios..."
+      PIGASUS_BIN="$PIGASUS_BIN" go test ./devutils/tuialign/ -run TestScenariosPass -v
     else
-      echo "==> Skipping the live scenario (no tmux or no reference agy; set AGY_REAL_BIN, or RUN_LIVE_ALIGN=0)"
+      echo "==> Skipping the live scenarios (no tmux; unset RUN_LIVE_ALIGN=0 to silence)"
     fi
     ;;
 

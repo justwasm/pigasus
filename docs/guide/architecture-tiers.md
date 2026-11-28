@@ -75,7 +75,7 @@ other eleven**, which the filename rule had missed:
 
 | old path (gone) | tier path (live) |
 |---|---|
-| `internal/autocont` | `internal/app/session/autocont` |
+| `internal/autocont` | `internal/app/session/autocont` — **since deleted**: the package had no importer after the Actor migration, and its strings live in `actor/loop.go` and `docs/research/agy-feature-strings.md` |
 | `internal/branding` | `internal/core/branding` |
 | `internal/interaction` | `internal/core/interaction` |
 | `internal/workspacetrust` | `internal/core/policy/trust` |

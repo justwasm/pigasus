@@ -123,7 +123,7 @@ func TestSectionOrderAndFraming(t *testing.T) {
 
 func TestBuiltinSubagentsMatchCapture(t *testing.T) {
 	got := renderSubagents(BuiltinSubagents())
-	// 1.5.9 research subagent text includes read-only sandbox restriction.
+	// The research subagent text includes a read-only sandbox restriction.
 	if !strings.Contains(got, "This agent runs in a read-only sandbox with no network access.") {
 		t.Fatalf("research subagent does not mention sandbox restriction:\n%s", got)
 	}

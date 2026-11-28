@@ -109,9 +109,18 @@ func SandboxBoundaryMiddleware(sb sandbox.Sandbox, onDenial func(toolName string
 
 // SandboxBoundaryMiddlewareWithMode enforces sandbox boundaries and, in Auto mode (AGY 1.5.4),
 // requests user approval before executing commands that leave the sandbox.
+//
+// TODO(auto-mode-model-review): the reference reviews an escaping command with
+// a lightweight model before it runs (permissions.ReviewerModelForBase records
+// which one, and is currently uncalled). This clone prompts the user instead,
+// which is a deliberate, working behaviour — not a stub — but it is not the
+// reference's. The two paths are distinguishable: a model review would not
+// block on a human, so a session with nobody watching is where the difference
+// shows. Implement the review here and pass promptUser as the fallback, so an
+// unattended session degrades to asking rather than to denial.
 func SandboxBoundaryMiddlewareWithMode(
 	sb sandbox.Sandbox,
-	mode string,
+	mode permissions.AgentMode,
 	promptUser func(ctx context.Context, call backend.ToolCall) (bool, error),
 	onDenial func(toolName string),
 ) Middleware {
@@ -119,10 +128,21 @@ func SandboxBoundaryMiddlewareWithMode(
 		return func(ctx context.Context, call backend.ToolCall) (string, error) {
 			if sb.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
 				target := ToolTarget(call)
-				if res := sb.CheckCommandWithBypass(target, shell.BypassSandboxRequested(call.Arguments)); res.Outside {
-					// AGY 1.5.4: In Auto mode, commands that would leave the sandbox prompt for
-					// user approval rather than outright failing.
-					if mode == permissions.ModeAuto && promptUser != nil {
+				// Judge the command as if no bypass were asked for: the bypass
+				// skips the check entirely, so asking with it on says nothing
+				// about whether the command needs to leave the sandbox — and
+				// letting that answer stand ran every bypassed call through
+				// unexamined.
+				bypassed := shell.BypassSandboxRequested(call.Arguments)
+				if res := sb.CheckCommand(target); res.Outside {
+					// A bypass the model asked for, and a command that cannot
+					// run sandboxed, is the one case the prompt says "requires
+					// manual user approval" about: ask the user, whichever mode
+					// the session is in. AGY 1.5.4's rule (Auto mode asks rather
+					// than failing outright) is the same gesture, so one branch
+					// covers both.
+					ask := (bypassed || mode == permissions.ModeAuto) && promptUser != nil
+					if ask {
 						approved, err := promptUser(ctx, call)
 						if err == nil && approved {
 							return next(ctx, call)
@@ -130,6 +150,9 @@ func SandboxBoundaryMiddlewareWithMode(
 					}
 					if onDenial != nil {
 						onDenial(call.Name)
+					}
+					if bypassed {
+						return BypassSandboxAskReason(call.Name, target), nil
 					}
 					if mode == permissions.ModeAuto {
 						return permissions.DeniedToolResult(call.Name, target), nil

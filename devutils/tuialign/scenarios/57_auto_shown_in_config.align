@@ -1,0 +1,45 @@
+NAME "How /config displays a stored agentMode of auto"
+WINDOW 100 34
+TARGET both
+SETTINGS '{"agentMode":"auto","showTips":false}'
+
+# Scene 56 opened the Agent Mode submenu with no mode stored, and the two
+# panes disagreed on the *list*:
+#
+#     agy      default (current) / accept-edits / plan           (3 rows)
+#     pigasus  default (current) / accept-edits / auto / plan    (4 rows)
+#
+# Before treating that as a defect, the other direction has to be measured:
+# a session whose stored mode IS "auto". If agy folds auto onto default — the
+# row reads "default (current)" — then "auto" is not a value the reference
+# offers and pigasus's fourth row is an invention. If agy instead names auto
+# as current, the extra row is legitimate and only the ordering differs.
+#
+# The composer row is in the same snapshot, and it is the row that settles
+# the question. A bare ">" in agy is NOT evidence that auto has no banner:
+#
+#   agy Agent Mode row here reads "default" even though settings.json stores
+#   "agentMode": "auto". The binary declines to enter auto — its string table
+#   says why: "Auto mode is not available: it needs the OS terminal sandbox
+#   and may not be rolled out to you yet" — and falls back to default. The
+#   bare prompt is the default mode's prompt.
+#
+# The auto banner string is present verbatim in agy 1.5.18:
+#   "Auto mode: edits & safe commands auto-approved (shift+tab to cycle)"
+# so the reference does name auto in the composer. Do not infer the banner
+# from a capture on a host whose terminal sandbox is unavailable; check the
+# Agent Mode row first, which is what this snapshot photographs.
+
+BOOT_BOTH
+WAIT_READY 15s
+SLEEP 1200ms
+SNAPSHOT "01_boot_auto"
+
+TYPE "/config"
+ENTER
+WAIT_TEXT "Color Scheme" 20s
+SLEEP 600ms
+SNAPSHOT "02_config_agent_mode_row"
+
+DIFF
+CLEANUP

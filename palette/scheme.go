@@ -132,6 +132,18 @@ type SchemeColors struct {
 	DimFg        Color
 }
 
+// Slot returns the colour of a named slot, and Unset for a name the scheme
+// does not carry.
+//
+// It is the read-only counterpart of the package's own applyScheme: a view
+// that has to paint with a scheme other than the live one — the renderer
+// picking a link colour for the scheme it was asked for — reads the slot
+// through here instead of depending on the palette's global state.
+func (s SchemeColors) Slot(name string) (Color, bool) {
+	c := s.slot(name)
+	return c, c.IsSet()
+}
+
 // slot returns the colour of a named slot, and Unset for a name the
 // scheme does not carry.
 func (s SchemeColors) slot(name string) Color {

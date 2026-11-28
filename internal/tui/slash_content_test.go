@@ -908,9 +908,12 @@ func TestRunGrillMe_SendsPrompt(t *testing.T) {
 	if m.conversation.response[0] != "> /grill-me" {
 		t.Errorf("/grill-me echo = %q, want %q", m.conversation.response[0], "> /grill-me")
 	}
-	if got := lastUserMessage(m); !strings.Contains(got, "question") &&
+	// The turn is the command verbatim; the interview instruction travels as
+	// the <GRILL_ME> expansion, where the reference puts it. Reading Content
+	// alone would call that "lost" — it is the wire that carries it.
+	if got := lastUserWire(m); !strings.Contains(got, "question") &&
 		!strings.Contains(got, "reasoning") {
-		t.Errorf("/grill-me session message lost the Socratic intent: %q", got)
+		t.Errorf("/grill-me wire lost the design-interview intent: %q", got)
 	}
 }
 
@@ -935,9 +938,10 @@ func TestRunTeamwork_SendsPrompt(t *testing.T) {
 		if m.conversation.response[0] != "> /teamwork-preview" {
 			t.Errorf("%s echo = %q, want %q", typed, m.conversation.response[0], "> /teamwork-preview")
 		}
-		if got := lastUserMessage(m); !strings.Contains(got, "team") &&
-			!strings.Contains(got, "autonomous agents") {
-			t.Errorf("%s session message lost the teamwork intent: %q", typed, got)
+		// The turn is the canonical command verbatim: the reference sends
+		// /teamwork-preview as typed, with no instruction body.
+		if got, want := lastUserMessage(m), "/teamwork-preview build multi-agent system"; got != want {
+			t.Errorf("%s turn = %q, want %q", typed, headLine(got), want)
 		}
 	}
 }
@@ -957,9 +961,9 @@ func TestRunBoost_SendsPrompt(t *testing.T) {
 	if m.conversation.response[0] != "> /boost" {
 		t.Errorf("/boost echo = %q, want %q", m.conversation.response[0], "> /boost")
 	}
-	if got := lastUserMessage(m); !strings.Contains(got, "deep thinking") &&
-		!strings.Contains(got, "verification") {
-		t.Errorf("/boost session message lost the boost intent: %q", got)
+	// /boost sends the turn verbatim; the reference attaches no instruction.
+	if got, want := lastUserMessage(m), "/boost analyze architecture"; got != want {
+		t.Errorf("/boost turn = %q, want %q", headLine(got), want)
 	}
 }
 
@@ -1046,6 +1050,19 @@ func lastUserMessage(m *RootModel) string {
 	for i := len(m.SessionMessages()) - 1; i >= 0; i-- {
 		if m.SessionMessages()[i].Role == "user" {
 			return m.SessionMessages()[i].Content
+		}
+	}
+	return ""
+}
+
+// lastUserWire is what the last user turn actually puts on the request: the
+// <USER_REQUEST> envelope, plus any @-mention expansion. The transcript keeps
+// Content, so a test that only reads Content cannot tell a mention expansion
+// from a prepended instruction.
+func lastUserWire(m *RootModel) string {
+	for i := len(m.SessionMessages()) - 1; i >= 0; i-- {
+		if m.SessionMessages()[i].Role == "user" {
+			return m.SessionMessages()[i].WireText()
 		}
 	}
 	return ""

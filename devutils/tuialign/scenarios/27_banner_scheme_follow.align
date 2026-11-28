@@ -1,0 +1,40 @@
+NAME "Banner art and status hints keep their colour across a scheme change"
+WINDOW 100 40
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 15s
+
+# The banner is drawn from the active scheme at boot.
+SNAPSHOT "01_banner_solarized"
+
+# Switch to a scheme whose accent is a different hue, then come back
+# to the prompt so the banner is redrawn.
+TYPE "/config"
+ENTER
+SLEEP 900ms
+
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 300ms
+ENTER
+SLEEP 500ms
+
+# Step the scheme to "tokyo night".
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+KEYS "Down"
+SLEEP 400ms
+ENTER
+SLEEP 500ms
+KEYS "Escape"
+SLEEP 800ms
+SNAPSHOT "02_banner_after_switch"
+
+DIFF
+CLEANUP

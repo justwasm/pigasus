@@ -29,6 +29,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	coreprojects "github.com/justwasm/pigasus/internal/core/cliflags/projects"
+	"github.com/justwasm/pigasus/internal/core/wirelog"
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
@@ -36,7 +37,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"github.com/justwasm/pigasus/internal/ui/views/hostactions"
-	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	projectspanel "github.com/justwasm/pigasus/internal/ui/views/projects"
 )
 
@@ -336,31 +337,42 @@ func (m *RootModel) contextState() contextpanel.State {
 		st.Mode = contextpanel.ModeLive
 		st.User, st.Agent, st.Tool = m.sessionTokenCounts()
 	}
+	// Each count below is measured where the host can measure it. When it
+	// cannot — a run mode with no prompt built, a transport that reports no
+	// tool declarations — the row falls back to a built-in figure, and the
+	// flag says so: the panel renders it with a "~" so a number that never
+	// changes is not read as a measurement.
 	base, rules, skills, subagents := m.promptCategoryTokens()
 	st.SystemPrompt = base - rules
 	if st.SystemPrompt <= 0 && m.session.agentBody == "" {
 		st.SystemPrompt = 4500
+		st.SystemPromptEstimated = true
 	}
 	st.Rules = rules
 	if st.Rules <= 0 && m.session.agentBody == "" {
 		st.Rules = 4400
+		st.RulesEstimated = true
 	}
 	st.Skills = skills
 	if st.Skills <= 0 && m.session.agentBody == "" {
 		st.Skills = 10200
+		st.SkillsEstimated = true
 	}
 	st.Subagents = subagents
 	if st.Subagents <= 0 && m.session.agentBody == "" {
 		st.Subagents = 706
+		st.SubagentsEstimated = true
 	}
 	tools := m.wireToolDecls()
 	st.SystemTools = contextpanel.ToolTokenEstimate(tools)
 	if st.SystemTools <= 0 {
 		st.SystemTools = 7100
+		st.SystemToolsEstimated = true
 	}
 	st.SystemMessages = contextpanel.SystemMessageTokens(m.SessionMessages())
 	if st.SystemMessages <= 0 {
 		st.SystemMessages = 13500
+		st.SystemMessagesEstimated = true
 	}
 	resumeTokens := contextpanel.CheckpointBufferTokens(m.SessionMessages())
 	st.User -= resumeTokens
@@ -432,7 +444,7 @@ func (m *RootModel) streamingTokenCounts() (user, agent, tool int) {
 	user = contextpanel.AdjustStreamingUserTokens(m.SessionMessages(), user)
 	hasCompacted := m.session.store.CompactJustHappened ||
 		m.session.store.CompactTokensAfter > 0 ||
-		m.conversation.compactBlockIdx > 0 ||
+		m.conversation.compactedToolSteps > 0 ||
 		contextpanel.CheckpointBufferTokens(m.SessionMessages()) > 0
 	if hasCompacted {
 		agent += len(m.conversation.liveReplyBuf) / 4
@@ -456,7 +468,7 @@ func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
 
 	hasCompacted := m.session.store.CompactJustHappened ||
 		m.session.store.CompactTokensAfter > 0 ||
-		m.conversation.compactBlockIdx > 0 ||
+		m.conversation.compactedToolSteps > 0 ||
 		contextpanel.CheckpointBufferTokens(m.SessionMessages()) > 0
 
 	if hasCompacted {
@@ -467,27 +479,77 @@ func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
 		agent = contextpanel.AgentTokens(completed, lastTurn)
 	}
 
-	var steps []toolsteps.Step
-	startBlock := 0
-	if hasCompacted && m.conversation.compactBlockIdx > 0 {
-		startBlock = m.conversation.compactBlockIdx
-		if startBlock > len(m.conversation.blocks) {
-			startBlock = len(m.conversation.blocks)
+	// The tool results the model actually carries are the steps after the
+	// latest compaction's boundary: the summary stands in for everything
+	// before it. The steps are read in chronological order — the finalised
+	// blocks first, the turn in flight last — and the boundary is a step
+	// count, so a compaction that landed mid-turn keeps the tools the turn
+	// ran afterwards.
+	steps := m.conversationSteps()
+	if hasCompacted {
+		if skip := m.conversation.compactedToolSteps; skip > 0 {
+			if skip > len(steps) {
+				skip = len(steps)
+			}
+			steps = steps[skip:]
 		}
 	}
-	for _, b := range m.conversation.blocks[startBlock:] {
-		steps = append(steps, b.Steps...)
-	}
-	startLiveStep := 0
-	if hasCompacted && m.conversation.compactStepIdx > 0 {
-		startLiveStep = m.conversation.compactStepIdx
-		if startLiveStep > len(m.conversation.liveSteps) {
-			startLiveStep = len(m.conversation.liveSteps)
-		}
-	}
-	steps = append(steps, m.conversation.liveSteps[startLiveStep:]...)
 	tool = contextpanel.ToolResultTokens(toolsteps.ToolResults(steps)...)
 	return user, agent, tool
+}
+
+// conversationSteps returns the conversation's tool steps in chronological
+// order: the finalised blocks', then the turn in flight's.
+//
+// The panel and the compaction boundary both read the conversation through
+// here, so the two cannot disagree about what "the steps" are.
+func (m *RootModel) conversationSteps() []toolsteps.Step {
+	var steps []toolsteps.Step
+	for _, b := range m.conversation.blocks {
+		steps = append(steps, b.Steps...)
+	}
+	steps = append(steps, m.conversation.liveSteps...)
+	return steps
+}
+
+// markCompacted records the tool steps the latest compaction replaced with
+// its summary, so the panel stops counting them.
+//
+// It is called at the compaction itself — from both the manual /compact and
+// the automatic checkpoint — and the count is a prefix of
+// conversationSteps(), which is why it survives the turn's finalisation:
+// finalising moves steps from liveSteps into blocks without changing how
+// many there are.
+//
+// It returns the tool-result token count of the steps it is about to take out
+// of the active context, which is what a compaction banner's "before" figure
+// has to add. Returning it is what makes the pair atomic: a caller that took
+// the count first and then called this could silently measure the
+// post-compaction conversation instead, and no type would catch it.
+func (m *RootModel) markCompacted() (compactedToolTokens int) {
+	steps := m.conversationSteps()
+	m.conversation.compactedToolSteps = len(steps)
+	return contextpanel.ToolResultTokens(toolsteps.ToolResults(steps)...)
+}
+
+// forgetConversationState drops the per-conversation state the host keeps
+// beside the session.
+//
+// Both fields describe *a conversation*: the compaction boundary counts its
+// steps, and the live row is a row index inside its transcript. They are
+// meaningless — and actively harmful — on the conversation that replaces it:
+// a boundary carried over hides the new conversation's tools, and a stale row
+// index makes the next compacting tick write into an unrelated row.
+//
+// Every path that starts a conversation afresh calls this, so the two cannot
+// drift into being reset in different places.
+func (m *RootModel) forgetConversationState() {
+	m.conversation.compactedToolSteps = 0
+	m.conversation.compactRowIdx = 0
+	m.conversation.compactRowLive = false
+	// A compaction running for the conversation being left behind must not
+	// keep the new conversation's status row suppressed.
+	m.session.store.CompactLiveInTranscript = false
 }
 
 func (m *RootModel) statusRowState() statusrow.State {
@@ -556,6 +618,11 @@ func (m *RootModel) compactState() *statusrow.Compact {
 	if m.session.store.CompactStart.IsZero() {
 		return nil
 	}
+	// A manual /compact draws its own live row inside the conversation, so
+	// the status row stays out of it: one compaction must not appear twice.
+	if m.session.store.CompactLiveInTranscript {
+		return nil
+	}
 	if !m.session.store.CompactEnd.IsZero() && time.Since(m.session.store.CompactEnd) >= compactNoticeTTL {
 		return nil
 	}
@@ -589,22 +656,145 @@ func (m *RootModel) changelogViewerSpec() tuiviewer.Spec {
 	}
 }
 
-func (m *RootModel) logsState() logspanel.State {
-	return logspanel.LoadState(m.viewport.width, m.viewport.height, m.overlays.panel.logsFollow)
+// logsState reads the log view's facts.
+//
+// LoadState tails the session log file, and the panel asks for the state
+// more than once per repaint (the frame, the scroll bound, the row
+// count). Doing that as a disk read every time meant the panel touched
+// the filesystem several times per wheel notch. The memo below is keyed
+// by size and mtime, so a file that has grown is re-read and one that has
+// not costs a stat.
+func (m *RootModel) logsState() debugpanel.State {
+	return debugpanel.LoadState(m.viewport.width, m.viewport.height, m.overlays.panel.debugFollow)
 }
 
-func (m *RootModel) logsViewerSpec() tuiviewer.Spec {
-	return logspanel.Spec(m.logsState())
+// InvalidateLogsTail drops the memoised log tail.
+//
+// The refresh tick calls this: it is the one event that should make the
+// panel look at the file again.
+func (m *RootModel) InvalidateLogsTail() {
+	debugpanel.InvalidateTail()
 }
 
-func (m *RootModel) panelLogsLines() []string {
-	st := m.logsState()
-	spec := logspanel.Spec(st)
-	if m.overlays.panel.logsFollow {
-		m.overlays.panel.window = tuiviewer.MaxOffset(spec)
+func (m *RootModel) debugViewerSpec() tuiviewer.Spec {
+	return debugpanel.Spec(m.logsState())
+}
+
+// debugPanelHeight is how many rows the /logs frame may draw.
+//
+// It is the terminal height minus the status area, because the status
+// area is drawn under the panel and the frame is clipped to the
+// terminal: a panel told the whole height would draw its last rows off
+// the bottom and lose its header to the clip. The height seam and the
+// panel's own rectangle both read this one number.
+// debugPanelHeight is how many rows the /logs frame may draw.
+//
+// It is memoised per frame. Computing it runs the status row's render,
+// which resolves the endpoint overrides and the API key — each of which
+// stats the config file. The panel asks for the height a dozen times per
+// repaint (every layout, every bodyStart, the wheel's bound), so the
+// memo turns a dozen stats into one. The stat itself remains: the file
+// is the user's to edit, and caching it past a frame would be a stale
+// status row rather than a slow frame.
+func (m *RootModel) debugPanelHeight() int {
+	if m.overlays.panel.debugHeightValid {
+		return m.overlays.panel.debugHeight
 	}
-	rows, start, end := m.viewerWindow(spec)
-	return logspanel.PanelLines(st, rows, start, end, spec.Total)
+	h := m.viewport.height
+	if h > 0 && m.statusLine.visible != "off" {
+		h -= len(statusline.AreaRows(m.statusAreaState()))
+	}
+	if h <= 0 {
+		h = 0
+	} else if h < 1 {
+		h = 1
+	}
+	m.overlays.panel.debugHeight = h
+	m.overlays.panel.debugHeightValid = true
+	return h
+}
+
+// debugPanel is the /logs surface: one full-viewport panel with the log
+// file, the request and the trajectory.
+//
+// The panel is built once and kept for the lifetime of the session. It
+// used to be rebuilt on every open, which is fine for a read-only viewer
+// but not for a surface a user leaves mid-trajectory with folds set: the
+// folds and the cursor are the panel's, so the panel is too.
+func (m *RootModel) debugPanel() *debugpanel.Panel {
+	if m.overlays.panel.debugp == nil {
+		m.overlays.panel.debugp = debugpanel.New(debugpanel.Seams{
+			Logs: func() debugpanel.State { return m.logsState() },
+			Wire: func() debugpanel.WireState { return m.contextWireState() },
+			Trajectory: func() debugpanel.TrajectoryState {
+				return m.contextTrajectoryState()
+			},
+			Requests: func() debugpanel.RequestState {
+				return debugpanel.RequestState{
+					Records: wirelog.Shared().Records(),
+					Width:   m.viewport.width,
+				}
+			},
+			Context: func() debugpanel.ContextState { return m.debugContextState() },
+			Hydrate: func(index int64) tea.Cmd { return m.contextHydrateCmd(index) },
+			Read:    func(id string) tea.Cmd { return m.debugReaderCmd(id) },
+			Copy:    func(text string) tea.Cmd { return clipboardCopyCmd(text) },
+			Close:   func() tea.Cmd { return m.closePanel() },
+			Width:   func() int { return m.viewport.width },
+			Height:  func() int { return m.debugPanelHeight() },
+			Follow:  func() bool { return m.overlays.panel.debugFollow },
+			SetFollow: func(v bool) {
+				m.overlays.panel.debugFollow = v
+				m.invalidateViewCache()
+			},
+		})
+	}
+	return m.overlays.panel.debugp
+}
+
+// debugContextState is the Context view's facts: what the provider reported,
+// what the recorder measured, and the window they have to fit in.
+//
+// Every number here is read from the place that owns it. The occupancy is
+// the last turn's *reported* prompt tokens — not the session total, which is
+// billing and grows without bound, and not the estimator, which is the
+// number this view exists to check. The measured sizes are the recorder's,
+// because it is the only thing in the process that counted the bytes that
+// actually left.
+func (m *RootModel) debugContextState() debugpanel.ContextState {
+	st := debugpanel.ContextState{
+		Model:  m.contextModel(),
+		Width:  m.viewport.width,
+		Messages: m.session.messageCount(),
+		Streaming: m.conversation.streaming,
+	}
+	st.WindowTokens = m.statusContextWindow(m.contextModel())
+	st.AutoCompactTokens, st.AutoCompactSpec = modelctx.AutoCompactWindow(m.contextModel())
+
+	st.LastPromptTokens = int(atomic.LoadInt64(&m.session.store.LastTurnPromptTokens))
+	st.LastCompletionTokens = int(atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens))
+	st.SessionPromptTokens, st.SessionCompletionTokens = m.sessionTokenTotals()
+	st.Compactions = compaction.History()
+
+	// The newest exchange is the request the last turn put on the wire, and
+	// its body is the only size in this report that was measured rather
+	// than estimated.
+	recs := wirelog.Shared().Records()
+	if n := len(recs); n > 0 {
+		last := recs[n-1]
+		st.Wire = &last
+	}
+	return st
+}
+
+func (m *RootModel) panelDebugLines() []string {
+	// The height memo covers one repaint, and this is where a repaint
+	// starts: the panel snapshots the size it is drawn for, so the host's
+	// answer has to be recomputed before it does. Clearing here rather
+	// than in a tick keeps the memo correct no matter what caused the
+	// draw — a key, a wheel, a resize or a refresh.
+	m.overlays.panel.debugHeightValid = false
+	return m.debugPanel().Lines()
 }
 
 func (m *RootModel) viewerWindow(spec tuiviewer.Spec) (rows []string, start, end int) {
@@ -952,10 +1142,10 @@ func (m *RootModel) ChangelogViewerSpec() tuiviewer.Spec {
 	return m.changelogViewerSpec()
 }
 
-func (m *RootModel) PanelLogsLines() []string {
-	return m.panelLogsLines()
+func (m *RootModel) PanelDebugLines() []string {
+	return m.panelDebugLines()
 }
 
-func (m *RootModel) LogsViewerSpec() tuiviewer.Spec {
-	return m.logsViewerSpec()
+func (m *RootModel) DebugViewerSpec() tuiviewer.Spec {
+	return m.debugViewerSpec()
 }

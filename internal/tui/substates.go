@@ -93,15 +93,18 @@ type sessionState struct {
 	persona string
 	// productSkin is the active product skin (1: DEVELOPER, 2: NON_TECHNICAL).
 	productSkin int
-	// mode is the agent execution mode for this session ("", "accept-edits",
-	mode   string
+	// mode is the agent execution mode for this session. It is the typed
+	// value rather than a string so that the mode the row draws, the mode the
+	// composer's banner names and the mode the policy approves under cannot
+	// drift apart — they are all this one value.
+	mode   permissions.AgentMode
 	policy *permissions.Policy
 	// startMode is the mode the session started in. The status row and the
 	// prompt banner name a mode only while it differs from this one:
 	// agy 1.5.8 starts in Auto and shows nothing, and cycling away from
 	// Auto and back is silent again — while a session that started in
 	// Default names Auto when the user cycles to it.
-	startMode string
+	startMode permissions.AgentMode
 	// activeGoal tracks an active /goal command and its verification loop.
 	activeGoal *convstore.GoalState
 	// Cycle 292: true on the first user turn of a conversation and again

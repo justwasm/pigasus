@@ -29,18 +29,27 @@
 // reader cannot drift apart. This file only says *which workspace* the
 // session runs in.
 //
-// Known limitation
-// ----------------
-// In the print path the clone *also* runs PiG's MCP extension, which opens
-// its own connection to the same servers to serve the always-loaded
-// `mcp__<server>__<tool>` surface. The two surfaces therefore hold one
-// connection each to the same stdio server. The fix is to make this pool
-// the single owner and register the always-loaded tools from it; that
-// needs the clone to drive `tools/list` itself (mcp already
-// parses the payload), which is a separate cycle.
+// The always-loaded surface
+// -------------------------
+// A server may flag some of its tools as always loaded (AGY 1.3.3, the
+// `_meta: {"antigravity/alwaysLoad": true}` hint on `tools/list`). The
+// reference then advertises those tools to the model directly, as
+// `mcp_<server>_<tool>`, instead of leaving them reachable only through
+// `call_mcp_tool`.
+//
+// This file is the one place that reads the hint: the pool it installs is
+// the single owner of the servers' connections, and
+// RegisterAlwaysLoadedTools advertises the flagged tools from the same
+// pool. The tool surface picks them up through
+// surface.RegisterPluginTool (see InstallMCPProvider's callers), so the
+// tool the model is shown and the tool it can run are the same object.
 package setup
 
 import (
+	"context"
+	"time"
+
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/app/tools/web"
 	"github.com/justwasm/pigasus/mcp"
 )
@@ -68,5 +77,74 @@ func InstallMCPProvider(agentDir, workspace string) {
 	// and the servers of the files that did load still work — so the
 	// parse error is not fatal here.
 	merged, _ := mcp.LoadMergedConfig(sources)
-	web.SetMCPProvider(mcp.NewPool(merged.Specs()))
+	pool := mcp.NewPool(merged.Specs())
+	web.SetMCPProvider(pool)
+	go installAlwaysLoadedTools(pool)
+}
+
+// alwaysLoadSweepBudget bounds the sweep that reads every server's
+// `tools/list`.
+//
+// It is a backstop, not the mechanism that keeps startup fast: the sweep
+// runs off the startup path (see installAlwaysLoadedTools), so this only
+// stops a wedged server from holding a goroutine for the documented
+// five-minute connect limit.
+//
+// It cannot be tight. The SDK's (*Client).Connect does not return when its
+// context expires — measured at 1.5.18, it returns after
+// `budget + 5s` for any budget, because it sends a best-effort
+// `notifications/cancelled` and waits out `notifyCancellationTimeout`
+// before unwinding. A 5s budget therefore costs 10s of wall clock, which is
+// exactly why the sweep is not on the startup path.
+const alwaysLoadSweepBudget = 5 * time.Second
+
+// installAlwaysLoadedTools advertises the tools the configured servers
+// flagged as always loaded, and unregisters the ones they no longer flag.
+//
+// It runs on its own goroutine: the sweep connects to every configured
+// server, which the pool otherwise does not do until a tool call names one,
+// and a server that is slow or wedged must not delay the session's start.
+// The cost of running it late is bounded and small — a flagged tool is
+// advertised a moment after the first turn begins instead of before it,
+// and until then it is reachable through `call_mcp_tool` like any other
+// lazy tool.
+//
+// The listing is the only `tools/list` the clone makes. A server that
+// cannot be reached contributes nothing rather than failing the install —
+// one broken server must not cost the model the tools of the healthy ones
+// — so a workspace with an unreachable server still gets its lazy tools
+// and whatever the other servers flagged.
+//
+// Registration goes through surface.RegisterPluginTool, which is the seam
+// the advertised declaration list already merges
+// (toolrunner.AdvertisedToolDecls*), so the tool the model is shown and the
+// tool the registry can run are the same object.
+func installAlwaysLoadedTools(pool *mcp.Pool) {
+	ctx, cancel := context.WithTimeout(context.Background(), alwaysLoadSweepBudget)
+	defer cancel()
+	listed := pool.AlwaysLoadedTools(ctx)
+	flagged := make([]web.AlwaysLoadedTool, 0, len(listed))
+	wanted := make(map[string]bool, len(listed))
+	for _, t := range listed {
+		flagged = append(flagged, web.AlwaysLoadedTool{
+			Server:      t.Server,
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		})
+		wanted[web.AlwaysLoadedToolName(t.Server, t.Name)] = true
+	}
+	for _, t := range web.AlwaysLoadedExecutors(flagged, pool) {
+		surface.RegisterPluginTool(t)
+		web.NoteAlwaysLoadedAdvertised(t.Name())
+	}
+	// Withdraw the tools a previous install advertised and this one no
+	// longer finds: a server removed from the configuration, or a server
+	// that stopped flagging a tool, must not leave a dead name behind.
+	for _, name := range web.AlwaysLoadedToolNames() {
+		if !wanted[name] {
+			surface.UnregisterPluginTool(name)
+			web.ForgetAlwaysLoadedAdvertised(name)
+		}
+	}
 }

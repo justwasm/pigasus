@@ -69,6 +69,10 @@ func (m *RootModel) seedConversation(c *convstore.Conversation) {
 	if len(c.Steps) > 0 || c.ID != "" {
 		m.session.conversationStarted = true
 	}
+	// Seeding starts a conversation: the previous one's boundary and live
+	// row must not survive into it. The conversation's own checkpoint sets
+	// the boundary again below (seedNonToolStep's "checkpoint" case).
+	m.forgetConversationState()
 	m.rehydrateConversation(c)
 	steps := c.Transcript()
 	cp := c.Checkpoint()
@@ -433,7 +437,9 @@ func (m *RootModel) seedNonToolStep(s convstore.Step) {
 		m.session.appendMessage(backend.Message{Role: "assistant", Content: s.Text})
 		m.conversation.assistants = append(m.conversation.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
 	case "checkpoint":
-		m.conversation.compactBlockIdx = len(m.conversation.blocks)
+		// Resuming a compacted conversation: the checkpoint's summary stands
+		// in for the steps above it, so the panel starts counting from here.
+		m.markCompacted()
 		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
 		return
 	case "system":
@@ -496,6 +502,7 @@ func (m *RootModel) resumeConversation(meta convstore.ConversationMeta) tea.Cmd 
 	m.conversation.assistants = nil
 	m.conversation.userBlocks = nil
 	m.conversation.liveSteps = nil
+	m.forgetConversationState()
 	m.conversation.liveStepRuns = nil
 	m.conversation.activeTool = ""
 	m.conversation.replyStart = -1

@@ -76,6 +76,7 @@ func (m *RootModel) slashContinueRemote() (bool, tea.Cmd) {
 	m.conversation.blocks = nil
 	m.conversation.liveSteps = nil
 	m.conversation.activeTool = ""
+	m.forgetConversationState()
 	m.session.autoTitle = ""
 
 	if sel := convstore.LoadSelection(id, "continue", convstore.ConversationPath(id)); sel.Store != nil {

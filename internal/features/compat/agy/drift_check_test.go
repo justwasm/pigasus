@@ -113,8 +113,8 @@ func TestDriftCheckScript_JSONReport(t *testing.T) {
 		t.Fatalf("failed to parse JSON report: %v\nRaw: %s", err, string(rawJSON))
 	}
 
-	if report["baseline_version"] != "1.5.17" {
-		t.Errorf("expected baseline_version 1.5.17, got %v", report["baseline_version"])
+	if report["baseline_version"] != "1.5.18" {
+		t.Errorf("expected baseline_version 1.5.18, got %v", report["baseline_version"])
 	}
 	// The baseline and the candidate are the same release, so a clean result is
 	// the correct outcome and this assertion has teeth: it fails if the drift

@@ -300,10 +300,11 @@ func buildCatalogue() []Command {
 		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota", "credits"}, Dispatched: true},
 		{Name: "/voice", Description: "Dictate a prompt or talk with the agent by voice", Aliases: []string{"record"}, Dispatched: true},
 		{Name: "/wire", Description: "Toggle real-time streaming wire diagnostics HUD overlay", Dispatched: true},
-		{Name: "/logs", Description: "View live session logs (~/.openagy/log/)", Aliases: []string{"log"}, Dispatched: true},
+		{Name: "/debug", Description: "Inspect this session: logs, wire payload, trajectory, HTTP requests, context usage", Aliases: []string{"logs", "log"}, Dispatched: true},
 		{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
 		{Name: "/pool", Description: "Configure the account-pool routing policy"},
 		{Name: "/provider", Description: "Manage custom model providers and endpoints", Aliases: []string{"providers"}},
+		{Name: "/yolo", Description: "Skip permission prompts and the terminal sandbox (mid-session --dangerously-skip-permissions).", Dispatched: true},
 		{Name: "/goal", Description: "Run until the specified goal is completely finished.", Dispatched: true},
 		{Name: "/compact", Description: "Compact the conversation now (summarize history to free up the context window).", Dispatched: true},
 		{Name: "/schedule", Description: "Run an instruction on a recurring schedule or as a one-time timer.", Dispatched: true},
@@ -390,7 +391,7 @@ func assignCommandScope(c *Command) {
 	switch name {
 	case "help", "clear", "exit", "copy", "codesearch", "keybindings",
 		"open", "statusline", "title", "diff", "artifact", "changelog",
-		"btw", "resume", "rename", "rewind", "feedback", "logout", "terminal", "logs":
+		"btw", "resume", "rename", "rewind", "feedback", "logout", "terminal", "debug", "logs":
 		c.Scope = ScopeHost
 	case "model":
 		c.Scope = ScopeCapability

@@ -74,6 +74,92 @@ discard an in-flight turn or its steps.
 - **In-flight Steer Reconciliation**: Mid-turn steering (`Steerer` / `SteerController`) notifies hosts via `NoticeSteerApplied` when consumed, keeping UI sending state aligned with actor execution.
 - **Detached Cancellation**: When an agent turn context cancels, cancellation RPCs (such as ACP session cancellation) use detached timeout contexts to ensure prompt delivery and clean shutdown.
 
+### Where a failed model request is retried
+
+There are two retry seams, and a status the first one retries must also be
+retried by the second — otherwise the same upstream failure ends a turn or not
+depending on whether the provider reported it before or after the first byte.
+
+| seam | owns | budget | schedule |
+|---|---|---|---|
+| `streampipe.ExecuteWithRetry` | the *open*: the request gets no 2xx status line | `retry.MaxConnectionRetries` (9, so 10 attempts) | `retry.NextConnectionRetryDelay`, overridden by the server's `Retry-After` / RPC `RetryInfo`, capped at `retry.MaxConnectionRetryInterval` (4 min) |
+| `streampipe.Pipeline.Run` | the *stream*: the body breaks after a 200 | same budget, minus the attempt already spent | same schedule, same `Retry-After` override |
+
+Both classify through `streampipe.isMidStreamRetryable`: a connection drop, or
+any `*apierror.HTTPError` whose status `IsRetryableStatus` accepts (408, 429,
+5xx). Quota-reached, auth-failed and prepaid-balance failures are excluded —
+an account-pool switch, not a retry, is the right answer to those.
+
+Two details are easy to get wrong and both were bugs:
+
+- **The gateway reports an upstream failure as an SSE `error` frame on an
+  already-open 200 stream.** `sse_error.go` turns that frame into the same
+  `*apierror.HTTPError` the status line would have produced, so
+  `gateway: upstream 500: Unknown error` is indistinguishable from a 500 in the
+  status line. `Pipeline.Run` used to retry only connection drops and the
+  AGY 1.5.17 capacity case (503), so this — the gateway's most common upstream
+  failure — killed the turn on the first attempt with no retry at all. That is
+  the 1.5.0 rule ("Fixed certain models failing a turn on rate-limit (`429`)
+  and server (`5xx`) errors instead of retrying them") applied to the half of
+  the traffic it was written for.
+- **An unrecognised error-frame shape is not automatically a 500.**
+  `classifySSEErrorStatus` defaults to 500 for shapes it does not know, which is
+  the safe direction for *reporting* but the wrong direction for *retrying*: it
+  would turn a 400 into an endlessly replayed request. A bare numeric `code`
+  (`400`, `422`, `429`) is therefore trusted as the status, and the OpenAI
+  `invalid_request_error` / `request_too_large` / `context_length_exceeded`
+  types map to 400 while `not_found_error` maps to 404. A billing cue in the
+  message (spend cap, prepaid balance) wins over the frame's type and maps to
+  402, because the prepaid-wallet stop must never be retried.
+
+The resumed attempt re-streams the answer from the first token; `attemptTap`
+swallows the prefix the caller already received, so a retry neither repeats nor
+discards model output (see `pipeline_resume.go`).
+
+Every attempt that dies mid-stream now logs one line, retried or not:
+
+```
+[streampipe] endpoint=… mid_stream attempt=2/10 resumed_after=3 retry_in=1s err=gateway: upstream 500: Unknown error
+[streampipe] endpoint=… mid_stream abort err=gateway: upstream 400: bad request
+```
+
+A session log with no `[streampipe]` line at all means the failure never reached
+the transport — look at `[agentturn] should_recover=` instead.
+
+### A retryable frame plus a fake server is an eight-minute test
+
+The schedule is 1s, 2s, 4s … capped at four minutes, and nine retries sum to
+**8m15s**. That is the right production budget and the wrong test budget: a
+test whose `httptest` server answers the *same* failing frame on every attempt
+— which is what a classification test does, since it wants to see how one frame
+is classified — retries for as long as the schedule says. Before the mid-stream
+retry rule those tests never retried (429/5xx mid-stream were terminal), so the
+cost was invisible; after it, three gateway subtests began taking eight minutes
+each, and one run hung past the package timeout.
+
+`internal/infra/backend/retrytest` is the shared answer:
+
+```go
+func TestMain(m *testing.M) {                 // once per package
+	restore := retrytest.Short()              // schedule → ms, restore on exit
+	code := testguard.Run(m)
+	restore()
+	os.Exit(code)
+}
+
+retrytest.Fast(t)                             // a test that *observes* a retry
+ctx := retrytest.NoRetries(context.Background())  // a test that classifies one frame
+retrytest.Production(t)                       // a test that asserts the schedule
+```
+
+`Short` in `TestMain` is safety — a test that forgets its own pin can no longer
+cost a coffee break. `NoRetries` is the sharper assertion where it matters: it
+pins the number of attempts instead of merely making them cheap, so it fails if
+the transport starts retrying something the test says it should not. The gateway
+package proves both halves: `TestGatewaySSE_TypedErrorClassification` runs on
+`NoRetries`, and `TestMidStream500AlwaysFailingTerminatesQuickly` deliberately
+omits the pin and asserts the whole exhausted budget finishes in milliseconds.
+
 
 
 ## The subagent's parent context (`internal/app/subagenttools`, cycle 363, agy 1.4.10)

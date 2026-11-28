@@ -71,6 +71,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/core/fileuri"
 )
 
 // regexPrefix is the reference's own opt-in marker for a regular
@@ -247,11 +249,22 @@ func matchPath(pattern, target string, roots []string) bool {
 
 // normalisePath puts a path into the shape the rules compare: forward
 // slashes, no drive letter, no repeated or trailing separator.
+//
+// A `file://` URI is resolved to the path it names first (fileuri.Path).
+// 【一手】 agy 1.5.18 changelog: "Fixed file permission rules and approval
+// prompts not applying to files the agent reads or edits through `file:///`
+// URIs; those paths now resolve to the real file before permissions are
+// checked." Without the strip, `deny(read_file(/etc/passwd))` matched
+// "/etc/passwd" but not "file:///etc/passwd" — the URI normalised to the
+// literal "file:/etc/passwd", which is not under the denied path, so the
+// same file was reachable by spelling it as a URI. That is the bypass the
+// 1.5.18 note closes.
 func normalisePath(p string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
 		return ""
 	}
+	p = fileuri.Path(p)
 	p = strings.ReplaceAll(p, "\\", "/")
 	// A Windows drive letter ("C:") carries no meaning for a rule that
 	// matches a path, and the documentation strips it.

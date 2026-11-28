@@ -38,26 +38,129 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/core/fileuri"
 	corehooks "github.com/justwasm/pigasus/internal/core/policy/hooks"
 )
 
-// Modes accepted by the global --mode flag. Recovered in reference order.
+// AgentMode is the session's execution mode.
+//
+// It is a named type rather than a bare string because the mode decides four
+// different things at once — whether a tool call is auto-approved, what the
+// composer's banner says, what the status row prints, and where shift+tab
+// goes next — and those four have to agree. As a bare string each of them was
+// a separate table keyed by the same word, with nothing tying them together:
+// a mode could be added to the cycle and silently have no banner, or gain a
+// colour whose close sequence was never written (which is exactly how the
+// auto-mode bold leaked into the model's name).
+//
+// The zero value is ModeDefault, which is the stored-empty "no mode recorded"
+// state. That is deliberate: an unset Policy.Mode means default mode.
+//
+// Mode is spelled with the type, so the compiler rejects a bare string
+// literal. The wire forms are unchanged — the type's underlying value is the
+// same string the settings file, the --mode flag and the status-line payload
+// carry, so a conversion at those boundaries is all that is needed.
+type AgentMode string
+
+// The execution modes. Recovered in reference order.
 const (
-	ModeAcceptEdits = "accept-edits"
-	ModeAuto        = "auto"
-	ModePlan        = "plan"
+	// ModeDefault pauses for diff review and approves nothing implicitly.
+	// It is the zero value: a session that recorded no mode is in it.
+	ModeDefault AgentMode = ""
+	// ModeAcceptEdits auto-approves file edits.
+	ModeAcceptEdits AgentMode = "accept-edits"
+	// ModeAuto auto-approves edits and safe commands.
+	ModeAuto AgentMode = "auto"
+	// ModePlan researches and plans without changing anything.
+	ModePlan AgentMode = "plan"
 )
+
+// modeSpec is everything the clone knows about one mode.
+//
+// One entry per mode, and the entry is the only place that mode's facts live.
+// Adding a mode means adding a row here and the compiler points at the
+// switches that have no arm for it.
+type modeSpec struct {
+	// Banner is the composer's placeholder for the mode. Empty means the
+	// mode names nothing, which is the default mode's behaviour.
+	Banner string
+	// Approves is what the mode auto-approves with no rule and no sandbox
+	// involved. It is the mode's contribution to Policy.decideByMode.
+	Approves []Class
+}
+
+// modeSpecs is the single table of per-mode facts.
+var modeSpecs = map[AgentMode]modeSpec{
+	ModeDefault:     {},
+	ModeAcceptEdits: {Banner: AcceptEditsBanner, Approves: []Class{ClassEdit}},
+	// Auto's ClassEdit is absent on purpose: unlike every other entry here
+	// its approval is conditional — it depends on whether the target is
+	// inside the workspace. Policy.decideByMode checks that case before
+	// consulting this table, so listing ClassEdit here would state an
+	// unconditional approval the code does not grant.
+	ModeAuto: {Banner: AutoBanner, Approves: []Class{ClassCommand, ClassRead}},
+	ModePlan: {Banner: PlanBanner, Approves: []Class{ClassRead}},
+}
+
+// Valid reports whether the mode is one this clone knows.
+//
+// The stored-empty default is valid: it is the absence of a saved choice, and
+// a session that recorded nothing is in it.
+func (m AgentMode) Valid() bool {
+	_, ok := modeSpecs[m]
+	return ok
+}
+
+// Banner returns the composer's placeholder for the mode, or "" when the mode
+// names nothing.
+func (m AgentMode) Banner() string { return modeSpecs[m].Banner }
+
+// Approves reports whether the mode auto-approves a tool call of this class,
+// ignoring every rule list, the sandbox and the toolPermission setting.
+//
+// The caller keeps the precedence: a mode's auto-approval is the *sixth* thing
+// consulted, after the deny/ask/allow lists and the two toolPermission values
+// that outrank the mode.
+func (m AgentMode) Approves(c Class) bool {
+	for _, a := range modeSpecs[m].Approves {
+		if a == c {
+			return true
+		}
+	}
+	return false
+}
+
+// The two AutoMode*ReviewerModel constants and ReviewerModelForBase below are
+// NOT wired up. They record a reference feature this clone has not built:
+// agy 1.5.4's release notes say that in Auto mode a command which tries to
+// leave the sandbox is reviewed by a lightweight model before it runs.
+//
+// TODO(auto-mode-model-review): implement that review and call
+// ReviewerModelForBase from the sandbox boundary. Today the escape path asks
+// the *user* instead — see SandboxBoundaryMiddlewareWithMode in
+// internal/app/toolrunner/pipeline.go, which has the same TODO. Until this is
+// built, Auto mode is decided entirely by local rules (Policy.Decide plus
+// assessor.EvaluateForAutoMode, an AST pass over the command line); no model
+// is consulted anywhere in this package.
+//
+// Nothing here may be read as "the reviewer model is in use". The constants
+// exist so the recovered strings are not lost, and
+// TestReviewerModelIsNotWired pins that no production caller exists.
 
 // AutoModeReviewerModel is the lightweight model with lower thinking budget used
 // for safety reviews in Auto mode when commands attempt to leave the sandbox (AGY 1.5.4).
+// Unwired — see the TODO above.
 const AutoModeReviewerModel = "gemini-3.8-flash-low"
 
 // AutoModeHydrogenReviewerModel is used when the review runs on Gemini 4 Hydrogen,
 // using medium instead of high thinking (AGY 1.5.12).
+// Unwired — see the TODO above.
 const AutoModeHydrogenReviewerModel = "gemini-4-hydrogen-medium"
 
 // ReviewerModelForBase returns the sandbox review model for the session model.
 // When running on Gemini 4 Hydrogen, it uses medium thinking (AGY 1.5.12).
+//
+// Unwired: no production code calls this. See the TODO above.
 func ReviewerModelForBase(baseModel string) string {
 	if strings.Contains(strings.ToLower(baseModel), "hydrogen") {
 		return AutoModeHydrogenReviewerModel
@@ -66,11 +169,20 @@ func ReviewerModelForBase(baseModel string) string {
 }
 
 // Modes is the accepted --mode set in the order the reference prints it.
-var Modes = []string{ModeAcceptEdits, ModeAuto, ModePlan}
+//
+// The stored-empty default is absent on purpose: it is what you get by not
+// passing --mode, not a value the flag accepts.
+var Modes = []AgentMode{ModeAcceptEdits, ModeAuto, ModePlan}
 
 // ModeList renders Modes the way the reference substitutes it into both the
 // flag usage text and the unrecognized-value warning.
-func ModeList() string { return strings.Join(Modes, ", ") }
+func ModeList() string {
+	names := make([]string, len(Modes))
+	for i, m := range Modes {
+		names[i] = string(m)
+	}
+	return strings.Join(names, ", ")
+}
 
 // The grant actions — the reference's permission vocabulary.
 //
@@ -129,12 +241,7 @@ const (
 // ValidMode reports whether s is an accepted --mode value. The empty string
 // (flag unset) is handled by the caller and is not "valid" here.
 func ValidMode(s string) bool {
-	for _, m := range Modes {
-		if m == s {
-			return true
-		}
-	}
-	return false
+	return AgentMode(s).Valid() && AgentMode(s) != ModeDefault
 }
 
 // Verdict is the decision for one tool call, mirroring the recovered enum.
@@ -477,8 +584,8 @@ func SuggestAllowAlwaysPattern(cmd string) string {
 
 // Policy is the local permission engine.
 type Policy struct {
-	// Mode is the global --mode value ("" is the default mode).
-	Mode string
+	// Mode is the global --mode value. The zero value is ModeDefault.
+	Mode AgentMode
 	// SkipPermissions is --dangerously-skip-permissions.
 	SkipPermissions bool
 	// Strict restores the reference default: an otherwise-undecided call
@@ -682,7 +789,13 @@ func (p Policy) DecideNames(target string, names ...string) Verdict {
 
 // DecideCall evaluates the permission verdict for a tool call with optional raw JSON arguments.
 func (p Policy) DecideCall(target string, rawArgs []byte, names ...string) Verdict {
-	if IsForbiddenWindowsPath(target) {
+	// The UNC gate runs on both spellings. `\\server\share` and
+	// `//server/share` are caught directly, but a `file://server/share`
+	// URI only becomes a UNC path once it is resolved — and resolving it
+	// is exactly what normalisePath does, so the gate has to see the
+	// resolved form too or the credential-leak rule is bypassable by
+	// spelling the share as a URI (AGY 1.5.18).
+	if IsForbiddenWindowsPath(target) || IsForbiddenWindowsPath(fileuri.Path(target)) {
 		return Deny
 	}
 	if p.SkipPermissions {
@@ -742,33 +855,25 @@ func (p Policy) DecideCall(target string, rawArgs []byte, names ...string) Verdi
 	if cls == ClassEdit && isProtectedWriteTarget(target) {
 		return Ask
 	}
-	switch p.Mode {
-	case ModeAcceptEdits:
-		if cls == ClassEdit {
-			return Allow
-		}
-	case ModeAuto:
-		if cls == ClassEdit {
-			if !p.isInsideWorkspace(target) {
-				for _, n := range names {
-					if ShouldAutoApproveOutsideWorkspaceFileEdit(target, n, rawArgs) {
-						return Allow
-					}
+	// Auto's edit approval is the one mode rule the table cannot state: it
+	// depends on where the file sits and on whether the call is one the
+	// reference auto-approves outside the workspace. modeSpecs therefore
+	// leaves ClassEdit out of auto's Approves list and the case is handled
+	// here, before the table — a category in the table is an unconditional
+	// approval, and auto's is not one.
+	if p.Mode == ModeAuto && cls == ClassEdit {
+		if !p.isInsideWorkspace(target) {
+			for _, n := range names {
+				if ShouldAutoApproveOutsideWorkspaceFileEdit(target, n, rawArgs) {
+					return Allow
 				}
-				return Ask
 			}
-			return Allow
+			return Ask
 		}
-		if cls == ClassCommand {
-			return Allow
-		}
-		if cls == ClassRead {
-			return Allow
-		}
-	case ModePlan:
-		if cls == ClassRead {
-			return Allow
-		}
+		return Allow
+	}
+	if p.Mode.Approves(cls) {
+		return Allow
 	}
 	switch p.ToolPermission {
 	case ToolPermissionProceedInSandbox:
@@ -940,41 +1045,61 @@ const (
 )
 
 // CycleHint is the recovered hint for the *default* mode. It is the only
-// shift+tab hint in the 1.3.6 string table, and it names three modes:
+// shift+tab hint in the string table, and it names three modes:
 //
 //	Press shift+tab to cycle modes (default, accept-edits, plan).
 //
-// Auto mode was added in 1.3.5 and this text appears not to have been updated
-// to include it. Cycle 104 cycles through Auto as well, because the 1.3.5
-// changelog states it explicitly ("Choose it with `--mode auto`, from
-// `Agent Mode` in `/config`, or by pressing `Shift+Tab` to cycle modes") and
-// the changelog is the authority for what the shipped build does. See the
-// cycle 104 deliverable for the full reasoning.
+// The string is verbatim from agy 1.5.18 — `strings` finds it once — and it
+// still omits auto, which was added in 1.3.5. It is a stale hint, not a
+// statement about the cycle: official-docs/cli/modes.md gives the lap as
+// default > accept-edits > auto > plan > default, and CycleModes below is
+// that sequence. Do not read this constant as the cycle's definition; it is
+// kept because it is a recovered string, and nothing renders it.
 const CycleHint = "Press shift+tab to cycle modes (default, accept-edits, plan)."
 
-// CycleModes is the Shift+Tab order. Decompilation of AGY 1.5.14
-// (ConversationModel.handleCycleMode at 0x103272280 and UserVisibleModes at 0x1030dca60)
-// establishes the exact cycle sequence:
-// Default ("") -> accept-edits -> auto -> plan -> Default ("").
-var CycleModes = []string{"", ModeAcceptEdits, ModeAuto, ModePlan}
+// CycleModes is the Shift+Tab order, and it is four states.
+//
+// official-docs/cli/modes.md states the sequence outright:
+//
+//	`default` > `accept-edits` > `auto` > `plan` > `default`.
+//	Where `auto` mode isn't available, cycling skips directly from
+//	`accept-edits` to `plan`.
+//
+// default and auto are two modes, not one. They behave differently (default
+// pauses for diff review, auto approves workspace edits and commands), they
+// store differently ("" against "auto"), and /config offers both. The earlier
+// three-entry value folded "" onto auto's slot because a tuialign capture
+// showed the same bare row for both — but that capture was agy on a host
+// without the terminal sandbox, where the binary declines auto and shows its
+// default row, so it could not distinguish the two.
+//
+// The changelog entries that read like a merge are answering a different
+// question. 1.5.7 ("Changed the default Agent Mode from Default to Auto")
+// and 1.5.18 ("Auto mode (the default Agent Mode)") both say which mode a new
+// session starts in; neither removes default from the cycle.
+var CycleModes = []AgentMode{ModeDefault, ModeAcceptEdits, ModeAuto, ModePlan}
 
 // NextMode returns the mode that follows cur in the Shift+Tab cycle.
-// Default ("") advances to accept-edits; unknown values reset to Default ("").
-func NextMode(cur string) string {
+//
+// Every entry of CycleModes is a real stop, including the stored-empty
+// default. An unknown value restarts the cycle at its first entry rather than
+// returning "" — "" is a real state, and treating an unrecognised mode as the
+// default would silently move a session into it.
+func NextMode(cur AgentMode) AgentMode {
 	for i, m := range CycleModes {
 		if m == cur {
 			return CycleModes[(i+1)%len(CycleModes)]
 		}
 	}
-	return ""
+	return CycleModes[0]
 }
 
 // RemoteCycleModes lists the modes Shift+Tab cycles through when connected to a remote agent (AGY 1.5.14).
-var RemoteCycleModes = []string{"", ModeAcceptEdits, ModePlan}
+var RemoteCycleModes = []AgentMode{ModeDefault, ModeAcceptEdits, ModePlan}
 
 // NextRemoteAgentMode returns the mode that follows cur in the Shift+Tab cycle
 // when connected to a remote agent. AGY 1.5.14 cycles default ("") -> accept-edits -> plan -> default.
-func NextRemoteAgentMode(cur string) string {
+func NextRemoteAgentMode(cur AgentMode) AgentMode {
 	for i, m := range RemoteCycleModes {
 		if m == cur {
 			return RemoteCycleModes[(i+1)%len(RemoteCycleModes)]
@@ -983,19 +1108,24 @@ func NextRemoteAgentMode(cur string) string {
 	return RemoteCycleModes[1]
 }
 
-// ModeBanner returns the status-line banner for a mode, or "" for the default
-// mode (the reference names no banner for it in the recovered string table).
-func ModeBanner(mode string) string {
-	switch mode {
-	case ModeAcceptEdits:
-		return AcceptEditsBanner
-	case ModeAuto:
-		return AutoBanner
-	case ModePlan:
-		return PlanBanner
-	}
-	return ""
-}
+// ModeBanner returns the composer's placeholder banner for a mode.
+//
+// All three modes name themselves; the stored-empty mode names nothing
+// because it is not a mode the user can be in, only the absence of a saved
+// choice.
+//
+// The three strings are the reference's own, recovered from agy 1.5.18's
+// string table. AutoBanner in particular is present verbatim in the binary
+// ("Auto mode: edits & safe commands auto-approved (shift+tab to cycle)"),
+// next to "Auto mode is not available: it needs the OS terminal sandbox and
+// may not be rolled out to you yet".
+//
+// The two strings are why the auto banner cannot be settled by a screenshot
+// on this machine: when the terminal sandbox is unavailable the binary never
+// enters auto, so its composer shows neither banner. A capture taken in that
+// state reads as "auto draws nothing" while actually showing the unavailable
+// branch. Do not infer the banner from a bare ">".
+func ModeBanner(mode AgentMode) string { return mode.Banner() }
 
 // NoToolCallNudge is the reference's reminder when a turn produced no tool
 // call. The headless variant appends the second sentence. Both recovered

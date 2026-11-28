@@ -23,15 +23,21 @@ func TestRule(t *testing.T) {
 	}
 }
 
+// TestStatusModeColor pins the status-row prefixes.
+//
+// Every real mode draws: a stop in the shift+tab cycle that renders nothing
+// is indistinguishable from a dropped row, so auto takes the dim foreground
+// and the other two keep their own colours. The stored-empty value draws
+// nothing because it is the absence of a choice, not a mode.
 func TestStatusModeColor(t *testing.T) {
 	cases := []struct {
 		mode string
 		want string
 	}{
-		{"auto", "\x1b[38;2;249;171;0m"},
-		{"plan", "\x1b[38;2;138;180;248m"},
-		{"accept-edits", "\x1b[38;2;129;201;149m"},
-		{"default", palette.DimGrayOpen},
+		{"auto", palette.DimGrayBoldOpen},
+		{"plan", palette.BlueOpen},
+		{"accept-edits", palette.AgentFgOpen},
+		{"default", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.mode, func(t *testing.T) {
@@ -39,5 +45,43 @@ func TestStatusModeColor(t *testing.T) {
 				t.Errorf("StatusModeColor(%q) = %q, want %q", c.mode, got, c.want)
 			}
 		})
+	}
+}
+
+// TestStatusModePrefix pins which modes carry the "<mode> · " prefix.
+func TestStatusModePrefix(t *testing.T) {
+	cases := []struct {
+		mode string
+		want string
+	}{
+		{"auto", "auto · "},
+		{"plan", "plan · "},
+		{"accept-edits", "accept-edits · "},
+		{"", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.mode, func(t *testing.T) {
+			if got := palette.StatusModePrefix(c.mode); got != c.want {
+				t.Errorf("StatusModePrefix(%q) = %q, want %q", c.mode, got, c.want)
+			}
+		})
+	}
+}
+
+// TestStatusModePrefixFollowsTheScheme is the invariant the two slots owe:
+// moving the scheme must move them, or they are a hard-coded colour that
+// ignores /config — which is what the reference does not do.
+func TestStatusModePrefixFollowsTheScheme(t *testing.T) {
+	// The scheme is package state; a test that moves it puts it back.
+	prev, _ := palette.CurrentScheme()
+	defer palette.SetScheme(prev)
+
+	seen := map[string]string{}
+	for _, name := range []string{"light", "dark"} {
+		palette.SetScheme(name)
+		seen[name] = palette.StatusModeColor("plan")
+	}
+	if seen["light"] == seen["dark"] {
+		t.Errorf("plan's prefix colour is %q under both schemes: it is not a slot", seen["light"])
 	}
 }

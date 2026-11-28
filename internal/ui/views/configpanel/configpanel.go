@@ -265,7 +265,7 @@ var SettingsRows = []Row{
 	{Name: "Voice Mode › Full Duplex", SettingsKey: "voice.fullDuplex",
 		Values:      []Val{B("off", nil), B("on", true)},
 		Description: "Keep the microphone open while the agent speaks, so you can interrupt it. Use headphones.",
-		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+		ShowWhenKey: "voice.voiceMode", ShowWhenVal: "live"},
 	{Name: "Voice Mode › Playback Speed", SettingsKey: "voice.playbackSpeed",
 		Values: []Val{
 			{Display: "1", Stored: nil},
@@ -275,7 +275,7 @@ var SettingsRows = []Row{
 			{Display: "2", Stored: 2.0},
 		},
 		Description: "How fast the agent speaks (0.5x to 3x). Applies at once.",
-		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+		ShowWhenKey: "voice.voiceMode", ShowWhenVal: "live"},
 	{Name: "Voice Mode › Voice", SettingsKey: "voice.voice",
 		Values: []Val{
 			V("default", ""),
@@ -290,7 +290,7 @@ var SettingsRows = []Row{
 			V("Tari", "Tari"),
 		},
 		Description: "The agent's voice in live mode (/voice speaker). Applies from the next call.",
-		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+		ShowWhenKey: "voice.voiceMode", ShowWhenVal: "live"},
 	{Name: "Voice Mode › Volume", SettingsKey: "voice.volume",
 		Values: []Val{
 			{Display: "100", Stored: nil},
@@ -299,7 +299,7 @@ var SettingsRows = []Row{
 			{Display: "75", Stored: 75},
 		},
 		Description: "The agent's voice volume in percent (0 to 100). Applies at once.",
-		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+		ShowWhenKey: "voice.voiceMode", ShowWhenVal: "live"},
 }
 
 // RowsFiltered returns the configuration rows matching the search query.

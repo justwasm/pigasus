@@ -96,6 +96,100 @@ func TestCategoriesMarkers(t *testing.T) {
 	}
 }
 
+// TestBucketDescs_UniqueLabels — every bucket names itself exactly once.
+//
+// The table is what the row order and the labels come from now. A duplicate
+// label would shadow a bucket's row in any map keyed by name and would make
+// the two rows indistinguishable in the panel, so the table is checked for
+// uniqueness rather than trusting thirteen hand-written strings.
+func TestBucketDescs_UniqueLabels(t *testing.T) {
+	seen := map[string]int{}
+	for i, d := range bucketDescs {
+		if d.label == "" {
+			t.Errorf("bucket %d has no label", i)
+		}
+		if prev, dup := seen[d.label]; dup {
+			t.Errorf("bucket %d repeats the label %q from bucket %d", i, d.label, prev)
+		}
+		seen[d.label] = i
+		if d.pick == nil {
+			t.Errorf("bucket %q has no picker, so it would always report zero", d.label)
+		}
+		if d.marker == "" || d.cell == "" {
+			t.Errorf("bucket %q is missing a glyph (marker %q, cell %q)", d.label, d.marker, d.cell)
+		}
+	}
+}
+
+// TestBucketDescs_ResolveToTheBreakdownsOwnCounts — the table reads each
+// count from the right field.
+//
+// The picker closures are the one place a field name is written, so they are
+// the one place a bucket can be wired to the wrong number — a copy-paste that
+// would otherwise be invisible, because every count looks alike.
+func TestBucketDescs_ResolveToTheBreakdownsOwnCounts(t *testing.T) {
+	// A distinct power of two per field, so a swapped picker is unambiguous.
+	b := Breakdown{
+		User: 1, Agent: 2, Tool: 4,
+		SystemPrompt: 8, SystemTools: 16, SystemOverhead: 32,
+		Rules: 64, Skills: 128, Subagents: 256,
+		Workflows: 512, Plugins: 1024, MCPTools: 2048,
+		SystemMessages: 4096,
+	}
+	// The counts above must all differ, or the test proves nothing.
+	seen := map[int]string{}
+	for _, d := range bucketDescs {
+		tokens, _ := d.pick(b)
+		if tokens == 0 {
+			t.Errorf("bucket %q reads no count; its picker points at a zero field", d.label)
+			continue
+		}
+		if prev, dup := seen[tokens]; dup {
+			t.Errorf("buckets %q and %q read the same count %d: one picker points at the other's field", prev, d.label, tokens)
+		}
+		seen[tokens] = d.label
+	}
+}
+
+// TestBucketDescs_EstimatedFlags — the estimate flag comes from the bucket's
+// own field, and only the buckets that can be estimated carry one.
+//
+// Breakdown has an *Estimated flag for six of its thirteen buckets and not
+// for the other seven. That asymmetry is deliberate — only a bucket the host
+// can fill from a built-in constant needs one — and the table is where it
+// would silently be lost, so it is pinned here.
+func TestBucketDescs_EstimatedFlags(t *testing.T) {
+	b := Breakdown{
+		SystemPromptEstimated:   true,
+		SystemToolsEstimated:    true,
+		RulesEstimated:          true,
+		SkillsEstimated:         true,
+		SubagentsEstimated:      true,
+		SystemMessagesEstimated: true,
+	}
+	got := map[string]bool{}
+	for _, c := range b.allCategories() {
+		got[c.Label] = c.Estimated
+	}
+	for _, label := range []string{
+		"System prompt", "System tools", "Rules", "Skills", "Subagents", "System messages",
+	} {
+		if !got[label] {
+			t.Errorf("%q should report Estimated, but the table drops the flag", label)
+		}
+	}
+	// The buckets with no estimate flag must never claim one: a "~" on a
+	// measured figure is as wrong as no "~" on a constant.
+	for _, label := range []string{
+		"User messages", "Agent responses", "Tool calls",
+		"System overhead", "Workflows", "Plugins", "MCP tools",
+	} {
+		if got[label] {
+			t.Errorf("%q has no estimate flag on Breakdown, but the table reports Estimated", label)
+		}
+	}
+}
+
 // TestCategoriesHideZeroRows pins the visibility rule: the three
 // conversation rows are always shown, and a category that consumes no
 // tokens is not a row.

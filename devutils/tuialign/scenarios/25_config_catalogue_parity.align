@@ -1,0 +1,17 @@
+NAME "Full config catalogue (agy vs pigasus)"
+WINDOW 100 40
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 15s
+
+TYPE "/config"
+ENTER
+SLEEP 900ms
+# Scroll to the bottom of the list
+KEYS "End"
+SLEEP 400ms
+SNAPSHOT "01_config_bottom"
+
+DIFF
+CLEANUP

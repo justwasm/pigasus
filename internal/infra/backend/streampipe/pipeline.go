@@ -168,11 +168,26 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 		// A 503 / MODEL_CAPACITY_EXHAUSTED mid-stream is the 1.5.17 case: the
 		// answer is not wrong, the model just cannot continue right now, so
 		// the request is re-issued and the replayed prefix is swallowed.
-		retryable := err != nil &&
-			(retry.IsConnectionDropped(err) || isModelCapacityErr(err)) &&
-			!apierror.IsQuotaReachedErr(err) && !apierror.IsAuthFailureErr(err)
+		//
+		// The same predicate also covers the older 1.5.0 rule for a 429 or any
+		// other 5xx that arrives *inside* the stream rather than on the status
+		// line: "Fixed certain models failing a turn on rate-limit (429) and
+		// server (5xx) errors instead of retrying them, now honoring the
+		// server's Retry-After header". The open path already retried those,
+		// so a mid-stream copy used to be the one shape that ended the turn
+		// immediately (the gateway reports an upstream failure as an SSE
+		// `error` frame, which the reader turns into the very same
+		// *apierror.HTTPError the status line would have produced).
+		retryable := isMidStreamRetryable(err)
 
 		if !retryable {
+			if err != nil {
+				// One line per dead attempt: without it a mid-stream failure
+				// is invisible in the session log (nothing was retried, so
+				// there was no retry line either). The user's report was a log
+				// with a `[agentturn] turn error` and no transport line at all.
+				clilog.Logf("streampipe", "endpoint=%s mid_stream abort err=%v", p.EndpointURL, err)
+			}
 			if notify != nil {
 				notify(backend.RetryProgress{})
 			}
@@ -205,7 +220,16 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 			_ = resp.Body.Close()
 		}
 
+		// Honour a server-supplied delay the same way the open path does: a
+		// mid-stream 429 carries its Retry-After / RetryInfo in the same place
+		// the status-line copy would, and 1.5.0 asks for exactly that wait.
 		delay := retry.NextConnectionRetryDelay(attempt)
+		if rDelay := apierror.RetryAfterDurationErr(err); rDelay > 0 {
+			delay = rDelay
+			if delay > retry.MaxConnectionRetryInterval {
+				delay = retry.MaxConnectionRetryInterval
+			}
+		}
 		clilog.Logf("streampipe", "endpoint=%s mid_stream attempt=%d/%d resumed_after=%d retry_in=%s err=%v", p.EndpointURL, attempt+2, maxAttempts, len(tap.delivered), delay.Round(time.Millisecond), err)
 		if notify != nil {
 			notify(backend.RetryProgress{
@@ -236,8 +260,7 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 		newResp, openErr := p.Open(ctx, req)
 		if openErr != nil {
 			clilog.Logf("streampipe", "endpoint=%s mid_stream reopen failed err=%v", p.EndpointURL, openErr)
-			if apierror.IsQuotaReachedErr(openErr) || apierror.IsAuthFailureErr(openErr) ||
-				(!retry.IsConnectionDropped(openErr) && !isModelCapacityErr(openErr)) {
+			if !isMidStreamRetryable(openErr) {
 				_ = tap.write(ctx, backend.StreamChunk{Error: openErr, Done: true})
 				return
 			}

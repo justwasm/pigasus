@@ -11,7 +11,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
-	"github.com/justwasm/pigasus/internal/ui/views/logspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/debugpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 )
@@ -261,13 +261,37 @@ func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
 		if m.overlays.panel.kind == panelregistry.CodeSearch && m.viewport.height > 0 {
 			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
 		}
-		if m.overlays.panel.kind == panelregistry.Logs {
-			return true, tea.Batch(syncCmd, logspanel.Tick())
+		if m.overlays.panel.kind == panelregistry.Debug {
+			return true, tea.Batch(syncCmd, debugpanel.Tick())
 		}
 		return true, syncCmd
 	}
 	if cleanCmd == "clear" || cleanCmd == "terminal" {
 		_, cmd := m.handleSlashCommand(strings.TrimSpace(completedText))
+		return true, cmd
+	}
+	// Enter on a command the user has already spelled out in full is a
+	// submit, not a completion.
+	//
+	// Measured (file trace through the real TUI): typing `/learn` and
+	// pressing Enter reached this function with value="/learn", selected
+	// `/learn`, wrote "/learn " into the composer, and returned (true, nil)
+	// — so no turn started and the command looked broken. A second Enter
+	// then worked, because by then the picker was dismissed and the key went
+	// down the ordinary submit path.
+	//
+	// Completing and stopping is right while the user is still choosing: the
+	// row they picked is not what they typed (`/l` → `/learn`), or the
+	// command takes an argument they have not typed yet (`/model `). It is
+	// wrong when the completion is a no-op — the typed token already IS the
+	// selected row's name — because then Enter added nothing and the user's
+	// press is lost. Only the bare form is affected: the typed token is
+	// taken up to the first space, so `/model` is bare while `/model gpt`
+	// is not.
+	typed := strings.TrimSpace(m.prompt.input.Value())
+	if typed == sel.Name {
+		m.prompt.picker.Reset()
+		_, cmd := m.handleSlashCommand(sel.Name)
 		return true, cmd
 	}
 	return true, nil

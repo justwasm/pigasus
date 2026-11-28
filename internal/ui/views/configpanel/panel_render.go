@@ -93,7 +93,7 @@ func (p *Panel) Lines(height, width int) []string {
 	}
 	p.adjustWindow(cursor, visible)
 	for i := p.window; i < p.window+visible && i < len(rows); i++ {
-		lines = append(lines, p.renderItemRow(rows[i], p.Value(rows[i]), i == cursor))
+		lines = append(lines, p.renderItemRow(rows[i], p.Value(rows[i]), i == cursor, width))
 	}
 	lines = append(lines, summary...)
 	if visible < len(rows) {
@@ -202,22 +202,48 @@ func (p *Panel) submenuRowLines(rows []Row, currentVal string, visible int) []st
 	return lines
 }
 
-// renderItemRow renders one row of the settings list.
+// NameFieldCols is the width of a row's name column, measured from the
+// reference: "> Color Scheme" plus its padding puts the value at column 31.
+const NameFieldCols = 29
+
+// renderItemRow renders one row of the settings list, clamped to the panel's
+// width.
+//
+// A settings row is "  <name><pad><value>". The name column is fixed, so a
+// name longer than the field would otherwise push the value — and the row —
+// past the panel's right edge, which is what a narrow terminal with
+// "colorblind-friendly light" did: the row stayed 56 cells wide in a 40-cell
+// panel and spilled over whatever was drawn beside it.
+//
+// The clamp is on the assembled row rather than on the name alone: a value is
+// the part that can be abbreviated without losing which setting the row is
+// about, and FitWidth keeps the row's SGR spans intact while it truncates.
 //
 // The cursor row is blue; a name of sixteen runes or more is painted as
 // one span, a shorter one as a blue name span, an uncoloured pad and a
 // blue value span (see configpanel.CursorRowIsSingleSpan).
-func (p *Panel) renderItemRow(row Row, value string, isCursor bool) string {
-	pad := NamePad(row.Name, 29)
-	if !isCursor {
-		return "  " + row.Name + strings.Repeat(" ", pad) + value
+func (p *Panel) renderItemRow(row Row, value string, isCursor bool, width int) string {
+	pad := NamePad(row.Name, NameFieldCols)
+	var line string
+	switch {
+	case !isCursor:
+		line = "  " + row.Name + strings.Repeat(" ", pad) + value
+	case CursorRowIsSingleSpan(row.Name):
+		line = palette.BlueOpen + "> " + row.Name + strings.Repeat(" ", pad) + value + palette.BlueClose
+	default:
+		line = palette.BlueOpen + "> " + row.Name + palette.BlueClose +
+			strings.Repeat(" ", pad) +
+			palette.BlueOpen + value + palette.BlueClose
 	}
-	if CursorRowIsSingleSpan(row.Name) {
-		return palette.BlueOpen + "> " + row.Name + strings.Repeat(" ", pad) + value + palette.BlueClose
+	// Truncate, not FitWidth: padding would change every row's bytes on a
+	// normal terminal, and the reference's layout is pinned.
+	//
+	// A width of zero means "not measured yet" (the caller has no viewport),
+	// not "no room": clamping to it would blank every row.
+	if width <= 0 {
+		return line
 	}
-	return palette.BlueOpen + "> " + row.Name + palette.BlueClose +
-		strings.Repeat(" ", pad) +
-		palette.BlueOpen + value + palette.BlueClose
+	return tuilib.Truncate(line, width, "")
 }
 
 // descriptionLines renders the selected row's help text, wrapped to the
