@@ -193,7 +193,11 @@ func Build(o Options) string {
 //
 // Text is the complete section — the opening tag, the body, the closing
 // tag — so its length is exactly the bytes the request carries for this
-// section, and the sections' lengths sum to len(Build(o)).
+// section. The sections' lengths do not quite sum to len(Build(o)): Build
+// joins them with a newline, so the total is the sum plus one byte per
+// boundary. That is the one byte of the rendered prompt no section owns,
+// and a reader who compares the two numbers should expect it rather than
+// read it as a measurement error.
 type Section struct {
 	// Name is the tag's name, without the angle brackets.
 	Name string

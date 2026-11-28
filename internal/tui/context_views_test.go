@@ -535,7 +535,24 @@ func TestContextCopiesWithoutEscapes(t *testing.T) {
 // TestContextPanelsFactsAreMeasuredNotGuessed — the Wire view's total is
 // the sum of its parts, and the parts are the prompt, the tools and the
 // transcript. A view that guessed would not close.
+//
+// # Why this test pins the home directory
+//
+// The prompt carries whatever the machine has: the skill catalogue under
+// the config home, the custom subagents, the user's global rules. That made
+// this test pass locally and fail on CI — the runner has no skills, so the
+// prompt was a smaller fraction of the total than the "largest member"
+// assertion required. The assertion was measuring the developer's `~/.openagy`,
+// not the view.
+//
+// A test may only assert on facts it set up itself, so the config home and
+// the workspace are both temp dirs here, and the only variable-size input
+// is the AGENTS.md written below.
 func TestContextPanelsFactsAreMeasuredNotGuessed(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAGY_CONFIG_HOME", t.TempDir())
+	t.Setenv("AGY_CONFIG_HOME", t.TempDir())
+
 	m := mkPanel(panelregistry.Context, "/context", 0)
 	m.session.model = "Gemini 3.8 Flash (High)"
 	dir := t.TempDir()
@@ -559,10 +576,29 @@ func TestContextPanelsFactsAreMeasuredNotGuessed(t *testing.T) {
 	if sum <= 0 {
 		t.Fatal("the Wire view measured nothing")
 	}
-	// The system instruction is the largest single member: a prompt
-	// carrying no sections would mean the measurement missed the prompt.
-	if got := len(buildPrompt(m)); got < sum/2 {
-		t.Errorf("the prompt is %d bytes and the whole request measures %d; the sections missed it", got, sum)
+
+	// The property is that the sections are the prompt, not a sample of it:
+	// every byte the prompt carries is attributed to a row, except the
+	// newline Build writes between two sections. So the difference is
+	// exactly the boundary count — a fixed number the test can predict,
+	// rather than a tolerance that would hide a section going missing.
+	prompt := len(buildPrompt(m))
+	var sectionBytes int
+	for _, s := range ws.Sections {
+		sectionBytes += s.Bytes
+	}
+	boundaries := len(ws.Sections) - 1
+	if boundaries < 0 {
+		boundaries = 0
+	}
+	if got, want := prompt-sectionBytes, boundaries; got != want {
+		t.Errorf("the sections measure %d bytes and the prompt is %d: %d bytes unaccounted for, want %d (one newline per boundary between %d sections)",
+			sectionBytes, prompt, got, want, len(ws.Sections))
+	}
+	// And the transcript the test set up is in there, or the message rows
+	// are measuring something else.
+	if len(ws.Messages) != 1 {
+		t.Errorf("the Wire view lists %d messages, want the 1 the test set", len(ws.Messages))
 	}
 }
 
